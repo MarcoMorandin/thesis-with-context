@@ -11,6 +11,13 @@
 | A06 | N/A (Few-shot protocol) | N/A |  -  | DEPRECATED | Removed in favor of disjoint cross-plant test sets |
 | A07 | TS-RAG on frozen Chronos-2 | `baselines/ts_rag` |  -  | TODO |  -  |
 | A08 | Cross-RAG vs TS-RAG | compare wrappers |  -  | TODO |  -  |
+| A09 | Shuffled-frames control (vision actually read) | `eval.control=shuffle_frames` |  -  | TODO |  -  |
+| A10 | Mismatched-plant frames control (spatial grounding) | `eval.control=swap_plant_frames` |  -  | TODO |  -  |
+| A11 | Vision-only upper bound | `model.inputs=vision_only` |  -  | TODO |  -  |
+| A12 | Modality-contribution grid (TS / TS+cov / TS+vis / full) | `model.inputs=...` (4 runs) |  -  | TODO |  -  |
+| A13 | Visual token budget sweep | `model.vision.num_tokens=...` |  -  | TODO |  -  |
+| A14 | Frozen vs partial-unfreeze backbone | `model.unfreeze=...` |  -  | TODO |  -  |
+| A15 | RAG datastore size / top-k sweep | `baselines/ts_rag k=..., store=...` |  -  | TODO |  -  |
 
 ## How to register
 
