@@ -57,7 +57,7 @@ def build(name: str, **kwargs) -> Baseline:
 
         for module in ("tier0.reference", "tier1.gbm", "tier1.tabpfn_model",
                        "tslib.adapter", "tier3.chronos", "tier3.timesfm",
-                       "tier3.tirex", "tier3.ttm"):
+                       "tier3.tirex", "tier3.ttm", "tier4.rag", "tier4.cora"):
             try:
                 importlib.import_module(module)
             except ImportError:

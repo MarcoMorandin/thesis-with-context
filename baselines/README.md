@@ -24,6 +24,22 @@ and 15-min `goes_pvdaq` grids, capacity-normalized `norm_power` target).
 | 2 | `patchtst` | PatchTST (channel-independent, RevIN) | — |
 | 2 | `itransformer` | iTransformer (variates as tokens) | — |
 | 2 | `tft` | TFT-lite (quantile-native) | ✅ |
+| 3 | `chronos2_zs` / `chronos2_ft` | Chronos-2 zero-shot / fine-tuned (MMTSFM source) | ✅ |
+| 3 | `timesfm_zs` | TimesFM 2.5 zero-shot | ✅ |
+| 3 | `tirex_zs` | TiRex (xLSTM) zero-shot | ✅ |
+| 3 | `ttm_zs` / `ttm_ft` | TTM-R3 zero-shot / fine-tuned | — |
+| 4 | `ts_rag` | TS-RAG: analog retrieval over frozen backbone, α tuned on val | via backbone |
+| 4 | `cross_rag` | Cross-RAG (A08): clear-sky-aware keys, per-step α | via backbone |
+| 4 | `cora` | CoRA-style covariate adapter on frozen backbone (zero-init residual) | via backbone |
+
+Tier 3 needs `uv sync --group tier3` (transformers/einops for Chronos-2 via
+`MMTSFM/src`, timesfm, tirex, granite-tsfm). Tier 4 wraps any registered
+zero-shot backbone (default `chronos2_zs`); contract tests run them against
+the dependency-free `persistence` backbone.
+
+**Known TTM limitation:** TTM-R3 has no missing-value mask; short histories
+are zero-padded to its fixed context length (P2 baseline, noted for the
+paper's appendix).
 
 **TFT-lite deviations from Lim et al. (2021):** no per-variable selection
 networks and no static covariate encoders (the protocol has no static
@@ -60,6 +76,6 @@ Results land in `results/<model>.json` with a reproducibility manifest
 
 ## Not in this package (other tiers)
 
-Tier 3 (Chronos-2/TimesFM/TiRex zero-shot), Tier 4 (TS-RAG, CoRA), Tier 5/6
-(Time-VLM, SUNSET, CrossViVit, Solar-VLM — see `solar_vlm/`) follow per the
-execution order in BASELINE_COMPARISON.md §8.
+Tier 5/6 (Time-VLM, UniCast, SUNSET, CrossViVit, Solar-VLM — see
+`solar_vlm/`) and MEMTS (T4, P2) follow per the execution order in
+BASELINE_COMPARISON.md §8.
