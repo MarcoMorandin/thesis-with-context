@@ -128,6 +128,9 @@ class _RAGBase(Baseline):
             r_all.append(self._retrieval_forecast(batch))
             y_all.append(batch["y_future"])
             m_all.append(batch["mask_future"] * batch["daylight_future"])
+        if not b_all:  # empty validation split: keep the backbone untouched
+            self.alpha = np.ones(horizon if self.per_step_alpha else 1)
+            return
         b = np.concatenate(b_all)
         r = np.concatenate(r_all)
         y = np.concatenate(y_all)

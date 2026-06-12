@@ -91,24 +91,31 @@ class CoRA(Baseline):
         self._device = None
 
     def _cache_split(self, dataset: WindowDataset, max_windows: int | None):
-        """Precompute frozen-backbone forecasts and adapter inputs."""
+        """Precompute frozen-backbone forecasts and adapter inputs.
+
+        Windows are subsampled *before* materialization: at stride 1 the
+        full train split would not fit in memory (cov alone is
+        (T+H)·C floats per window).
+        """
+        n = len(dataset)
+        if max_windows is not None and n > max_windows:
+            chosen = np.sort(
+                np.random.default_rng(self.seed).choice(n, max_windows,
+                                                        replace=False)
+            )
+        else:
+            chosen = np.arange(n)
         buf = {k: [] for k in
                ("backbone", "y_hist", "mask_hist", "cov", "y_future", "mask")}
-        for batch in dataset.iter_batches(512):
+        for lo in range(0, len(chosen), 512):
+            batch = dataset.batch(list(chosen[lo : lo + 512]))
             buf["backbone"].append(self.backbone.predict(batch).point)
             buf["y_hist"].append(batch["y_hist"])
             buf["mask_hist"].append(batch["mask_hist"])
             buf["cov"].append(batch["cov"])
             buf["y_future"].append(batch["y_future"])
             buf["mask"].append(batch["mask_future"] * batch["daylight_future"])
-        arrays = {k: np.concatenate(v).astype(np.float32) for k, v in buf.items()}
-        n = len(arrays["backbone"])
-        if max_windows is not None and n > max_windows:
-            pick = np.random.default_rng(self.seed).choice(
-                n, max_windows, replace=False
-            )
-            arrays = {k: v[pick] for k, v in arrays.items()}
-        return arrays
+        return {k: np.concatenate(v).astype(np.float32) for k, v in buf.items()}
 
     def fit(self, train: WindowDataset, val: WindowDataset) -> None:
         import torch

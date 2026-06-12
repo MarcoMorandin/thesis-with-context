@@ -18,8 +18,15 @@ class TSLibBaseline(Baseline):
     requires_fit = True
     model_name: str = ""
 
-    def __init__(self, trainer: TrainerConfig | None = None, **model_kwargs):
-        self.trainer_cfg = trainer or TrainerConfig()
+    def __init__(self, trainer: TrainerConfig | None = None,
+                 seed: int | None = None, **model_kwargs):
+        # `seed` shortcut so the multi-seed protocol (§4.5) can rebuild any
+        # tier-2 model without constructing a TrainerConfig explicitly
+        self.trainer_cfg = trainer or TrainerConfig(
+            seed=seed if seed is not None else config.SEED
+        )
+        if seed is not None:
+            self.trainer_cfg.seed = seed
         self.model_kwargs = model_kwargs
         self._model = None
         self._device = None

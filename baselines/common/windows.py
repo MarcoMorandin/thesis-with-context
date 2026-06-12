@@ -59,6 +59,7 @@ def build_site_series(
         [config.DATASET_COL, config.SITE_COL], sort=True
     ):
         g = g.sort_values(config.TIME_COL)
+        g = g[~g[config.TIME_COL].duplicated(keep="first")]
         times = pd.DatetimeIndex(g[config.TIME_COL])
         step = times.to_series().diff().median()
         grid = pd.date_range(times[0], times[-1], freq=step)
@@ -177,9 +178,44 @@ class WindowDataset:
             yield self.batch(list(range(lo, min(lo + batch_size, len(self)))))
 
 
+def time_slice_series(
+    series: list[SiteSeries], lo: float, hi: float
+) -> list[SiteSeries]:
+    """Restrict each site to a fraction [lo, hi) of its own timeline.
+
+    Used by the in-domain scenario (S1: train plants, held-out time range)
+    and the seasonal-transfer scenario (S7).
+    """
+    if not 0.0 <= lo < hi <= 1.0:
+        raise ValueError(f"invalid time slice [{lo}, {hi})")
+    out = []
+    for s in series:
+        n = len(s.y)
+        a, b = int(n * lo), int(n * hi)
+        out.append(
+            SiteSeries(
+                site_id=s.site_id,
+                dataset=s.dataset,
+                capacity=s.capacity,
+                timestamps=s.timestamps[a:b],
+                y=s.y[a:b],
+                cov=s.cov[a:b],
+                clearsky=s.clearsky[a:b],
+                steps_per_day=s.steps_per_day,
+            )
+        )
+    return out
+
+
 def dataset_for_sites(
-    df: pd.DataFrame, site_ids: set[str], **kwargs
+    df: pd.DataFrame,
+    site_ids: set[str],
+    time_range: tuple[float, float] | None = None,
+    **kwargs,
 ) -> WindowDataset:
     """Build a WindowDataset restricted to a plant subset (one split part)."""
     sub = df[df[config.SITE_COL].astype(str).isin(site_ids)]
-    return WindowDataset(build_site_series(sub), **kwargs)
+    series = build_site_series(sub)
+    if time_range is not None:
+        series = time_slice_series(series, *time_range)
+    return WindowDataset(series, **kwargs)
