@@ -53,6 +53,7 @@ graphify-out/
 .vscode/
 *.swp
 .trash/
+.claude/
 
 # Secrets
 .env
