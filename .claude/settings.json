@@ -1,0 +1,57 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 .claude/hooks/guard-uv-only.py",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 .claude/hooks/guard-data-readonly.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run python .claude/hooks/check-new-file-size.py",
+            "timeout": 15,
+            "statusMessage": "Checking new file size..."
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'git diff --name-only HEAD | grep -qE \"\\.(py)$\" && node .gitnexus/run.cjs analyze || true'",
+            "timeout": 120,
+            "statusMessage": "Refreshing GitNexus index..."
+          },
+          {
+            "type": "command",
+            "command": "bash -c 'git diff --name-only HEAD | grep -qE \"^knowledge/\" && graphify update . || true'",
+            "timeout": 120,
+            "statusMessage": "Refreshing Graphify wiki..."
+          }
+        ]
+      }
+    ]
+  }
+}
