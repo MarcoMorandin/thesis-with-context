@@ -1,0 +1,76 @@
+_target_: mmtsfm.models.chronos2.lightning_module.VisionChronos2LightningModule
+
+# ---- Chronos-2 backbone ----
+pretrained_model_name_or_path: "amazon/chronos-2"
+chronos_core_cfg:
+  d_model: 512
+  d_kv: 64
+  d_ff: 2048
+  num_layers: 6
+  num_heads: 8
+  dropout_rate: 0.1
+  layer_norm_epsilon: 1.0e-6
+  initializer_factor: 0.05
+  feed_forward_proj: relu
+  rope_theta: 10000.0
+  use_grassmann: false
+  grassmann_reduced_dim: 32
+  grassmann_window_offsets: [1, 2, 4, 8, 12, 16]
+  grassmann_modality_pair_bias: true
+  attn_implementation: sdpa    # "sdpa" (default) or "eager"
+  chronos_config:
+    context_length: 512
+    input_patch_size: 8
+    input_patch_stride: 8
+    output_patch_size: 8
+    quantiles: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+    use_reg_token: false
+    use_arcsinh: true
+    max_output_patches: 4
+
+# ---- Vision modules ----
+vision_cfg:
+  # --- Visual encoder backend ---
+  visual_encoder_type: "vidtok"    # "vidtok" | "vjepa2"
+  visual_encoder_ckpt_path: ""     # V-JEPA 2.1 ckpt path (used when vjepa2)
+  freeze_visual_encoder: true      # Stage 1/2a: frozen; Stage 3: false
+  skip_vision_stack: false         # Stage 1: set true to skip 300M V-JEPA weights
+
+  # --- Sensor projection ---
+  sensor_type: "rgb"               # "rgb" | "sentinel2" | "sar" | etc.
+  sensor_in_channels: 3            # native channel count (ignored for rgb)
+
+  # --- Fusion mode ---
+  fusion_mode: "late"              # "late" (Stage 1/2a) | "interleaved" (Stage 2b/3)
+
+  # --- VidTok (legacy / backward compat) ---
+  vidtok_cfg_path: ""
+  vidtok_ckpt_path: ""
+  vidtok_root: null
+  vidtok_is_causal: true
+  d_video_latent: 4                # KL-4ch=4; V-JEPA ViT-L=1024; ViT-B=768
+
+  # --- LatentSummarizer + CrossModalAdapter ---
+  n_visual_context_steps: 3        # = ceil(hist_steps / input_patch_size) = ceil(24/8); only actual data patches get visual tokens
+  n_soft_tokens: 1
+  adapter_type: linear
+  adapter_n_layers: 2
+  summarizer_n_heads: 4
+
+  # --- Modality dropout (Asymmetric Bernoulli) ---
+  visual_dropout_prob: 0.5
+  numeric_dropout_prob: 0.1
+
+  dropout: 0.1
+  n_entities: 0
+
+# ---- Optimiser & schedule ----
+lr: 1.0e-4
+weight_decay: 1.0e-2
+warmup_steps: 500
+min_lr_ratio: 0.1
+horizon: ${data.horizon}     # inherit from data config
+
+# ---- Training strategy ----
+freeze_chronos: false        # set true to train vision modules only (adapter pilot)
+backbone_lr_ratio: 0.1       # LR multiplier for pretrained Chronos-2 backbone

@@ -1,0 +1,17 @@
+defaults:
+  - vision_chronos2   # inherit callbacks, precision, gradient settings
+  - _self_
+
+# SLURM cluster overrides — tune per allocation
+devices: auto                   # CUDA_VISIBLE_DEVICES set by SLURM; auto = all visible GPUs
+num_nodes: 1                    # set to >1 for multi-node jobs (match --nodes in sbatch)
+strategy: ddp_find_unused_parameters_true   # frozen VidTok encoder + modality dropout → unused params
+accelerator: gpu
+
+# Logging cadence — SLURM jobs produce tty-less logs; flush often
+log_every_n_steps: 1
+enable_progress_bar: false      # no tty on compute nodes
+
+# Checkpointing — point to shared filesystem scratch
+# Override via CLI: trainer.default_root_dir=/scratch/$USER/mmtsfm
+default_root_dir: checkpoints/

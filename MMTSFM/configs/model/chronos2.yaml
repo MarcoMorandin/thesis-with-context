@@ -1,0 +1,36 @@
+# Chronos2 config — instantiates Chronos2CoreConfig for Hydra sweeps.
+# Usage:
+#   config = instantiate(cfg.model)        # returns Chronos2CoreConfig
+#   model  = Chronos2Model(config)         # or a Lightning wrapper when available
+# Select: python -m mmtsfm.train model=chronos2
+_target_: mmtsfm.models.chronos2.config.Chronos2CoreConfig
+
+# Transformer core
+d_model: 512
+d_kv: 64
+d_ff: 2048
+num_layers: 6
+num_heads: 8
+dropout_rate: 0.1
+layer_norm_epsilon: 1.0e-6
+initializer_factor: 0.05
+feed_forward_proj: relu
+vocab_size: 2
+rope_theta: 10000.0
+
+# Grassmann flow
+use_grassmann: false
+grassmann_reduced_dim: 32
+grassmann_window_offsets: [1, 2, 4, 8, 12, 16]
+grassmann_plucker_eps: 1.0e-8
+
+# Forecasting config (required by Chronos2Model)
+chronos_config:
+  context_length: 512
+  input_patch_size: 32
+  input_patch_stride: 32
+  output_patch_size: 32
+  quantiles: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+  use_reg_token: false
+  use_arcsinh: false
+  max_output_patches: 1

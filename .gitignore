@@ -1,0 +1,74 @@
+# Python / uv
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+uv.lock
+**/uv.lock
+
+# Artifacts & checkpoints (never commit)
+logs/
+checkpoints/
+wandb/
+outputs/
+artifacts/
+*artifacts*
+*.ckpt
+*.pt
+*.pth
+*.safetensors
+
+# Dataset exploration specific excludes
+dataset_exploration/plots/
+dataset-exploration/plots/
+dataset_exploration/uv.lock
+dataset-exploration/uv.lock
+
+# Data (external: /Volumes/SSD/standardized-dataset)
+data/
+datasets/
+*.parquet
+*.arrow
+*.nc
+*.h5
+*.hdf5
+*.zarr
+
+# Large media
+*.mp4
+*.avi
+*.mkv
+*.tif
+*.tiff
+
+# Graph / knowledge outputs (regenerate locally)
+graphify-out/
+.gitnexus/
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+.trash/
+
+# Secrets
+.env
+.env.*
+wandb.key
+
+# Slurm / HPC
+*.err
+*.out
+slurm-*.out
+
+# LaTeX / paper builds
+*.aux
+*.log
+*.bbl
+*.blg
+*.pdf.bak
+
+# Keep reference PDFs in baselines/ and solar-related-work/ (tracked intentionally)

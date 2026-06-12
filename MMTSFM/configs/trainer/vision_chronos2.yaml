@@ -1,0 +1,45 @@
+_target_: lightning.pytorch.Trainer
+
+# Core
+max_epochs: 50
+devices: auto
+accelerator: auto
+precision: "bf16-mixed"      # bfloat16 — same range as fp32, no overflow; A100 native
+log_every_n_steps: 10
+
+# Gradient
+gradient_clip_val: 1.0       # clips grad norm before optimizer step
+accumulate_grad_batches: 1
+
+# Callbacks
+callbacks:
+  # Best val loss checkpoint
+  - _target_: lightning.pytorch.callbacks.ModelCheckpoint
+    dirpath: ${trainer.default_root_dir}/
+    filename: "vision_chronos2-{epoch:03d}-{val/loss:.4f}"
+    monitor: "val/loss"
+    mode: min
+    save_top_k: 3
+    save_last: true
+    verbose: true
+
+  # Periodic checkpoint every 5 epochs
+  - _target_: lightning.pytorch.callbacks.ModelCheckpoint
+    dirpath: ${trainer.default_root_dir}/periodic/
+    filename: "vision_chronos2-epoch{epoch:03d}"
+    every_n_epochs: 5
+    save_top_k: -1   # keep all periodic checkpoints
+    save_last: false
+    verbose: false
+
+  # Early stopping on val loss (patience = 7 epochs)
+  - _target_: lightning.pytorch.callbacks.EarlyStopping
+    monitor: "val/loss"
+    patience: 7
+    mode: min
+    min_delta: 1.0e-4
+    verbose: true
+
+  # Learning rate monitor
+  - _target_: lightning.pytorch.callbacks.LearningRateMonitor
+    logging_interval: step

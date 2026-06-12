@@ -1,0 +1,19 @@
+defaults:
+  - trainer: default
+  - model: vision_chronos2
+  - data: default
+  - logger: wandb
+  - _self_
+
+# Core configurations
+seed: 42
+project_name: mmtsfm
+run_name: ${now:%Y-%m-%d_%H-%M-%S}_run
+ckpt_path: null   # pass +ckpt_path=/path/to/stage2a.ckpt to resume for Stage 2b/3
+
+hydra:
+  run:
+    dir: logs/experiments/runs/${now:%Y-%m-%d}_${now:%H-%M-%S}
+  sweep:
+    dir: logs/experiments/multiruns/${now:%Y-%m-%d}_${now:%H-%M-%S}
+    subdir: ${hydra.job.num}

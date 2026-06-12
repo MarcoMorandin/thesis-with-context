@@ -1,0 +1,21 @@
+[project]
+name = "dataset-exploration"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastparquet>=2026.5.0",
+    "h5py>=3.16.0",
+    "matplotlib>=3.10.9",
+    "netcdf4>=1.7.3",
+    "pandas>=2.3.3",
+    "pillow>=12.2.0",
+    "pvlib>=0.15.1",
+    "pyarrow>=24.0.0",
+    "scikit-learn>=1.7.2",
+    "scipy>=1.15.3",
+    "seaborn>=0.13.2",
+    "tabulate>=0.10.0",
+    "xarray>=2025.6.1",
+]

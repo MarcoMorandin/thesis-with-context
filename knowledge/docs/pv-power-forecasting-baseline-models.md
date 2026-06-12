@@ -1,0 +1,53 @@
+# Baselines
+
+## PV power specialized
+
+| **Model**                                                       | **Author**                                        | **Date Published** | **Covariates** | **Vision (Images)** | **Architecture & Key Features**                                                                                                                                               |
+| --------------------------------------------------------------- | ------------------------------------------------- | ------------------ | -------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **[Solar-VLM](https://arxiv.org/abs/2604.04145)**               | Hang Fan et al. (NCEPU / Tsinghua)                | Apr 2026           | ✅              | ✅ (Satellite)       | A large-language-model-driven framework (Qwen-based VLM) that fuses temporal data, satellite cloud imagery, and textual weather descriptions for multi-site PV forecasting.   |
+| **[SUNSET](https://github.com/YuchiSun/SUNSET)**                | Yuchi Sun (Stanford)                              | 2019               | ❌              | ✅ (Sky/Satellite)   | Used as a comparison in many related works. A CNN-based architecture specialized for short-term solar power forecasting using PV production history and sky/satellite images. |
+| **[MDCTL-MCI](https://doi.org/10.1016/j.apenergy.2025.126771)** | Ke Yan et al. (Hunan Univ.)                       | 2025               | ✅              | ❌                   | A missingness-aware forecasting framework leveraging Multivariate Singular Spectrum Analysis (MSSA) and multi-domain collaborative transfer learning.                         |
+| **[SPIRIT](https://arxiv.org/abs/2502.10307)**                  | Aditya Mishra et al. (IIIT Hyderabad / Microsoft) | Feb 2025           | ✅              | ✅ (Sky cameras)     | A zero-shot transfer learning approach using vision foundation models (ViT) and physics-inspired features for short-term solar irradiance prediction.                         |
+
+## General Timeseries FM
+
+### Timeseries + Covariates + Text
+
+| **Model**                                        | **Author** | **Date Published** | **Architecture & Key Features**                                                                                                            |
+| ------------------------------------------------ | ---------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| **[NEXUS](https://arxiv.org/abs/2605.14389)**    | Google     | May 2026           | An LLM-based multi-agent framework that decomposes predictions to reason with both numerical time series and unstructured textual context. |
+| **[TabPFN-3](https://arxiv.org/abs/2605.13986)** | Prior Labs | May 2026           | A tabular foundation model pretrained on synthetic data that supports classification, regression, time-series, and tabular-text data.      |
+
+### Timeseries + Covariates
+
+| **Model**                                                | **Author**   | **Date Published** | **Architecture & Key Features**                                                                                                        |
+| -------------------------------------------------------- | ------------ | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| **[Chronos-2](https://arxiv.org/abs/2510.15821)**        | Amazon       | Oct 2025           | A pretrained transformer capable of handling univariate, multivariate, and covariate-informed forecasting tasks in a zero-shot manner. |
+| **[TTM-R3](https://huggingface.co/ibm-research/ttm-r3)** | IBM Research | Feb 2025           | A fast MoE-based zero/few-shot TS foundation model using linear gating-based attention and trend-residual decomposition.               |
+
+### Time Series Only
+
+| **Model / Baseline**                                                      | **Author (Company/Institution)**      | **Date Published** | **Architecture & Key Features**                                                                                                                                                    |
+| ------------------------------------------------------------------------- | ------------------------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **[TiRex](https://arxiv.org/abs/2505.23719)**                             | NXAI                                  | Nov 2025           | An xLSTM-based foundation model with strong in-context learning skills for zero-shot time series forecasting across long and short horizons.                                       |
+| **[TimesFM 2.5](https://huggingface.co/google/timesfm-2.5-200m-pytorch)** | Google Research                       | Sep 2025           | A 200M parameter decoder-only foundation model by Google Research specifically designed for time-series forecasting.                                                               |
+| **[Toto 2](https://www.datadoghq.com/blog/ai/toto-2/)**                   | Datadog                               | Apr 2026           | A family of time series foundation models (up to 2.5B parameters) optimized for single-pass and block decoding, primarily trained on observability metrics.                        |
+| **[Time-VLM](https://arxiv.org/abs/2502.04395)**                          | S. Zhong et al. (HKUST / Squirrel Ai) | May 2025           | *Note: Converts input time series into images and text internally to leverage pre-trained Vision-Language Models (VLMs), but it operates solely on raw time series data as input.* |
+| **[Reverso](https://arxiv.org/abs/2602.17634)**                           | Xinghong Fu et al. (MIT / AI2)        | Feb 2026           | A family of efficient TSFMs (0.2M-2.6M params) using a hybrid architecture of long convolutions and linear RNNs (DeltaNet) for efficient zero-shot forecasting.                    |
+
+### Adaptation Techniques for Foundation Models
+
+| **Model**                                         | **Author**                                   | **Date Published** | **Architecture & Key Features**                                                                                                                                                                                                                           |
+| ------------------------------------------------- | -------------------------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **[TS-RAG](https://arxiv.org/abs/2503.07649)**    | Kanghui Ning et al. (UConn / Morgan Stanley) | Mar 2025           | Augments frozen TSFMs (Chronos, Timer, MOIRAI) with retrieval-augmented generation: retrieved historical exemplars are concatenated as additional context at inference time without any parameter updates.                                                |
+| **[Cross-RAG](https://arxiv.org/abs/2603.14709)** | Wonbin Ahn et al. (LG AI Research)           | Mar 2026           | A plug-in RAG framework for frozen TSFMs that fuses the query with top-k retrieved historical samples via query–retrieval cross-attention, improving robustness over naive concatenation (TS-RAG).                                                        |
+| **[TS-Memory](https://arxiv.org/abs/2602.11550)** | Sisuo Lyu et al. (HKUST / Tencent)           | Feb 2026           | Trains a lightweight plug-and-play PlugMem adapter to internalize the distributional corrections that kNN retrieval would induce, achieving retrieval-quality adaptation at O(1) inference latency.                                                       |
+| **[MEMTS](https://arxiv.org/abs/2602.13783)**     | Xiaoyun Yu et al. (ECNU / Shanghai AI Lab)   | Feb 2026           | A plug-and-play parametric memory module that encodes domain-specific historical patterns into learnable latent prototypes offline; an Adaptive Fusion gate applies these corrections to a frozen TSFM at inference.                                      |
+| **[TRACE](https://arxiv.org/abs/2506.09114)**     | Jialin Chen et al. (Yale / McGill)           | Jan 2026           | A multimodal time-series retriever that aligns TS embeddings with text via dual-level contrastive learning; retrieved context is injected into frozen TSFMs as soft tokens for RAG-based forecasting.                                                     |
+| **[FeDaL](https://arxiv.org/abs/2508.04045)**     | Shengchao Chen et al. (UTS, Australia)       | Mar 2026           | A federated learning framework for training TSFMs over heterogeneous decentralized datasets, using Domain Bias Elimination (client-side) and Global Bias Elimination (server-side) to align local updates into a globally invariant representation space. |
+
+## Evaluation Frameworks
+
+| **Model**                                                                                                                   | **Author**                                        | **Date Published** | **Description**                                                                                                                                                                                     |
+| --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **[TEMPLATE](https://papers.neurips.cc/paper_files/paper/2025/file/3adfe6e3d8da4a75d174f466e1efc039-Paper-Conference.pdf)** | Weiyang Zhang et al. (Harbin Inst. of Technology) | NeurIPS 2025       | A transferability evaluation framework for pretrained TSFMs comprising three metrics (Dependency Learning Score, Pattern Learning Score, Task Adaptation Score) to rank models without fine-tuning. |

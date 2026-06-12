@@ -1,0 +1,5 @@
+# Alias for vision_chronos2 — single source of truth is configs/model/vision_chronos2.yaml.
+# Add keys below _self_ only to override specific values; otherwise leave body empty.
+defaults:
+  - vision_chronos2
+  - _self_
