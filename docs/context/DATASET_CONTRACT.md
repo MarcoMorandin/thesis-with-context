@@ -11,11 +11,16 @@ No ETL or raw data processing code should be present in the model or baseline co
 The dataset is mounted/stored as a read-only volume at:
 `/Volumes/SSD/standardized-dataset/`
 
-Inside this root, data is organized by modality group and dataset name:
+Two tracks live under this root:
 
 ```
 /Volumes/SSD/standardized-dataset/
-├── solar/
+├── numerical/                  # curated numerical track (tiers 0-4)
+│   ├── all.parquet             # unified raw extraction
+│   └── all_curated.parquet     # curated table (see §1bis)
+├── images.h5                   # packed frames for the numerical track
+├── images_uk128.h5             # 128px uk_pv frame variant
+├── solar/                      # multimodal track (tiers 5-6, PVTSFM)
 │   ├── skippd/
 │   ├── solarnet/
 │   └── goes16_nsrdb/
@@ -24,6 +29,21 @@ Inside this root, data is organized by modality group and dataset name:
     ├── era5_eu/
     └── meteonet/
 ```
+
+### 1bis. Numerical curated track (`numerical/all_curated.parquet`)
+
+Produced by `dataset_exploration/curate_dataset.py` from `all.parquet`. One flat table, datasets `uk_pv` (100 plants, 30-min cadence) and `goes_pvdaq` (10 plants, 15-min cadence), native grids preserved, no gap interpolation. Key columns:
+
+| Column group | Columns |
+| :--- | :--- |
+| Identity | `dataset`, `site_id`, `station_id`, `camera_id`, `timestamp_utc`, `latitude`, `longitude` |
+| Target | `power_w`, `norm_power` (= power / audited `installed_power_w`, in [0,1]; NaN on outage/stuck rows) |
+| Weather covariates | `temperature_2m`, `shortwave_radiation`, `direct_radiation`, `diffuse_radiation`, `direct_normal_irradiance`, `cloudcover`, `windspeed_10m`, `precipitation` |
+| Solar geometry / clear-sky | `solar_zenith`, `solar_azimuth`, `clearsky_ghi` (Haurwitz), `kt`, `csi` (NaN below 50 W/m² clear-sky), `doy_sin`, `doy_cos`, `solar_time` |
+| Quality flags | `capacity_fixed`, `outage_flag`, `stuck_flag`, `night_clamped`, `bad_site_flag` |
+| Frame pointers | `image_path`, `image_h5_index`, `image_uk128_index` (into `images.h5` / `images_uk128.h5`) |
+
+Splits for this track are **not** in `metadata.json`: they are generated once (seed 42) and committed to `baselines/configs/splits.json`; `baselines/common/splits.py` asserts train/val/test plant disjointness at every load. Baseline code consumes this table through the windowing adapter in `baselines/common/windows.py`, which emits the numerical subset of the canonical dict in §4.
 
 ### Files Present Per Dataset Folder
 Each dataset directory contains a standard set of files:
@@ -66,7 +86,7 @@ This table matches temporal intervals to visual files.
 
 Visual files in the `frames/` directory differ by dataset:
 
-* **JPEGs (Sky Cameras)**: Used in ground-station solar datasets (e.g., `skippd`, `solarnet`). Stored as standard `RGB` images. Loaded and normalized to range `[0, 1]`.
+* **JPEG/PNG (Sky Cameras)**: Used in ground-station solar datasets (e.g., `skippd`, `solarnet`; the numerical-track `image_path` files are PNG). Stored as standard `RGB` images. Loaded and normalized to range `[0, 1]`.
 * **NPZs (Satellite Frames)**: Used in regional/satellite datasets (e.g., `goes16_nsrdb`, `earthnet2021`). Stored as `float16` numpy zip archives containing spatial channels (e.g., multispectral bands or pre-extracted variables).
   * Load parameters must specify the `npz_key` (default is `"frame"`).
   * Values are normalized to `[0, 1]` per band during loading.

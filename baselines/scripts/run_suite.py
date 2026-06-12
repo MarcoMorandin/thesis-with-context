@@ -49,6 +49,10 @@ SUITE: dict[str, list[str]] = {
         f"--tag s5_f{int(frac * 100):03d} {SEEDS}"
         for frac in (0.10, 0.25, 0.50, 1.00)
     ],
+    # S2 LOPO variant — mandatory for goes_pvdaq (10 plants, §4.1)
+    "lopo": [
+        f"--model {ALL_MODELS} --lopo-dataset goes_pvdaq --tag s2 {SEEDS}",
+    ],
     # §5 robustness battery (numerical controls)
     "controls": [
         f"--model {ALL_MODELS} --control zero_cov --tag ctl_zerocov",

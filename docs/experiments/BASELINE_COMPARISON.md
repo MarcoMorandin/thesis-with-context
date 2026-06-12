@@ -18,27 +18,27 @@ Legend — **Priority**: `P0` = mandatory for submission; `P1` = strongly expect
 
 | Model | Inputs | Why it must be there | Status |
 |---|---|---|---|
-| Persistence (naive last-value) | `Y` | Absolute floor; intra-hour solar persistence is hard to beat at h=1 | 🔧 |
-| **Smart Persistence** (clearness-index persistence) | `Y` (+ clear-sky GHI cov) | The denominator of the Skill Score (§4.3); solar-community standard | 🔧 |
-| Hourly climatology | `Y` (train plants) | Detects leakage / trivial seasonality wins | ➕ P1 |
-| Seasonal-naive (same time yesterday) | `Y` | GIFT-Eval / fev-bench standard reference | ➕ P1 |
+| Persistence (naive last-value) | `Y` | Absolute floor; intra-hour solar persistence is hard to beat at h=1 | ✅ `baselines/tier0/` |
+| **Smart Persistence** (clearness-index persistence) | `Y` (+ clear-sky GHI cov) | The denominator of the Skill Score (§4.3); solar-community standard | ✅ `baselines/tier0/` |
+| Hourly climatology | `Y` (train plants) | Detects leakage / trivial seasonality wins | ✅ P1 `baselines/tier0/` (keyed month×hour×minute at native cadence) |
+| Seasonal-naive (same time yesterday) | `Y` | GIFT-Eval / fev-bench standard reference | ✅ P1 `baselines/tier0/` |
 
 ### Tier 1 — Classical ML (P0)
 
 | Model | Inputs | Notes | Status |
 |---|---|---|---|
-| LightGBM / XGBoost | flattened `Y, X_cov` | Strong tabular baseline; quantile objective for CRPS | 🔧 |
-| TabPFN-3 (time-series mode) | `Y, X_cov` | Tabular FM counterpoint to TSFMs | 🔧 |
+| LightGBM / XGBoost | flattened `Y, X_cov` | Strong tabular baseline; quantile objective for CRPS | ✅ `baselines/tier1/` (one model per quantile) |
+| TabPFN-3 (time-series mode) | `Y, X_cov` | Tabular FM counterpoint to TSFMs | ✅ `baselines/tier1/` (optional dep group `tabpfn`) |
 
 ### Tier 2 — Supervised deep TS (trained on train plants)
 
 | Model | Inputs | Why | Status |
 |---|---|---|---|
-| MLP | `Y, X_cov` | Simplest learned baseline | 🔧 |
-| **DLinear** | `Y` | The "embarrassingly simple linear" check — reviewers *always* ask | ➕ **P0** |
-| **PatchTST** | `Y, X_cov` | Strongest supervised patch transformer | ➕ **P0** |
-| **iTransformer** | `Y, X_cov` | Channel-attention SOTA, covariate-friendly | ➕ P1 |
-| TFT | `Y, X_cov` | Quantile-native; gives CRPS comparison for free | 🔧 |
+| MLP | `Y, X_cov` | Simplest learned baseline | ✅ `baselines/tslib/` |
+| **DLinear** | `Y` | The "embarrassingly simple linear" check — reviewers *always* ask | ✅ **P0** `baselines/tslib/` |
+| **PatchTST** | `Y, X_cov` | Strongest supervised patch transformer | ✅ **P0** `baselines/tslib/` |
+| **iTransformer** | `Y, X_cov` | Channel-attention SOTA, covariate-friendly | ✅ P1 `baselines/tslib/` |
+| TFT | `Y, X_cov` | Quantile-native; gives CRPS comparison for free | ✅ `baselines/tslib/` (TFT-lite; deviations in baselines/README) |
 
 All Tier-2 models come essentially free via the [Time-Series-Library](https://github.com/thuml/Time-Series-Library) (PatchTST, iTransformer, DLinear share one trainer). One `baselines/tslib/` port covers the whole tier.
 
@@ -46,10 +46,10 @@ All Tier-2 models come essentially free via the [Time-Series-Library](https://gi
 
 | Model | Inputs | Why | Status |
 |---|---|---|---|
-| Chronos-2 (ZS + FT) | `Y` (+`X_cov` group attention) | Our own backbone; ZS = H0 anchor | 🔧 (A00) |
-| **TimesFM 2.5** (ZS) | `Y` | Independent TSFM family — shows H3 results are not Chronos-specific | ➕ **P0** |
-| **TiRex** (ZS) | `Y` | xLSTM family, top GIFT-Eval ZS performer; third architecture family | ➕ P1 |
-| TTM-R3 (ZS/FT) | `Y, X_cov` | Tiny-model counterpoint (does scale matter?) | ➕ P2 |
+| Chronos-2 (ZS + FT) | `Y` (+`X_cov` group attention) | Our own backbone; ZS = H0 anchor | ✅ `baselines/tier3/` (A00; runs pending) |
+| **TimesFM 2.5** (ZS) | `Y` | Independent TSFM family — shows H3 results are not Chronos-specific | ✅ **P0** `baselines/tier3/` |
+| **TiRex** (ZS) | `Y` | xLSTM family, top GIFT-Eval ZS performer; third architecture family | ✅ P1 `baselines/tier3/` |
+| TTM-R3 (ZS/FT) | `Y, X_cov` | Tiny-model counterpoint (does scale matter?) | ✅ P2 `baselines/tier3/` (no missing-value mask: short histories zero-padded) |
 | Toto-2 / Moirai-2 (ZS) | `Y` | Optional breadth; only if leaderboard framing needed | ➕ P2 |
 
 > **Top-tier rule of thumb**: ≥3 distinct TSFM families evaluated zero-shot on the same protocol. With Chronos-2 + TimesFM 2.5 + TiRex this box is checked.
@@ -58,9 +58,9 @@ All Tier-2 models come essentially free via the [Time-Series-Library](https://gi
 
 | Model | Inputs | Why it competes with us | Status |
 |---|---|---|---|
-| TS-RAG on frozen Chronos-2 | `Y` + retrieved windows | "Retrieval, not vision, closes the gap" rebuttal (H4) | 🔧 (A07) |
-| Cross-RAG | `Y` + retrieved windows | Stronger RAG fusion (A08) | 🔧 |
-| **CoRA** (covariate-aware TSFM adaptation, [arXiv:2510.12681](https://arxiv.org/abs/2510.12681)) | `Y, X_cov` (+any-modality exogenous) | **Closest published competitor**: injects exogenous covariates into frozen TSFM backbones. If PVTSFM ≤ CoRA-with-image-features, the token-fusion claim dies. Must compare. | ➕ **P0** |
+| TS-RAG on frozen Chronos-2 | `Y` + retrieved windows | "Retrieval, not vision, closes the gap" rebuttal (H4) | ✅ `baselines/tier4/` (A07; datastore = train plants only, α tuned on val) |
+| Cross-RAG | `Y` + retrieved windows | Stronger RAG fusion (A08) | ✅ `baselines/tier4/` (clear-sky-aware keys, per-step α) |
+| **CoRA** (covariate-aware TSFM adaptation, [arXiv:2510.12681](https://arxiv.org/abs/2510.12681)) | `Y, X_cov` (+any-modality exogenous) | **Closest published competitor**: injects exogenous covariates into frozen TSFM backbones. If PVTSFM ≤ CoRA-with-image-features, the token-fusion claim dies. Must compare. | ✅ **P0** `baselines/tier4/` (zero-init residual adapter on frozen backbone) |
 | MEMTS / TS-Memory | `Y` + memory adapter | Parametric-memory alternative to retrieval | ➕ P2 |
 
 ### Tier 5 — Generic multimodal TS (vision/text-augmented forecasters)
@@ -164,14 +164,28 @@ Rules (inherited from BASELINE_PROTOCOL.md, restated as hard constraints):
 | Scenario | Split | Question answered |
 |---|---|---|
 | **S1 In-domain** | train plants, held-out time range | Sanity / upper bound |
-| **S2 Cross-plant (primary)** | disjoint test plants, SKIPP'D + goes16_nsrdb | Headline result (H3) |
-| **S3 Cross-dataset** | train on SKIPP'D → test solarnet (and reverse) | Distribution-shift generalization |
+| **S2 Cross-plant (primary)** | disjoint test plants — numerical track: `uk_pv` + `goes_pvdaq`; multimodal track: skippd + goes16_nsrdb | Headline result (H3) |
+| **S3 Cross-dataset** | numerical track: train `uk_pv` → test `goes_pvdaq` (and reverse); multimodal track: train SKIPP'D → test solarnet (and reverse) | Distribution-shift generalization |
 | **S4 Long-horizon** | S2 with H ∈ {12, 24, 48} | Skill decay curves (short / mid / long) |
 | **S5 Data efficiency** | S2 with 10/25/50/100 % train plants | FM sample-efficiency claim |
 | **S6 Ramp subset** | S2 restricted to high-variability windows (top-decile \|ΔY\| cloud-transition periods) | Where vision *should* win — the sharpest test of H1/H2 |
 | **S7 Seasonal transfer** (P2) | Train on subset of months, test unseen season | Temporal distribution shift |
 
-Plant-split variants for S2: if test-plant count is small, use **leave-one-plant-out** rotation (mean ± std over folds); if geographic metadata permits, prefer a **distance/region-based split** over random plant assignment — random splits of nearby plants leak spatial information.
+Plant-split variants for S2: if test-plant count is small, use **leave-one-plant-out** rotation (mean ± std over folds); if geographic metadata permits, prefer a **distance/region-based split** over random plant assignment — random splits of nearby plants leak spatial information. **LOPO is mandatory for `goes_pvdaq`**: with only 10 plants, a 70/15/15 split leaves 1-2 test plants and per-plant variance dominates (`run_eval.py --lopo-dataset goes_pvdaq`, preset `lopo` in `baselines/scripts/run_suite.py`).
+
+### 4.1.1 Data tracks and cadence semantics
+
+Two data tracks share the protocol:
+
+| Track | Source | Datasets | Used by |
+|---|---|---|---|
+| **Numerical** | `numerical/all_curated.parquet` (see `dataset_exploration/curate_dataset.py`) | `uk_pv` (100 plants, 30-min), `goes_pvdaq` (10 plants, 15-min) | Tiers 0-4 (`baselines/`) |
+| **Multimodal** | `solar/{skippd, solarnet, goes16_nsrdb}` per DATASET_CONTRACT | sky-camera + satellite datasets | Tiers 5-6, PVTSFM, vision controls A09-A14 |
+
+Window sizes are defined in **steps**, so the physical lead time differs by cadence: at H=12, `uk_pv` forecasts 6 h ahead and `goes_pvdaq` 3 h ahead (T=24 history = 12 h vs 6 h). Consequences (hard rules):
+1. Report the **physical lead time next to every per-dataset table**; never present mixed-cadence step-horizons as the same forecasting task.
+2. Cross-dataset comparisons aggregate only via the scale-free §4.4 statistics (win rate, geometric-mean skill, average rank) — never pooled raw metrics. This also covers the cadence mismatch.
+3. S3 transfer between `uk_pv` and `goes_pvdaq` involves a cadence shift as well as a domain shift; state both. As a robustness check (P1), repeat S3 with `goes_pvdaq` resampled to 30 min so the step-horizon and physical horizon coincide.
 
 S3, S5 and S6 are what separate a good paper from an accepted paper: zero-shot/few-data curves are the standard FM evidence, and the ramp subset is where the multimodal claim lives or dies (clear-sky periods are won by persistence; vision earns its tokens during cloud transitions).
 
@@ -261,15 +275,20 @@ Mandatory assertions:
 |---|---|---|---|---|---|---|---|
 | T0 | Persistence | | | ~0 | — | 0 | ✅ |
 | T0 | Smart Persistence | | | 0 | — | 0 | ✅ |
+| T0 | Hourly climatology | | | | — | 0 | ✅ |
+| T0 | Seasonal-naive | | | | — | 0 | ✅ |
 | T1 | LightGBM | | | | | | ❌ |
+| T2 | MLP | | | | — | | ❌ |
 | T2 | DLinear | | | | — | | ❌ |
 | T2 | PatchTST | | | | — | | ❌ |
+| T2 | iTransformer | | | | — | | ❌ |
 | T2 | TFT | | | | | | ❌ |
 | T3 | Chronos-2 ZS | | | | | 0 | ✅ |
 | T3 | Chronos-2 FT | | | | | | ❌ |
 | T3 | TimesFM 2.5 ZS | | | | | 0 | ✅ |
 | T3 | TiRex ZS | | | | | 0 | ✅ |
 | T4 | Chronos-2 + TS-RAG | | | | | 0 | ✅ |
+| T4 | Chronos-2 + Cross-RAG | | | | | 0 | ✅ |
 | T4 | CoRA (Chronos-2) | | | | | adapter | ❌ |
 | T5 | Time-VLM | | | | | | ❌ |
 | T6 | SUNSET | | | | — | | ❌ |

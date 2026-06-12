@@ -4,6 +4,7 @@ Scenario flags compose (presets live in scripts/run_suite.py):
 
     S1 in-domain        --in-domain            (train plants, last 20 % of time)
     S2 cross-plant      (default)              --split test
+    S2 LOPO variant     --lopo-dataset goes_pvdaq   (mandatory for goes_pvdaq)
     S3 cross-dataset    --train-datasets uk_pv --eval-datasets goes_pvdaq
     S4 long-horizon     --horizon 24|48
     S5 data efficiency  --train-fraction 0.25
@@ -17,7 +18,7 @@ Examples
     uv run python run_eval.py --model lightgbm dlinear patchtst --seeds 42 43 44
     uv run python run_eval.py --model chronos2_zs ts_rag cora
     uv run python run_eval.py --model dlinear --horizon 48
-    uv run python run_eval.py --model chronos2_zs --control low_history_8
+    uv run python run_eval.py --model chronos2_zs --lopo-dataset goes_pvdaq
 """
 
 from __future__ import annotations
@@ -63,6 +64,9 @@ def parse_args() -> argparse.Namespace:
     # scenarios
     parser.add_argument("--in-domain", action="store_true",
                         help="S1: train plants, held-out time range")
+    parser.add_argument("--lopo-dataset", default=None,
+                        help="leave-one-plant-out rotation over this dataset "
+                             "(mandatory for goes_pvdaq, see §4.1)")
     parser.add_argument("--train-datasets", nargs="+", default=None,
                         help="S3: restrict training plants to these datasets")
     parser.add_argument("--eval-datasets", nargs="+", default=None,
@@ -94,17 +98,18 @@ def _accepts_seed(name: str) -> bool:
     return "seed" in inspect.signature(REGISTRY[name].__init__).parameters
 
 
-def _aggregate_seeds(per_seed: list[dict]) -> dict:
-    """Mean ± std over seeds for the scalar overall metrics."""
+def _scalar_overalls(results_list: list[dict]) -> dict[str, dict[str, float]]:
+    """Mean ± std of the scalar overall metrics across runs (seeds or folds)."""
     keys = {
-        k for r in per_seed for k, v in r["overall"].items()
-        if isinstance(v, float)
+        k for r in results_list for k, v in r.items() if isinstance(v, float)
     }
-    agg = {}
-    for k in sorted(keys):
-        values = [r["overall"][k] for r in per_seed if k in r["overall"]]
-        agg[k] = {"mean": float(np.mean(values)), "std": float(np.std(values))}
-    return {"overall_mean_std": agg, "n_seeds": len(per_seed)}
+    return {
+        k: {
+            "mean": float(np.mean([r[k] for r in results_list if k in r])),
+            "std": float(np.std([r[k] for r in results_list if k in r])),
+        }
+        for k in sorted(keys)
+    }
 
 
 def _load_registry() -> None:
@@ -118,42 +123,31 @@ def _load_registry() -> None:
             pass  # optional dependency group not installed
 
 
-def main() -> None:
-    args = parse_args()
-    _load_registry()
-    model_kwargs = json.loads(args.model_kwargs)
-    unknown = [m for m in args.model if m not in REGISTRY]
-    if unknown:
-        raise SystemExit(f"unknown models {unknown}; known: {sorted(REGISTRY)}")
-    df = pd.read_parquet(args.data)
-    if SPLITS_PATH.exists():
-        splits = load_splits()
-    else:
-        splits = make_plant_splits(df, seed=config.SEED)
-        save_splits(splits)
-        print(f"generated plant splits → {SPLITS_PATH}")
+def evaluate_suite(
+    args: argparse.Namespace,
+    df: pd.DataFrame,
+    train_sites: set[str],
+    val_sites: set[str],
+    eval_sites: set[str],
+    train_range: tuple[float, float] | None,
+    eval_range: tuple[float, float] | None,
+    tag: str,
+    model_kwargs: dict,
+) -> dict[str, dict]:
+    """Evaluate all requested models on one site configuration.
 
+    Returns {model_name: seed-mean overall metrics} for fold aggregation.
+    """
     window_kwargs = dict(history=args.history, horizon=args.horizon)
-    train_sites = _subsample_plants(
-        sites_for(splits, "train"), args.train_fraction, config.SEED
-    )
-    val_sites = sites_for(splits, "val")
     train_df = _filter_datasets(df, args.train_datasets)
     eval_df = _filter_datasets(df, args.eval_datasets)
-
-    if args.in_domain:  # S1: same plants, disjoint time
-        eval_sites = train_sites
-        eval_range, train_range = IN_DOMAIN_EVAL_RANGE, IN_DOMAIN_TRAIN_RANGE
-    else:               # S2/S3/...: disjoint plants
-        eval_sites = sites_for(splits, args.split)
-        eval_range = train_range = None
 
     eval_ds = dataset_for_sites(
         eval_df, eval_sites, time_range=eval_range,
         stride=args.eval_stride, **window_kwargs,
     )
-    print(f"eval: {len(eval_ds)} windows, {len(eval_ds.series)} plants "
-          f"(in_domain={args.in_domain}, control={args.control})")
+    print(f"[{tag or 'run'}] eval: {len(eval_ds)} windows, "
+          f"{len(eval_ds.series)} plants (control={args.control})")
 
     ramp_thresholds = compute_ramp_thresholds(eval_ds)
     transform = (
@@ -161,23 +155,26 @@ def main() -> None:
         else (lambda b: apply_control(args.control, b))
     )
 
-    def run(model, collect=True):
+    def run(model):
         return evaluate_model(
             model, eval_ds, args.batch_size,
             ramp_thresholds=ramp_thresholds,
-            collect_losses=collect, transform=transform,
+            collect_losses=True, transform=transform,
         )
 
     # Smart Persistence always runs first: it is the Skill-Score denominator.
-    reference = run(build("smart_persistence"), collect=True)
+    reference = run(build("smart_persistence"))
 
-    train_ds = val_ds = None
-    tag = f"_{args.tag}" if args.tag else ""
+    suffix = f"_{tag}" if tag else ""
     run_config = vars(args) | {"quantile_levels": config.QUANTILE_LEVELS}
-    write_results(args.out, f"smart_persistence{tag}",
+    write_results(args.out, f"smart_persistence{suffix}",
                   add_skill_scores(dict(reference), reference),
                   run_config, args.data)
 
+    train_ds = val_ds = None
+    fold_overalls: dict[str, dict] = {
+        "smart_persistence": reference["overall"] | {"skill_score": 0.0}
+    }
     for name in args.model:
         if name == "smart_persistence":
             continue  # already written as the reference
@@ -199,21 +196,114 @@ def main() -> None:
                         train_df, val_sites,
                         stride=args.train_stride, **window_kwargs,
                     )
-                    print(f"train: {len(train_ds)} windows, "
+                    print(f"[{tag or 'run'}] train: {len(train_ds)} windows, "
                           f"val: {len(val_ds)} windows")
                 model.fit(train_ds, val_ds)
             results = add_skill_scores(run(model), reference)
-            per_seed.append(results)
-            suffix = f"{tag}_seed{seed}" if len(seeds) > 1 else tag
-            path = write_results(args.out, f"{name}{suffix}", results,
+            per_seed.append(results["overall"])
+            seed_suffix = f"{suffix}_seed{seed}" if len(seeds) > 1 else suffix
+            path = write_results(args.out, f"{name}{seed_suffix}", results,
                                  run_config | {"seed": seed}, args.data)
             overall = results["overall"]
-            print(f"{name}[{seed}]: NMAE={overall['nmae']:.4f} "
-                  f"NRMSE={overall['nrmse']:.4f} "
+            print(f"[{tag or 'run'}] {name}[{seed}]: "
+                  f"NMAE={overall['nmae']:.4f} NRMSE={overall['nrmse']:.4f} "
                   f"SS={overall.get('skill_score', float('nan')):.4f} → {path}")
         if len(per_seed) > 1:
-            write_results(args.out, f"{name}{tag}_agg",
-                          _aggregate_seeds(per_seed), run_config, args.data)
+            write_results(args.out, f"{name}{suffix}_agg",
+                          {"overall_mean_std": _scalar_overalls(per_seed),
+                           "n_seeds": len(per_seed)},
+                          run_config, args.data)
+        # seed-mean scalars, used for fold aggregation in LOPO mode
+        fold_overalls[name] = {
+            k: float(np.mean([o[k] for o in per_seed if k in o]))
+            for k in per_seed[0] if isinstance(per_seed[0][k], float)
+        }
+    return fold_overalls
+
+
+def main() -> None:
+    args = parse_args()
+    _load_registry()
+    model_kwargs = json.loads(args.model_kwargs)
+    unknown = [m for m in args.model if m not in REGISTRY]
+    if unknown:
+        raise SystemExit(f"unknown models {unknown}; known: {sorted(REGISTRY)}")
+    df = pd.read_parquet(args.data)
+    if SPLITS_PATH.exists():
+        splits = load_splits()
+    else:
+        splits = make_plant_splits(df, seed=config.SEED)
+        save_splits(splits)
+        print(f"generated plant splits → {SPLITS_PATH}")
+
+    train_sites = _subsample_plants(
+        sites_for(splits, "train"), args.train_fraction, config.SEED
+    )
+    val_sites = sites_for(splits, "val")
+
+    if args.lopo_dataset:
+        # Leave-one-plant-out rotation (§4.1): each plant of the dataset is
+        # the test fold once, the next plant in rotation provides early-stop
+        # validation, all remaining plants train. Other datasets keep their
+        # committed split roles. Reported as mean ± std over folds.
+        if args.lopo_dataset not in splits:
+            raise SystemExit(f"unknown dataset {args.lopo_dataset!r}; "
+                             f"known: {sorted(splits)}")
+        if args.in_domain:
+            raise SystemExit("--lopo-dataset and --in-domain are exclusive")
+        plants = sorted({
+            s for part in splits[args.lopo_dataset].values() for s in part
+        })
+        other_train = {
+            s for ds, parts in splits.items()
+            if ds != args.lopo_dataset for s in parts["train"]
+        } & train_sites
+        other_val = {
+            s for ds, parts in splits.items()
+            if ds != args.lopo_dataset for s in parts["val"]
+        }
+        per_fold: dict[str, list[dict]] = {}
+        for i, plant in enumerate(plants):
+            val_plant = plants[(i + 1) % len(plants)]
+            fold_tag = f"{args.tag + '_' if args.tag else ''}" \
+                       f"lopo_{args.lopo_dataset}_fold{i:02d}"
+            overalls = evaluate_suite(
+                args, df,
+                train_sites=other_train | (set(plants) - {plant, val_plant}),
+                val_sites=other_val | {val_plant},
+                eval_sites={plant},
+                train_range=None, eval_range=None,
+                tag=fold_tag, model_kwargs=model_kwargs,
+            )
+            for name, overall in overalls.items():
+                per_fold.setdefault(name, []).append(overall)
+        run_config = vars(args) | {"quantile_levels": config.QUANTILE_LEVELS}
+        for name, folds in per_fold.items():
+            write_results(
+                args.out,
+                f"{name}_{args.tag + '_' if args.tag else ''}"
+                f"lopo_{args.lopo_dataset}_agg",
+                {"overall_mean_std": _scalar_overalls(folds),
+                 "n_folds": len(folds)},
+                run_config, args.data,
+            )
+        print(f"LOPO over {len(plants)} folds done → *_lopo_"
+              f"{args.lopo_dataset}_agg.json")
+        return
+
+    if args.in_domain:  # S1: same plants, disjoint time
+        eval_sites = train_sites
+        eval_range, train_range = IN_DOMAIN_EVAL_RANGE, IN_DOMAIN_TRAIN_RANGE
+    else:               # S2/S3/...: disjoint plants
+        eval_sites = sites_for(splits, args.split)
+        eval_range = train_range = None
+
+    evaluate_suite(
+        args, df,
+        train_sites=train_sites, val_sites=val_sites, eval_sites=eval_sites,
+        train_range=train_range, eval_range=eval_range,
+        tag=args.tag, model_kwargs=model_kwargs,
+    )
 
 
 if __name__ == "__main__":

@@ -22,6 +22,8 @@ We use a **Disjoint Cross-Plant Protocol** rather than a few-shot context-matchi
 * **Val Plants**: Disjoint from Train; used for hyperparameter tuning and early stopping.
 * **Test Plants**: Disjoint from both Train and Val; used strictly for final reporting.
 
+For the numerical track the split is generated once (seed 42, per-dataset 70/15/15, `bad_site_flag` sites excluded) and committed to `baselines/configs/splits.json`; disjointness is asserted at every load (`baselines/common/splits.py`). **`goes_pvdaq` (10 plants) must additionally be evaluated leave-one-plant-out** — its 15 % test share is 1-2 plants and per-plant variance would dominate a fixed split (see BASELINE_COMPARISON §4.1).
+
 ### Inference Setup
 During evaluation on a test plant:
 * The model is given a history window of target power values and covariates: \(Y \in \mathbb{R}^{1 \times T \times 1}\) and \(X_{\text{cov}} \in \mathbb{R}^{1 \times T \times C_{\text{cov}}}\).
@@ -34,10 +36,11 @@ During evaluation on a test plant:
 
 Unless overridden by a specific dataset-level configuration, the default temporal configurations are:
 
-* **Granularity**: Intra-hour (typically 5-minute or 15-minute steps, depending on the dataset).
-* **History Window (\(T\))**: 24 steps (e.g., 6 hours at 15-min granularity).
-* **Forecasting Horizon (\(H\))**: 12 steps (e.g., 3 hours) up to a long horizon of 48 steps (12 hours) to verify long-term decay.
+* **Granularity**: Intra-hour, native per dataset — no resampling. Numerical track: `uk_pv` 30-minute, `goes_pvdaq` 15-minute steps.
+* **History Window (\(T\))**: 24 steps (12 h on `uk_pv`, 6 h on `goes_pvdaq`).
+* **Forecasting Horizon (\(H\))**: 12 steps (6 h on `uk_pv`, 3 h on `goes_pvdaq`) up to a long horizon of 48 steps to verify long-term decay.
 * **Visual Frame Cadence (\(T_v\))**: 8 frames, sampled at a decoupled resolution matching the physical satellite/sky cam intervals.
+* **Cadence rule**: windows are defined in *steps*, so the physical lead time differs across datasets. Report the physical lead time next to every per-dataset table and aggregate across datasets only with scale-free statistics (win rate / geometric-mean skill / rank — BASELINE_COMPARISON §4.4); never pool raw step-horizon metrics across cadences. See BASELINE_COMPARISON §4.1.1.
 
 ---
 
@@ -72,9 +75,9 @@ All models must output forecasts in the normalized range. Metrics must be comput
    \]
 
 3. **Forecast Skill Score (SS)**:
-   Relative improvement over the Smart Persistence baseline:
+   Relative improvement over the Smart Persistence baseline. **The headline SS is NRMSE-based** (matches BASELINE_COMPARISON §4.2 and the `baselines/` implementation); an NMAE-based SS may be reported as a secondary column but must be labeled as such:
    \[
-   \text{Skill Score} = 1 - \frac{\text{Metric}_{\text{Model}}}{\text{Metric}_{\text{Smart Persistence}}}
+   \text{Skill Score} = 1 - \frac{\text{NRMSE}_{\text{Model}}}{\text{NRMSE}_{\text{Smart Persistence}}}
    \]
 
 ---

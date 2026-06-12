@@ -7,7 +7,7 @@
 | A02 | Interleaved fusion (Stage 2b) | `model.fusion_mode=interleaved` |  -  | IN PROGRESS |  -  |
 | A03 | Grassmann vs self-attention | `model.temporal_mixer=...` |  -  | TODO |  -  |
 | A04 | Visual window 3h vs 6h vs 12h | `data.vis_refinement_hours=...` |  -  | TODO |  -  |
-| A05 | Cross-plant held-out | `data.split=cross_plant` |  -  | TODO |  -  |
+| A05 | Cross-plant held-out — **not an ablation**: this *is* the S2 evaluation protocol (BASELINE_COMPARISON §4.1); kept for ID continuity | `data.split=cross_plant` |  -  | FOLDED into protocol |  -  |
 | A06 | N/A (Few-shot protocol) | N/A |  -  | DEPRECATED | Removed in favor of disjoint cross-plant test sets |
 | A07 | TS-RAG on frozen Chronos-2 | `baselines/ts_rag` |  -  | TODO |  -  |
 | A08 | Cross-RAG vs TS-RAG | compare wrappers |  -  | TODO |  -  |
