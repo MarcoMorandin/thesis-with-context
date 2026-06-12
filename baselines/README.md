@@ -60,6 +60,26 @@ encoder-decoder attention, and the 9-quantile pinball objective.
   reference, per protocol.
 - Metrics masked by `mask_future · daylight`, macro-averaged per plant.
 
+## Protocol toolkit
+
+- `common/stats.py` — Diebold–Mariano (HLN-corrected), paired block
+  bootstrap (block = day), Holm–Bonferroni (§4.5). No scipy needed.
+- `common/aggregate.py` — win rate, geometric-mean skill, average rank
+  (§4.4, fev-bench conventions; never raw cross-dataset averaging).
+- `common/controls.py` — §5 eval-time controls: `zero_cov`,
+  `low_history_{4,8,12}` (mask-based, shape-preserving), plus the aligned
+  `shuffle_along_axis` primitive for the A09/A10 frame controls.
+- `common/runner.py` — ramp-subset (S6) thresholds + metrics, per-horizon
+  NMAE(h) curves (§4.2), per-window loss sidecars (`*_losses.npz`) for
+  significance testing, reproducibility manifest (§6.7).
+- `scripts/run_suite.py` — S1–S5 + controls + A15 sweep as run_eval
+  commands (dry-run by default; `--execute` to run).
+- `scripts/significance.py` — DM + bootstrap + Holm over saved runs; only
+  bold a result when `bold_ok` is true.
+- `scripts/make_tables.py` — renders §7.1 headline + §4.4 aggregation
+  tables from `results/`.
+- `scripts/efficiency.py` — §4.6 params / latency / VRAM table.
+
 ## Usage
 
 ```bash

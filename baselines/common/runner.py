@@ -22,15 +22,74 @@ from .metrics import PerPlantAccumulator
 from .windows import WindowDataset
 
 
+def compute_ramp_thresholds(
+    dataset: WindowDataset, quantile: float = 0.9
+) -> dict[str, float]:
+    """Per-plant top-decile |ΔY| threshold for the S6 ramp subset (§4.2).
+
+    Thresholds are a property of the data, not of any model, so they are
+    computed once per eval split and shared by every baseline.
+    """
+    deltas: dict[str, list[np.ndarray]] = {}
+    for batch in dataset.iter_batches(1024):
+        d, m = _future_deltas(batch)
+        for plant in np.unique(batch["site_id"]):
+            rows = batch["site_id"] == plant
+            valid = m[rows] > 0
+            deltas.setdefault(str(plant), []).append(d[rows][valid])
+    return {
+        plant: float(np.quantile(np.concatenate(parts), quantile))
+        for plant, parts in deltas.items()
+        if sum(len(p) for p in parts) > 0
+    }
+
+
+def _future_deltas(batch: dict) -> tuple[np.ndarray, np.ndarray]:
+    """|ΔY| per future step (vs the previous step) and its validity mask."""
+    prev = np.concatenate(
+        [batch["y_hist"][:, -1:], batch["y_future"][:, :-1]], axis=1
+    )
+    prev_mask = np.concatenate(
+        [batch["mask_hist"][:, -1:], batch["mask_future"][:, :-1]], axis=1
+    )
+    delta = np.abs(batch["y_future"] - prev)
+    valid = batch["mask_future"] * prev_mask * batch["daylight_future"]
+    return delta, valid
+
+
+def _ramp_mask(batch: dict, thresholds: dict[str, float]) -> np.ndarray:
+    delta, valid = _future_deltas(batch)
+    thr = np.array(
+        [thresholds.get(str(p), np.inf) for p in batch["site_id"]],
+        dtype=np.float64,
+    )
+    return ((delta >= thr[:, None]) & (valid > 0)).astype(np.float64)
+
+
 def evaluate_model(
     model: Baseline,
     dataset: WindowDataset,
     batch_size: int = 256,
+    ramp_thresholds: dict[str, float] | None = None,
+    collect_losses: bool = False,
+    transform=None,
 ) -> dict:
-    """Evaluate on daylight, valid future steps; macro-average over plants."""
+    """Evaluate on daylight, valid future steps; macro-average over plants.
+
+    With ``collect_losses=True`` the result carries one masked-MAE loss per
+    window plus its plant and day key — the per-sample loss differentials
+    required by the DM test and the paired block bootstrap (§4.5).
+
+    ``transform`` is an optional eval-time control (common.controls): it
+    manipulates the model's *inputs*; metrics are computed against the
+    untouched targets and masks.
+    """
     acc = PerPlantAccumulator()
+    losses: dict[str, list[np.ndarray]] = {"loss": [], "plant": [], "day": []}
     for batch in dataset.iter_batches(batch_size):
-        forecast: Forecast = model.predict(batch)
+        forecast: Forecast = model.predict(
+            transform(batch) if transform is not None else batch
+        )
         point = np.asarray(forecast.point, dtype=np.float64)
         if point.shape != batch["y_future"].shape:
             raise ValueError(
@@ -46,8 +105,25 @@ def evaluate_model(
             y_pred=point,
             mask=mask,
             quantile_preds=forecast.quantiles,
+            ramp_mask=(
+                _ramp_mask(batch, ramp_thresholds)
+                if ramp_thresholds is not None else None
+            ),
         )
-    return {"overall": acc.macro(), "per_plant": acc.per_plant()}
+        if collect_losses:
+            t = batch["y_hist"].shape[1]
+            losses["loss"].append(
+                (np.abs(point - batch["y_future"]) * mask).sum(axis=1)
+                / np.maximum(mask.sum(axis=1), 1.0)
+            )
+            losses["plant"].append(batch["site_id"])
+            losses["day"].append(batch["timestamps"][:, t] // 86_400)
+    results = {"overall": acc.macro(), "per_plant": acc.per_plant()}
+    if collect_losses:
+        results["per_sample"] = {
+            k: np.concatenate(v) for k, v in losses.items()
+        }
+    return results
 
 
 def add_skill_scores(results: dict, reference: dict) -> dict:
@@ -104,6 +180,11 @@ def write_results(
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "config": run_config,
     }
+    per_sample = results.pop("per_sample", None)
+    if per_sample is not None:
+        # per-window losses for the DM test / block bootstrap (§4.5);
+        # kept out of the JSON, written as a sidecar npz
+        np.savez_compressed(out / f"{model_name}_losses.npz", **per_sample)
     path = out / f"{model_name}.json"
     path.write_text(
         json.dumps({"manifest": manifest, "results": results}, indent=2) + "\n"

@@ -110,13 +110,17 @@ class PerPlantAccumulator:
         self._iq90 = list(levels).index(0.9) if 0.9 in levels else None
         self._plants: dict[str, dict[str, np.ndarray | float]] = {}
 
-    def _bucket(self, plant: str) -> dict:
+    def _bucket(self, plant: str, horizon: int) -> dict:
         if plant not in self._plants:
             q = len(self.levels)
             self._plants[plant] = {
                 "n": 0.0, "abs": 0.0, "sq": 0.0,
                 "pinball": np.zeros(q), "below": np.zeros(q), "inside": 0.0,
                 "has_q": False,
+                # per-horizon breakdown (§4.2) and ramp subset (S6)
+                "n_h": np.zeros(horizon), "abs_h": np.zeros(horizon),
+                "sq_h": np.zeros(horizon),
+                "n_ramp": 0.0, "abs_ramp": 0.0, "sq_ramp": 0.0,
             }
         return self._plants[plant]
 
@@ -127,14 +131,24 @@ class PerPlantAccumulator:
         y_pred: np.ndarray,           # (N, H)
         mask: np.ndarray,             # (N, H) — mask_future · daylight
         quantile_preds: np.ndarray | None = None,  # (N, H, Q)
+        ramp_mask: np.ndarray | None = None,       # (N, H) — S6 subset
     ) -> None:
         for plant in np.unique(plants):
             rows = plants == plant
             yt, yp, m = y_true[rows], y_pred[rows], mask[rows]
-            b = self._bucket(str(plant))
+            err_abs = np.abs(yp - yt)
+            b = self._bucket(str(plant), horizon=y_true.shape[1])
             b["n"] += m.sum()
-            b["abs"] += (np.abs(yp - yt) * m).sum()
-            b["sq"] += (((yp - yt) ** 2) * m).sum()
+            b["abs"] += (err_abs * m).sum()
+            b["sq"] += ((err_abs**2) * m).sum()
+            b["n_h"] += m.sum(axis=0)
+            b["abs_h"] += (err_abs * m).sum(axis=0)
+            b["sq_h"] += ((err_abs**2) * m).sum(axis=0)
+            if ramp_mask is not None:
+                mr = m * ramp_mask[rows]
+                b["n_ramp"] += mr.sum()
+                b["abs_ramp"] += (err_abs * mr).sum()
+                b["sq_ramp"] += ((err_abs**2) * mr).sum()
             if quantile_preds is not None:
                 qp = quantile_preds[rows]
                 err = yt[..., None] - qp
@@ -156,7 +170,13 @@ class PerPlantAccumulator:
                 "nmae": float(b["abs"] / n),
                 "nrmse": float(np.sqrt(b["sq"] / n)),
                 "n_steps": float(n),
+                "nmae_per_horizon": list(
+                    b["abs_h"] / np.maximum(b["n_h"], 1.0)
+                ),
             }
+            if b["n_ramp"] > 0:
+                row["nmae_ramp"] = float(b["abs_ramp"] / b["n_ramp"])
+                row["nrmse_ramp"] = float(np.sqrt(b["sq_ramp"] / b["n_ramp"]))
             if b["has_q"]:
                 row["crps"] = float(2.0 * np.mean(b["pinball"] / n))
                 row["coverage_80"] = float(b["inside"] / n)
@@ -166,15 +186,19 @@ class PerPlantAccumulator:
             out[plant] = row
         return out
 
-    def macro(self) -> dict[str, float]:
+    def macro(self) -> dict[str, float | list[float]]:
         """Macro-average over plants (BASELINE_COMPARISON.md §4.2)."""
         rows = self.per_plant()
         if not rows:
             return {}
-        keys = [k for k in next(iter(rows.values())) if k != "n_steps"]
-        agg = {
-            k: float(np.mean([r[k] for r in rows.values() if k in r])) for k in keys
-        }
+        keys = {k for r in rows.values() for k in r} - {"n_steps"}
+        agg: dict[str, float | list[float]] = {}
+        for k in sorted(keys):
+            values = [r[k] for r in rows.values() if k in r]
+            if k == "nmae_per_horizon":  # vector metric: average per step
+                agg[k] = list(np.mean(np.asarray(values), axis=0))
+            else:
+                agg[k] = float(np.mean(values))
         agg["n_plants"] = float(len(rows))
         agg["n_steps"] = float(sum(r["n_steps"] for r in rows.values()))
         return agg
