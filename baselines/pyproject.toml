@@ -1,0 +1,33 @@
+[project]
+name = "pv-baselines"
+version = "0.1.0"
+description = "Tier 0-2 baselines for PVTSFM (docs/experiments/BASELINE_COMPARISON.md)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "pandas>=2.2",
+    "pyarrow>=15.0",
+    "lightgbm>=4.3",
+    "torch>=2.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+tabpfn = [
+    "tabpfn>=2.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["."]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["common", "tier0", "tier1", "tslib"]
