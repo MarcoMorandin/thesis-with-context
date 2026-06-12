@@ -54,6 +54,7 @@ graphify-out/
 *.swp
 .trash/
 .claude/
+.mcp.json
 
 # Secrets
 .env

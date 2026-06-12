@@ -160,5 +160,6 @@ This project is indexed by GitNexus as **thesis-with-context** (1996 symbols, 34
 | Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
 | Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
 | Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
+| Review a PR / assess merge risk | `.claude/skills/gitnexus/gitnexus-pr-review/SKILL.md` |
 
 <!-- gitnexus:end -->
