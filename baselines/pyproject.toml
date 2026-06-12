@@ -19,6 +19,14 @@ dev = [
 tabpfn = [
     "tabpfn>=2.0",
 ]
+tier3 = [
+    # Chronos-2 is imported from MMTSFM/src and needs its transitive deps
+    "transformers>=4.40",
+    "einops>=0.7",
+    "timesfm>=1.3",       # TimesFM 2.5 torch checkpoint
+    "tirex>=1.0",         # NX-AI TiRex (xLSTM)
+    "granite-tsfm>=0.2",  # tsfm_public — TinyTimeMixer (TTM-R3)
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -30,4 +38,4 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["common", "tier0", "tier1", "tslib"]
+packages = ["common", "tier0", "tier1", "tslib", "tier3", "tier4"]

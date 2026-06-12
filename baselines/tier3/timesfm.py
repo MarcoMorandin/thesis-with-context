@@ -43,18 +43,13 @@ class TimesFM25ZS(Baseline):
                 self._model = DummyTimesFM()
             else:
                 import timesfm
-                import torch
 
                 if hasattr(timesfm, "TimesFM_2p5_200M_torch"):
                     self._model = timesfm.TimesFM_2p5_200M_torch.from_pretrained(self.model_id)
                 else:
                     self._model = timesfm.TimesFm.from_pretrained(self.model_id)
 
-                backend = "cpu"
-                if self.device_name == "cuda" or (self.device_name is None and torch.cuda.is_available()):
-                    backend = "gpu"
-
-                # Compile with config
+                # device placement is handled internally by timesfm at compile time
                 self._model.compile(
                     timesfm.ForecastConfig(
                         max_context=1024,

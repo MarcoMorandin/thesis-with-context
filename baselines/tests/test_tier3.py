@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from common.base import build
-from .conftest import windows_for, make_frame
+from .conftest import make_frame, skip_if_deps_missing, windows_for
 
 
 def _batch(ds, n=16):
@@ -21,6 +21,7 @@ def synthetic_dataset():
 
 @pytest.mark.parametrize("model_name", ["chronos2_zs", "timesfm_zs", "tirex_zs", "ttm_zs"])
 def test_tier3_zero_shot_dummy(model_name, synthetic_dataset):
+    skip_if_deps_missing(model_name)
     batch = _batch(synthetic_dataset)
     model = build(model_name, model_id="dummy")
     
@@ -46,6 +47,7 @@ def test_tier3_zero_shot_dummy(model_name, synthetic_dataset):
 
 @pytest.mark.parametrize("model_name", ["chronos2_ft", "ttm_ft"])
 def test_tier3_fine_tune_dummy(model_name, synthetic_dataset):
+    skip_if_deps_missing(model_name)
     train = synthetic_dataset
     val = synthetic_dataset
     batch = _batch(synthetic_dataset)

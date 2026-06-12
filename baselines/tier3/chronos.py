@@ -88,7 +88,9 @@ class Chronos2ZS(Baseline):
             self._pipeline.model.eval()
 
         horizon = batch["y_future"].shape[1]
-        y_ctx = torch.from_numpy(batch["y_hist"]).float().unsqueeze(1)  # (N, 1, T)
+        # Chronos-2 treats NaN as missing; masked-out steps must not enter as 0s
+        y_hist = np.where(batch["mask_hist"] > 0, batch["y_hist"], np.nan)
+        y_ctx = torch.from_numpy(y_hist).float().unsqueeze(1)  # (N, 1, T)
 
         with torch.no_grad():
             quantiles_list, mean_list = self._pipeline.predict_quantiles(

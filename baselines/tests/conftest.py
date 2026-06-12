@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import importlib.util
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -11,6 +13,25 @@ from common.windows import WindowDataset, build_site_series
 
 CADENCE_MIN = 30
 STEPS_PER_DAY = 24 * 60 // CADENCE_MIN
+
+# Optional third-party deps per baseline; tests skip instead of erroring
+# when a dependency group is not installed (e.g. `uv sync --group tier3`).
+# The chronos2 dummy path still imports the MMTSFM source, which needs
+# transformers + einops.
+OPTIONAL_BASELINE_DEPS: dict[str, tuple[str, ...]] = {
+    "tabpfn": ("tabpfn",),
+    "chronos2_zs": ("transformers", "einops"),
+    "chronos2_ft": ("transformers", "einops"),
+}
+
+
+def skip_if_deps_missing(name: str) -> None:
+    missing = [
+        mod for mod in OPTIONAL_BASELINE_DEPS.get(name, ())
+        if importlib.util.find_spec(mod) is None
+    ]
+    if missing:
+        pytest.skip(f"{name}: optional dependencies not installed: {missing}")
 
 
 def clearsky_curve(hours: np.ndarray) -> np.ndarray:
