@@ -80,6 +80,8 @@ All Tier-2 models come essentially free via the [Time-Series-Library](https://gi
 | SUNSET | `Y, V` | Canonical CNN solar baseline, used by every related work | ➕ **P0** |
 | **CrossViVit** (Boussif et al., NeurIPS 2023) | `Y, X_cov, V` (satellite) | The reference *deep* satellite+TS cross-attention model; the strongest non-FM multimodal competitor. Code public. | ➕ **P0** |
 | SPIRIT | `Y, V` (ViT features) | Zero-shot vision-FM transfer — direct comparison for cross-plant ZS claims (H3) | ➕ P1 |
+| PV-VLM ([arXiv:2504.13624](https://arxiv.org/abs/2504.13624)) | `Y, X_cov, V` + text | Second PV-domain VLM; rebuttal breadth beyond Solar-VLM | ➕ P2 |
+| M3S-Net ([arXiv:2602.19832](https://arxiv.org/abs/2602.19832)) / FusionSF | `Y, X_cov, V` | Non-foundation PV multimodal fusion — "do FMs beat specialized PV fusion?" | ➕ P2 |
 | MDCTL-MCI | `Y, X_cov` | Missing-data transfer learning; only for robustness section | ➕ P2 |
 
 ### Tier 7 — Internal ablations & controls (P0, ours)
@@ -92,9 +94,13 @@ All Tier-2 models come essentially free via the [Time-Series-Library](https://gi
 | **Shuffled-frames control** (random temporal permutation of `V`) | Model truly *reads* the frames; gain is not regularization | ➕ **P0** — register as A09 |
 | **Mismatched-plant frames control** (frames from a different plant) | Spatial grounding, not generic cloud prior | ➕ P1 — register as A10 |
 | Vision-only (no `Y` history beyond 1 step) | Upper bound on visual signal | ➕ P1 — A11 |
+| **Modality-contribution grid**: TS / TS+cov / TS+vis / TS+cov+vis | Clean 4-way decomposition of where the gain comes from (subsumes single zero-out ablations) | ➕ **P0** — A12 |
 | Modality dropout sweep | Robustness to missing frames (§5.3) | 🔧 (mask exists in contract) |
-| Grassmann vs self-attention mixer | Architecture choice | A03 |
+| Grassmann vs self-attention mixer (**param-matched**) | Architecture choice; report VRAM + latency vs context length T ∈ {128, 512, 1024, 2048}, not just accuracy | A03 |
 | Visual window 3/6/12 h | Sensitivity | A04 |
+| Visual token budget (n° tokens after latent summarizer) | Compression-quality trade-off of the vision branch | ➕ P1 — A13 |
+| Frozen vs partial-unfreeze backbone | Separates fusion architecture from adaptation capacity (complements Chronos-2 FT row) | ➕ P1 — A14 |
+| Retrieval datastore size / top-k sweep (RAG baselines) | Fairness: RAG baselines tuned, not strawmanned | ➕ P1 — A15 |
 
 ---
 
@@ -112,6 +118,20 @@ The P0 set, in one line each:
 8. Shuffled-frames control + late-fusion ablation.
 
 What this buys at review time: every cell of the rebuttal matrix is covered — *simpler model?* (DLinear), *just covariates?* (CoRA), *just retrieval?* (TS-RAG), *backbone-specific?* (TimesFM/TiRex), *vision actually used?* (shuffled frames), *domain SOTA?* (Solar-VLM/CrossViVit), *fusion depth?* (late vs interleaved).
+
+### Claims → required evidence map
+
+| Paper claim | Evidence that proves it |
+|---|---|
+| Improves cross-plant generalization | Beats Chronos-2 ZS/FT, Solar-VLM, Cross-RAG, CoRA on disjoint test plants (S2) with DM-significance |
+| Visual tokens add value | Beats TS-only and no-vision ablations, **especially on the ramp subset (S6)**; shuffled-frames control degrades |
+| Deep fusion matters | Interleaved beats late fusion, same backbones, same data (A01 vs A02); beats UniCast-style prompting |
+| Not just better adaptation | Beats or matches Chronos-2 FT, partial-unfreeze (A14), retrieval (TS-RAG/Cross-RAG) and memory (MEMTS) wrappers |
+| Practical robustness | Holds under missing/stale frames, low-history, per-plant variance; efficiency table competitive |
+
+### Deliberately excluded (state it in the paper, pre-empt the reviewer)
+
+**Few-shot in-context adaptation curves** (support set of K historical days per test plant, MAE-vs-K): excluded by design decision [A06 in ABLATION_REGISTRY.md] — the protocol is disjoint cross-plant zero-shot with short inference history, not few-shot context matching. If a reviewer requests it, the harness supports it as an appendix experiment: K ∈ {0, 1, 3, 7} days as RAG datastore (retrieval baselines) or linear-probe update (adapter models); keep it out of headline tables.
 
 ---
 
@@ -133,6 +153,7 @@ Rules (inherited from BASELINE_PROTOCOL.md, restated as hard constraints):
 - Disjoint train/val/test **plants**; no per-test-plant statistics anywhere (including normalizers — use train-plant or capacity normalization only).
 - No clear-sky-index physics inside models (Smart Persistence exempt, it *is* the physics reference).
 - Multimodal models that natively want text (Solar-VLM) may generate weather text only from covariates available to all — no external weather APIs.
+- **Retrieval datastore rule**: RAG/memory baselines (TS-RAG, Cross-RAG, MEMTS) may populate their datastore/memory with **train-plant data only**. Transductive retrieval (test-plant history in the datastore) is a separate, explicitly-labeled condition — never mixed into the headline table.
 
 ---
 
@@ -145,10 +166,14 @@ Rules (inherited from BASELINE_PROTOCOL.md, restated as hard constraints):
 | **S1 In-domain** | train plants, held-out time range | Sanity / upper bound |
 | **S2 Cross-plant (primary)** | disjoint test plants, SKIPP'D + goes16_nsrdb | Headline result (H3) |
 | **S3 Cross-dataset** | train on SKIPP'D → test solarnet (and reverse) | Distribution-shift generalization |
-| **S4 Long-horizon** | S2 with H=48 | Skill decay curves |
+| **S4 Long-horizon** | S2 with H ∈ {12, 24, 48} | Skill decay curves (short / mid / long) |
 | **S5 Data efficiency** | S2 with 10/25/50/100 % train plants | FM sample-efficiency claim |
+| **S6 Ramp subset** | S2 restricted to high-variability windows (top-decile \|ΔY\| cloud-transition periods) | Where vision *should* win — the sharpest test of H1/H2 |
+| **S7 Seasonal transfer** (P2) | Train on subset of months, test unseen season | Temporal distribution shift |
 
-S3 and S5 are what separate a good paper from an accepted paper: zero-shot/few-data curves are the standard evidence for "foundation model" claims.
+Plant-split variants for S2: if test-plant count is small, use **leave-one-plant-out** rotation (mean ± std over folds); if geographic metadata permits, prefer a **distance/region-based split** over random plant assignment — random splits of nearby plants leak spatial information.
+
+S3, S5 and S6 are what separate a good paper from an accepted paper: zero-shot/few-data curves are the standard FM evidence, and the ramp subset is where the multimodal claim lives or dies (clear-sky periods are won by persistence; vision earns its tokens during cloud transitions).
 
 ### 4.2 Point metrics
 
@@ -156,14 +181,16 @@ Computed per plant, then macro-averaged over plants (prevents large plants domin
 
 - **NMAE**, **NRMSE** — capacity-normalized, as defined in BASELINE_PROTOCOL.md §5.
 - **Skill Score** `SS = 1 − NRMSE_model / NRMSE_smartpersistence` — solar-community headline number.
+- **Ramp-event NMAE/NRMSE** — same metrics restricted to the S6 ramp subset (ramp ≔ top-decile \|ΔY\| within plant). Report alongside overall metrics in the headline table; this is the direct evidence that cloud-motion information is captured.
 - **Per-horizon breakdown** — report NMAE(h) for h ∈ {1, …, H}; plot decay curves for S4.
+- **TEMPLATE transferability scores** (P1, per RESEARCH_SCOPE): DLS / PLS / TAS on frozen representations — ranks backbones and fusion variants without fine-tuning.
 - Daylight-only masking: all metrics computed where `mask_future · daylight = 1`; report the mask convention once, use everywhere.
 
 ### 4.3 Probabilistic metrics (P0 — the scope marks CRPS as primary)
 
 - **CRPS** approximated by mean weighted quantile loss over quantiles {0.1, …, 0.9} (Chronos/GIFT-Eval convention).
 - **Pinball loss** at q ∈ {0.1, 0.5, 0.9}.
-- **Coverage / calibration**: empirical coverage of the 80 % interval (target 0.80); reliability diagram in appendix.
+- **Coverage / calibration**: empirical coverage of the 80 % interval (target 0.80); reliability diagram in appendix; summarize as quantile **ECE** = mean over q ∈ Q of \|q − q̃\| where q̃ is the empirical proportion of ground truth below the predicted q-quantile.
 - Deterministic-only baselines (DLinear, SUNSET…): report point metrics only, mark CRPS as `—`. Quantile-capable baselines (TFT, LightGBM-quantile, Chronos-2, TimesFM, PVTSFM) fill the full table.
 
 ### 4.4 Aggregation across datasets (fev-bench convention)
@@ -194,7 +221,8 @@ For every model: trainable params / total params, GPU-hours to train (or "0, zer
 |---|---|---|
 | **Shuffled frames** (A09) | Permute `V` along `T_v` at eval | PVTSFM degrades toward TS-only — proves vision is read |
 | **Mismatched plant frames** (A10) | Swap in frames from another plant | Degradation > shuffled — proves spatial grounding |
-| **Missing modality** | Drop frames at rate p ∈ {0, .25, .5, 1.0} via `mask_visual` | Graceful decay; at p=1.0 matches TS-only, not worse |
+| **Missing modality** | Drop frames at rate p ∈ {0, .25, .5, 1.0} via `mask_visual`; plus **stale-frames** variant (repeat last valid frame) | Graceful decay; at p=1.0 matches TS-only, not worse; stale ≥ missing |
+| **Low-history regime** | Shrink history `T` to {4, 8, 12, 24} steps at eval on test plants | Supports "deployable on new plant" claim; FM in-context strength |
 | **Night / masked targets** | Verify metrics identical with and without masked-step leakage check | Exact match |
 | **Covariate ablation** | Zero out `X_cov` | Quantifies covariate vs vision contribution separately |
 | **Horizon stress** | S4 decay curves vs Smart Persistence crossover point | Report the h where skill → 0 |
@@ -253,6 +281,7 @@ Mandatory assertions:
 ± std over 3 seeds; **bold** only when DM-test + bootstrap CI confirm significance vs best baseline.
 
 ### 7.2 Secondary tables
+- S6 ramp-subset table (same rows as 7.1, ramp-event NMAE/NRMSE — expected to be the most decisive table).
 - S3 cross-dataset transfer matrix (train→test dataset grid).
 - S4 per-horizon NMAE curves (figure) + crossover table.
 - S5 data-efficiency curves (figure).
@@ -272,7 +301,7 @@ Mandatory assertions:
 7. **Solar-VLM runs** (port exists; SLURM).
 8. P1/P2 stragglers (SPIRIT, UniCast, TTM-R3, Aurora) only if time or reviewers demand.
 
-Register every run in [ABLATION_REGISTRY.md](ABLATION_REGISTRY.md) before launch; new IDs A09–A11 defined in §1 Tier 7.
+Register every run in [ABLATION_REGISTRY.md](ABLATION_REGISTRY.md) before launch; new IDs A09–A15 defined in §1 Tier 7.
 
 ---
 
@@ -293,6 +322,8 @@ Register every run in [ABLATION_REGISTRY.md](ABLATION_REGISTRY.md) before launch
 | Aurora | https://arxiv.org/abs/2509.22295 |
 | VisionTS++ | https://arxiv.org/abs/2508.04379 |
 | Solar-VLM | https://arxiv.org/abs/2604.04145 |
+| PV-VLM | https://arxiv.org/abs/2504.13624 |
+| M3S-Net | https://arxiv.org/abs/2602.19832 |
 | SUNSET | https://github.com/YuchiSun/SUNSET |
 | CrossViVit | https://arxiv.org/abs/2306.01112 (NeurIPS 2023) |
 | SPIRIT | https://arxiv.org/abs/2502.10307 |
