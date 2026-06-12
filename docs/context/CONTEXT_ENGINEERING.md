@@ -54,7 +54,7 @@ Use **two** graphs  -  they solve different problems:
 | **Graphify** | Papers, proposals, cross-document synthesis | growing | `/graphify`, MCP, wiki output |
 | Understand Anything | General doc Q&A | smaller | Skip for this project |
 
-**Recommendation**: GitNexus for `src/` + Graphify for `baselines/`, `solar-related-work/`, `docs/`, `MMTSFM/`.
+**Recommendation**: GitNexus for `src/` + Graphify for `knowledge/papers/baselines/`, `knowledge/papers/related/`, `knowledge/docs/`, `MMTSFM/`.
 
 ```bash
 # Code graph

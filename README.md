@@ -102,8 +102,8 @@ We use two systems to separate code understanding from research understanding:
 | Prepared dataset | `/Volumes/SSD/standardized-dataset` |
 | Prior implementation (MMTSFM) | `/Users/marcomorandin/Desktop/MMTSFM` |
 | SolarVLM baseline | `/Users/marcomorandin/Desktop/Code-Thesis/Solar-VLM-original` |
-| Baseline papers | `baselines/` |
-| Related work | `solar-related-work/` |
+| Baseline papers | `knowledge/papers/baselines/` |
+| Related work | `knowledge/papers/related/` |
 
 ---
 

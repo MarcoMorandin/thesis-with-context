@@ -10,8 +10,8 @@ Point Graphify at this folder to build a research knowledge graph.
 
 | Subfolder | Source |
 |-----------|--------|
-| `papers/baselines/` | `../baselines/*.pdf` |
-| `papers/related/` | `../solar-related-work/*.pdf` |
+| `papers/baselines/` | Reorganized PDF files of baselines (tracked directly) |
+| `papers/related/` | Reorganized PDF files of related work (tracked directly) |
 | `docs/` | `../MMTSFM/*.md`, `../docs/` |
 | `notes/` | Your experiment notes (create as you go) |
 
