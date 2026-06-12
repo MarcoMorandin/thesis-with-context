@@ -1,32 +1,67 @@
-# PVTSFM  -  PV Temporal Spatiotemporal Foundation Model
+# PVTSFM  -  PV Temporal Spatiotemporal Foundation Model Research Repository
 
-This repository is the **single source of truth for the entire research project**, housing the code for the main foundation model, all baselines, documentation, and evaluation infrastructure. The goal is to build a research-grade multimodal foundation model for **PV power forecasting** by injecting numerical data, covariates, and visual frames (satellite PNG images) using foundation models (Chronos-2, V-JEPA 2.1).
+This repository is the **single source of truth for the entire research project**. It houses the research documentation, dataset exploration scripts, the prior MMTSFM proposal framework, and the external baselines (e.g., SolarVLM) used for benchmarking zero-shot cross-plant solar power forecasting.
+
+---
+
+## Repository Structure
+
+```
+thesis-with-context/
+├── MMTSFM/                      # Full MMTSFM proposal codebase (configs, src, tests, scripts)
+├── baselines/
+│   └── solar_vlm/               # Clean port of the SolarVLM baseline & configs
+├── dataset_exploration/         # Standalone EDA code, report, and plots
+├── docs/                        # Research documentation
+│   ├── architecture/            # Architecture overviews & roadmaps
+│   ├── context/                 # Context engineering guidelines & data contracts
+│   └── experiments/             # Ablation registry & baseline protocols
+└── knowledge/                   # Research literature and proposals (Graphify input)
+```
+
+---
 
 ## Research Parameters & Decisions
-* **Repo Strategy**: A clean research repository containing everything. Baselines requiring GPU training will have SLURM scripts configured to run on the cluster.
-* **Cross-Plant Protocol**: Held-out plants are used as a disjoint test set. Plants will have a small history, and the model must generalize based on what it learned from other plants (zero-shot generalization, not few-shot context injection).
-* **Baselines**: Multiple baselines will be compared against, including:
-  * TSFM zero-shot
-  * TSFM finetuning
-  * TSFM + RAG (or similar memory/retrieval approaches)
-  * Deep Learning baselines
-  * Classical Machine Learning baselines
+* **Repo Strategy**: Single source of truth containing everything. GPU baselines are configured with SLURM scripts for cluster runs.
+* **Cross-Plant Protocol**: Zero-shot cross-plant generalization evaluated on disjoint test plants using their small history, rather than few-shot in-context learning.
 * **Visual Modality**: Satellite PNG images.
-* **Horizon**: Intra-hour granularity with a hopefully long horizon (to be verified).
-* **Configuration**: Configuration for each baseline will be self-contained within each baseline's module inside this bigger codebase.
+* **Horizon**: Intra-hour granularity with long-horizon forecasting.
+* **Configuration**: Configuration for each baseline is self-contained within its respective directory.
 
-## Quick start
+---
 
+## Quick Start Guide
+
+### 1. Dataset Exploration (EDA)
+Explore the telemetry and visual datasets using the standalone tools:
 ```bash
-# Install (uv only)
-uv sync --dev
-
-# Train (main model example)
-uv run pvtsfm-train trainer.max_epochs=1
-
-# Test architecture pieces
-uv run pytest tests/ -k "not integration"
+cd dataset_exploration
+# Run the EDA script
+uv run run_eda.py
 ```
+Detailed findings are logged in [dataset_exploration_report.md](file:///Users/marcomorandin/Desktop/thesis-with-context/dataset_exploration/dataset_exploration_report.md).
+
+### 2. Prior Proposal Framework (MMTSFM)
+Run the Chronos-2 + V-JEPA + Grassmann temporal-mixing framework:
+```bash
+cd MMTSFM
+# Install dependencies
+uv sync --dev
+# Run a training smoke-test on synthetic data
+uv run python -m mmtsfm.train
+```
+
+### 3. SolarVLM Baseline
+Run the multimodal LLM-driven baseline:
+```bash
+cd baselines/solar_vlm
+# Set up the environment
+source setup_env.sh
+# Train on SKIPP'D (using precomputed offline features)
+python run_skippd.py --is_training 1 --use_offline_vision --vision_feat_dir /path/to/feats
+```
+
+---
 
 ## Context Engineering & Agent Skills
 
@@ -48,21 +83,19 @@ We use two systems to separate code understanding from research understanding:
 2. **Graphify** (`/graphify knowledge/ --wiki --update`): Primary tool for the research corpus. It tracks papers, proposals, cross-doc synthesis, and the audit trail. 
 *Note: Make sure to place papers in `knowledge/papers/baselines` and `knowledge/papers/related`, and internal documents in `knowledge/docs/` before updating the Graphify wiki.*
 
-## Research Documents to Write (TODOs)
-The following documents still need to be written to complete the context engineering:
-- `docs/context/DATASET_CONTRACT.md` — Schema of `standardized-dataset` (columns, splits, no ETL code).
-- `docs/experiments/BASELINE_PROTOCOL.md` — Fair comparison rules (same horizon, same plants, same metrics).
-- `docs/architecture/CROSS_PLANT_CONTEXT.md` — How the plant descriptor / small history is ingested without few-shot.
+---
 
-## Dataset Exploration
-Exploratory Data Analysis (EDA) and data curation scripts are located in [dataset_exploration/](file:///Users/marcomorandin/Desktop/thesis-with-context/dataset_exploration):
-- `run_eda.py`: Runs exploratory analysis over target PV datasets.
-- `curate_dataset.py`: Filters and curates subsets of solar plant telemetry.
-- `pack_images.py`: Packages raw images into standardized spatial-temporal structures.
-- `plots/`: Contains 35 diagnostic plots (brightness vs. power, diurnal profiles, capacity distribution, etc.).
-- `dataset_exploration_report.md`: Detailed exploration analysis and findings report.
+## Research Documents & Guidelines
 
-## External resources
+* [AGENTS.md](file:///Users/marcomorandin/Desktop/thesis-with-context/AGENTS.md) — Unified instruction file mandating Git workflows, naming conventions, and constraints.
+* [CLAUDE.md](file:///Users/marcomorandin/Desktop/thesis-with-context/CLAUDE.md) — Claude Code specific settings and commands.
+* [docs/context/DATASET_CONTRACT.md](file:///Users/marcomorandin/Desktop/thesis-with-context/docs/context/DATASET_CONTRACT.md) — Standardized-dataset schema, splits, and tensor output contracts.
+* [docs/experiments/BASELINE_PROTOCOL.md](file:///Users/marcomorandin/Desktop/thesis-with-context/docs/experiments/BASELINE_PROTOCOL.md) — Fair comparison protocols and metrics.
+* **TODO**: `docs/architecture/CROSS_PLANT_CONTEXT.md` — How the plant descriptor / small history is ingested without few-shot.
+
+---
+
+## External Resources
 
 | Resource | Path |
 |----------|------|
@@ -72,9 +105,9 @@ Exploratory Data Analysis (EDA) and data curation scripts are located in [datase
 | Baseline papers | `baselines/` |
 | Related work | `solar-related-work/` |
 
-## Stack
+---
 
-- **Python**: uv only
-- **Config**: Hydra only (contained per baseline)
-- **Training**: PyTorch Lightning
-- **Backbones**: Chronos-2 (TS), V-JEPA 2.1 (vision)
+## Stack
+- **Python**: uv only (isolated environment per baseline package)
+- **Config**: Hydra composed hierarchies (contained per baseline)
+- **Backbones**: Chronos-2 (TS), V-JEPA 2.1 (vision), Qwen-VL (SolarVLM)
