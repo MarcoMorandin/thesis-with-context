@@ -1,0 +1,100 @@
+{
+  "manifest": {
+    "model": "tft_s2_ukpv_agg",
+    "git_sha": "145fd8e9ddcd8b2b5f0499c1dd5c69ac5ea8f8ff",
+    "config_hash": "c5996b4bec32dc4d",
+    "seed": 42,
+    "dataset_version": "all_curated.parquet:84057658:1781171196",
+    "timestamp_utc": "2026-06-15T14:32:39.712468+00:00",
+    "config": {
+      "model": [
+        "dlinear",
+        "mlp",
+        "patchtst",
+        "itransformer",
+        "tft"
+      ],
+      "data": "/Volumes/SSD/standardized-dataset/numerical/all_curated.parquet",
+      "split": "test",
+      "history": 24,
+      "horizon": 12,
+      "eval_stride": 12,
+      "train_stride": 12,
+      "batch_size": 256,
+      "seeds": [
+        42,
+        43,
+        44
+      ],
+      "out": "results",
+      "tag": "s2_ukpv",
+      "in_domain": false,
+      "lopo_dataset": null,
+      "train_datasets": [
+        "uk_pv"
+      ],
+      "eval_datasets": [
+        "uk_pv"
+      ],
+      "train_fraction": 1.0,
+      "control": "none",
+      "model_kwargs": "{}",
+      "quantile_levels": [
+        0.1,
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+        0.7,
+        0.8,
+        0.9
+      ]
+    }
+  },
+  "results": {
+    "overall_mean_std": {
+      "coverage_80": {
+        "mean": 0.7662276639824822,
+        "std": 0.01413164113457234
+      },
+      "crps": {
+        "mean": 0.05770964742666618,
+        "std": 0.00018815449837133628
+      },
+      "n_plants": {
+        "mean": 14.0,
+        "std": 0.0
+      },
+      "n_steps": {
+        "mean": 49232.0,
+        "std": 0.0
+      },
+      "nmae": {
+        "mean": 0.07294509042397236,
+        "std": 0.00022233027263217237
+      },
+      "nmae_ramp": {
+        "mean": 0.15176559148731197,
+        "std": 0.0011969142381719874
+      },
+      "nrmse": {
+        "mean": 0.10795230986377502,
+        "std": 0.0004465546898943175
+      },
+      "nrmse_ramp": {
+        "mean": 0.18263027745388682,
+        "std": 0.0008641687470061324
+      },
+      "quantile_ece": {
+        "mean": 0.0855573268979954,
+        "std": 0.003729576750665421
+      },
+      "skill_score": {
+        "mean": 0.04867814439801962,
+        "std": 0.003935230628729547
+      }
+    },
+    "n_seeds": 3
+  }
+}

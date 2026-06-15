@@ -1,0 +1,88 @@
+{
+  "manifest": {
+    "model": "dlinear_s2_ukpv_agg",
+    "git_sha": "145fd8e9ddcd8b2b5f0499c1dd5c69ac5ea8f8ff",
+    "config_hash": "c5996b4bec32dc4d",
+    "seed": 42,
+    "dataset_version": "all_curated.parquet:84057658:1781171196",
+    "timestamp_utc": "2026-06-15T12:51:47.481000+00:00",
+    "config": {
+      "model": [
+        "dlinear",
+        "mlp",
+        "patchtst",
+        "itransformer",
+        "tft"
+      ],
+      "data": "/Volumes/SSD/standardized-dataset/numerical/all_curated.parquet",
+      "split": "test",
+      "history": 24,
+      "horizon": 12,
+      "eval_stride": 12,
+      "train_stride": 12,
+      "batch_size": 256,
+      "seeds": [
+        42,
+        43,
+        44
+      ],
+      "out": "results",
+      "tag": "s2_ukpv",
+      "in_domain": false,
+      "lopo_dataset": null,
+      "train_datasets": [
+        "uk_pv"
+      ],
+      "eval_datasets": [
+        "uk_pv"
+      ],
+      "train_fraction": 1.0,
+      "control": "none",
+      "model_kwargs": "{}",
+      "quantile_levels": [
+        0.1,
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+        0.7,
+        0.8,
+        0.9
+      ]
+    }
+  },
+  "results": {
+    "overall_mean_std": {
+      "n_plants": {
+        "mean": 14.0,
+        "std": 0.0
+      },
+      "n_steps": {
+        "mean": 49232.0,
+        "std": 0.0
+      },
+      "nmae": {
+        "mean": 0.0825284771580675,
+        "std": 0.00020388968920859223
+      },
+      "nmae_ramp": {
+        "mean": 0.16158204274905094,
+        "std": 0.00029817958444104377
+      },
+      "nrmse": {
+        "mean": 0.11418963151613391,
+        "std": 0.00018696910335845162
+      },
+      "nrmse_ramp": {
+        "mean": 0.1891396033996424,
+        "std": 0.0002449606823103918
+      },
+      "skill_score": {
+        "mean": -0.006287797653578971,
+        "std": 0.0016476515840342296
+      }
+    },
+    "n_seeds": 3
+  }
+}

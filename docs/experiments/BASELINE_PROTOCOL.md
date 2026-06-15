@@ -24,6 +24,25 @@ We use a **Disjoint Cross-Plant Protocol** rather than a few-shot context-matchi
 
 For the numerical track the split is generated once (seed 42, per-dataset 70/15/15, `bad_site_flag` sites excluded) and committed to `baselines/configs/splits.json`; disjointness is asserted at every load (`baselines/common/splits.py`). **`goes_pvdaq` (10 plants) must additionally be evaluated leave-one-plant-out** — its 15 % test share is 1-2 plants and per-plant variance would dominate a fixed split (see BASELINE_COMPARISON §4.1).
 
+### Committed plant assignment — `uk_pv` (numerical track)
+
+`uk_pv` is a fleet of **100 residential rooftop systems** (1.5–4.0 kW capacity, 30-minute cadence, 2019-01-01 → 2020-12-31 UTC). Two sites (`7239`, `8587`) carry `bad_site_flag` and are dropped, leaving 98 sites partitioned by the seed-42 shuffle into disjoint plant sets:
+
+| Role | Plants | Rows | Valid power steps | Purpose |
+| :--- | :---: | :---: | :---: | :--- |
+| **Train** | 69 | 850 654 | 846 633 | Fit ML params / fine-tune backbones |
+| **Validation** | 15 | 184 899 | 182 809 | Early stopping, hyperparameter / α tuning |
+| **Test** | 14 | 172 656 | 171 543 | Final reporting only — never seen in fit |
+| _excluded_ | 2 (bad) | — | — | `7239`, `8587` (`bad_site_flag`) |
+
+Exact `site_id` membership (source of truth: `baselines/configs/splits.json`):
+
+* **Train (69)**: `10048 10367 10512 10589 10630 10702 10840 10843 11042 11287 12495 12642 13309 13311 13390 13773 14394 14467 14531 14649 14859 14924 16216 16921 18161 26811 26831 26844 26846 26848 26869 26879 26904 26919 27054 3149 3175 3333 3770 3872 4090 6427 6493 6618 6669 6675 6827 6838 6892 6966 6975 7017 7051 7088 7338 7359 7378 7401 7412 7498 7521 7533 7547 7608 7651 7674 7834 7836 9153`
+* **Validation (15)**: `6075 6481 6498 6732 7019 7356 7648 10973 12826 13057 16474 16769 18249 26901 26970`
+* **Test (14)**: `3432 6648 7315 7756 8066 9191 10793 11176 13388 13817 18989 26854 26933 27020`
+
+The `goes_pvdaq` companion split (used only when its dataset is in scope) is 7 train / 2 val / 1 test, and is additionally rotated leave-one-plant-out per §4.1 of BASELINE_COMPARISON. The runs documented in `docs/experiments/BASELINE_RESULTS_UKPV.md` are restricted to `uk_pv` (`--train-datasets uk_pv --eval-datasets uk_pv`) while the `goes_pvdaq` source was still downloading.
+
 ### Inference Setup
 During evaluation on a test plant:
 * The model is given a history window of target power values and covariates: \(Y \in \mathbb{R}^{1 \times T \times 1}\) and \(X_{\text{cov}} \in \mathbb{R}^{1 \times T \times C_{\text{cov}}}\).
