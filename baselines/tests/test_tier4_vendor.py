@@ -46,3 +46,49 @@ def test_integration_doc_exists():
     assert doc.is_file()
     text = doc.read_text()
     assert "ts_rag_orig" in text and "ts_rag_proto" in text
+
+
+# ---- data bridge + baseline-contract checks --------------------------------
+
+import numpy as np  # noqa: E402
+
+from tier4.vendor import contract_check  # noqa: E402
+from tier4.vendor.export_ukpv import _grid_frame  # noqa: E402
+
+from .conftest import make_frame  # noqa: E402
+
+
+def test_export_grid_frame_is_dense_and_in_range():
+    df = make_frame(n_sites=3, days=4, nan_fraction=0.1)
+    df["site_id"] = df["site_id"].astype(str)
+    wide = _grid_frame(df, ["site_0", "site_2"])
+    assert list(wide.columns) == ["site_0", "site_2"]      # committed order, dense
+    assert not wide.isna().any().any()                      # gaps filled
+    step = wide.index.to_series().diff().dropna().dt.total_seconds().unique()
+    assert step.tolist() == [1800.0]                        # 30-min grid
+    assert wide.to_numpy().min() >= 0.0
+
+
+def test_contract_check_inputs(tmp_path):
+    import pandas as pd
+    dates = pd.date_range("2021-06-01", periods=48, freq="30min", tz="UTC")
+    good = pd.DataFrame({"date": dates, "OT": np.linspace(0, 1, 48)})
+    good.to_csv(tmp_path / "uk_pv_test_x.csv", index=False)
+    (tmp_path / "manifest.json").write_text("{}")
+    assert contract_check.check_inputs(tmp_path) == []      # clean
+
+    bad = pd.DataFrame({"date": dates, "OT": np.linspace(0, 2, 48)})  # >1
+    bad.to_csv(tmp_path / "uk_pv_test_bad.csv", index=False)
+    assert any("outside [0,1]" in e for e in contract_check.check_inputs(tmp_path))
+
+
+def test_contract_check_predictions(tmp_path):
+    ok = tmp_path / "ok.npz"
+    np.savez(ok, pred=np.random.rand(20, 12).astype("float32"))
+    assert contract_check.check_predictions(ok, horizon=12) == []
+
+    bad = tmp_path / "bad.npz"
+    np.savez(bad, pred=(np.random.rand(20, 8) * 2).astype("float32"))
+    errs = contract_check.check_predictions(bad, horizon=12)
+    assert any("horizon" in e for e in errs)
+    assert any("outside [0,1]" in e for e in errs)

@@ -28,8 +28,8 @@ and 15-min `goes_pvdaq` grids, capacity-normalized `norm_power` target).
 | 3 | `timesfm_zs` | TimesFM 2.5 zero-shot | ✅ |
 | 3 | `tirex_zs` | TiRex (xLSTM) zero-shot | ✅ |
 | 3 | `ttm_zs` / `ttm_ft` | TTM-R3 zero-shot / fine-tuned | — |
-| 4 | `ts_rag` | TS-RAG: analog retrieval over frozen backbone, α tuned on val | via backbone |
-| 4 | `cross_rag` | Cross-RAG (A08): clear-sky-aware keys, per-step α | via backbone |
+| 4 | _ts_rag_ | TS-RAG — **cluster-only, vendored original code** (`tier4/vendor/`), not a registry baseline | via backbone |
+| 4 | _cross_rag_ | Cross-RAG — **cluster-only, vendored original code** (`tier4/vendor/`), not a registry baseline | via backbone |
 | 4 | `cora` | CoRA-style covariate adapter on frozen backbone (zero-init residual) | via backbone |
 
 Tier 3 needs `uv sync --group tier3` (transformers/einops for Chronos-2 via
@@ -72,8 +72,8 @@ encoder-decoder attention, and the 9-quantile pinball objective.
 - `common/runner.py` — ramp-subset (S6) thresholds + metrics, per-horizon
   NMAE(h) curves (§4.2), per-window loss sidecars (`*_losses.npz`) for
   significance testing, reproducibility manifest (§6.7).
-- `scripts/run_suite.py` — S1–S5 + controls + A15 sweep as run_eval
-  commands (dry-run by default; `--execute` to run).
+- `scripts/run_suite.py` — S1–S5 + controls as run_eval commands
+  (dry-run by default; `--execute` to run).
 - `scripts/significance.py` — DM + bootstrap + Holm over saved runs; only
   bold a result when `bold_ok` is true.
 - `scripts/make_tables.py` — renders §7.1 headline + §4.4 aggregation
@@ -104,9 +104,24 @@ sbatch --export=ALL,STAGE=zs scripts/slurm_baselines.sh    # zero-shot only
 sbatch --export=ALL,STAGE=lopo scripts/slurm_baselines.sh  # goes_pvdaq LOPO (§4.1)
 ```
 
+Compute nodes are offline — run the prep on the **login node** first so all HF
+weights are cached and the uk_pv CSVs exported:
+
+```bash
+bash scripts/login_node_prep.sh            # caches HF models + exports + input contract check
+```
+
 The *original* vendored TS-RAG / Cross-RAG (separate numpy-1.25 conda env, not
-`run_eval`) have their own runner with prerequisite guards —
-`scripts/slurm_rag_original.sh`; see `docs/experiments/TIER4_RAG_INTEGRATION.md`.
+`run_eval`) have their own offline-guarded runner — `scripts/slurm_rag_original.sh`:
+
+```bash
+# baseline-contract gate only (offline, no model):
+sbatch --export=ALL,METHOD=ts_rag,REGIME=orig,CONTRACT_CHECK=1,CONDA_ENV=tsrag,\
+UKPV_CSV_DIR=…,BASE_CKPT=…,MIXER_CKPT=… scripts/slurm_rag_original.sh
+# full run: drop CONTRACT_CHECK=1
+```
+
+See `docs/experiments/TIER4_RAG_INTEGRATION.md` for the full recipe.
 
 ## Not in this package (other tiers)
 

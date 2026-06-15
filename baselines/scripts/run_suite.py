@@ -22,7 +22,9 @@ SEEDS = "--seeds 42 43 44"
 
 ZS_MODELS = "persistence seasonal_naive climatology_hourly chronos2_zs timesfm_zs tirex_zs"
 TRAINED_MODELS = "lightgbm mlp dlinear patchtst itransformer tft"
-TIER4_MODELS = "ts_rag cross_rag cora"
+# TS-RAG / Cross-RAG are cluster-only (vendored original code, scripts/
+# slurm_rag_original.sh); only CoRA runs through run_eval here.
+TIER4_MODELS = "cora"
 ALL_MODELS = f"{ZS_MODELS} {TRAINED_MODELS} {TIER4_MODELS}"
 
 # scenario id → list of run_eval.py argument strings
@@ -60,15 +62,9 @@ SUITE: dict[str, list[str]] = {
         f"--model {ALL_MODELS} --control low_history_8 --tag ctl_hist8",
         f"--model {ALL_MODELS} --control low_history_12 --tag ctl_hist12",
     ],
-    # A15: RAG datastore size / top-k sweep (fairness: tuned, not strawmanned)
-    "a15": [
-        f"--model ts_rag --model-kwargs '{{\"top_k\": {k}}}' --tag a15_k{k}"
-        for k in (2, 4, 8, 16, 32)
-    ] + [
-        f"--model ts_rag --model-kwargs '{{\"max_datastore\": {m}}}' "
-        f"--tag a15_store{m}"
-        for m in (10_000, 50_000, 200_000)
-    ],
+    # A15 (RAG datastore size / top-k sweep) moved to the vendored original
+    # TS-RAG/Cross-RAG cluster path — see scripts/slurm_rag_original.sh and
+    # docs/experiments/TIER4_RAG_INTEGRATION.md.
 }
 
 

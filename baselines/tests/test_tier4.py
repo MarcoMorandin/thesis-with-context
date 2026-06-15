@@ -1,9 +1,12 @@
-"""Tier-4 specific tests: retrieval fairness, tuning, adapter identity.
+"""Tier-4 specific tests: the zero-initialized CoRA adapter.
 
 Shape/finite/determinism contracts are covered by the parametrized
 test_baseline_contract.py; here we test what is specific to tier 4:
-the datastore rule (§3: train-plant data only), val-based tuning, and
 the zero-initialized CoRA adapter starting at the backbone forecast.
+
+TS-RAG / Cross-RAG are cluster-only (vendored original code, see
+docs/experiments/TIER4_RAG_INTEGRATION.md); their provenance is guarded by
+test_tier4_vendor.py, not by in-process unit tests.
 """
 
 from __future__ import annotations
@@ -22,50 +25,6 @@ def _splits():
     val = windows_for(sites("site_3"))
     test = windows_for(sites("site_4"))
     return train, val, test
-
-
-def test_ts_rag_datastore_uses_train_plants_only():
-    train, val, test = _splits()
-    model = build("ts_rag", backbone="persistence", top_k=4, max_datastore=1000)
-    model.fit(train, val)
-    train_sites = {s.site_id for s in train.series}
-    assert model.datastore_sites  # non-empty
-    assert model.datastore_sites <= train_sites  # the §3 datastore rule
-
-
-def test_ts_rag_alpha_tuned_on_val_within_grid():
-    train, val, _ = _splits()
-    model = build("ts_rag", backbone="persistence", top_k=4, max_datastore=1000)
-    model.fit(train, val)
-    assert model.alpha.shape == (1,)
-    assert 0.0 <= model.alpha[0] <= 1.0
-
-
-def test_cross_rag_per_step_alpha():
-    train, val, _ = _splits()
-    model = build("cross_rag", backbone="persistence", top_k=4, max_datastore=1000)
-    model.fit(train, val)
-    assert model.alpha.shape == (val.horizon,)
-    assert (model.alpha >= 0.0).all() and (model.alpha <= 1.0).all()
-
-
-def test_cross_rag_keys_include_clearsky_profile():
-    train, val, _ = _splits()
-    model = build("cross_rag", backbone="persistence", top_k=4, max_datastore=1000)
-    model.fit(train, val)
-    t, h = train.history, train.horizon
-    assert model._keys.shape[1] == t + h  # z-history ⊕ future clear-sky
-
-
-def test_rag_empty_datastore_falls_back_to_backbone():
-    train, val, test = _splits()
-    model = build("ts_rag", backbone="persistence", top_k=4, max_datastore=1000)
-    model.fit(train, val)
-    model._keys = model._keys[:0]  # simulate empty datastore
-    batch = test.batch(list(range(8)))
-    point = model.predict(batch).point
-    expected = build("persistence").predict(batch).point
-    np.testing.assert_array_equal(point, expected)
 
 
 def test_cora_zero_init_starts_at_backbone():

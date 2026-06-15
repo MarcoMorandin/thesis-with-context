@@ -37,9 +37,8 @@ SMALL_KWARGS: dict[str, dict] = {
     "ttm_zs": dict(model_id="dummy"),
     "ttm_ft": dict(model_id="dummy", epochs=2, batch_size=16, patience=1),
     # tier 4 contract-tested against a dependency-free tier-0 backbone;
-    # real runs wrap chronos2_zs (see tier4 docstrings)
-    "ts_rag": dict(backbone="persistence", top_k=4, max_datastore=500),
-    "cross_rag": dict(backbone="persistence", top_k=4, max_datastore=500),
+    # real runs wrap chronos2_zs (see tier4 docstrings). TS-RAG / Cross-RAG are
+    # cluster-only (vendored original code), not registry baselines.
     "cora": dict(backbone="persistence", epochs=2, batch_size=64,
                  device="cpu", patience=1, max_train_windows=500),
 }
@@ -107,4 +106,4 @@ def test_registry_covers_tiers_0_to_4():
     assert "lightgbm" in names                                # tier 1
     assert {"mlp", "dlinear", "patchtst", "itransformer", "tft"} <= names  # tier 2
     assert {"chronos2_zs", "chronos2_ft", "timesfm_zs", "tirex_zs", "ttm_zs", "ttm_ft"} <= names  # tier 3
-    assert {"ts_rag", "cross_rag", "cora"} <= names           # tier 4
+    assert "cora" in names                                    # tier 4 (ts_rag/cross_rag are cluster-only vendored code)

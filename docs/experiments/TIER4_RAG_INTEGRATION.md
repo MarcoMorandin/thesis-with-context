@@ -1,9 +1,18 @@
 # Tier-4 RAG — running the *original* TS-RAG / Cross-RAG code
 
-**Goal.** Replace the lightweight α-mix in `baselines/tier4/rag.py` with the authors'
-**original code** for the headline Tier-4 numbers, per BASELINE_COMPARISON.md §1 (Tier 4)
-and the §3 fairness contract. The original repos are vendored unmodified under
-`baselines/tier4/vendor/` (see `VENDOR_NOTICE.md` for SHAs + licensing).
+**Goal.** Run the authors' **original code** for the Tier-4 RAG numbers, per
+BASELINE_COMPARISON.md §1 (Tier 4) and the §3 fairness contract. The in-repo α-mix
+`baselines/tier4/rag.py` has been **removed**: `ts_rag` / `cross_rag` are no longer
+registry baselines and run only from the vendored upstream code on the cluster.
+CoRA (`tier4/cora.py`) remains the only in-process Tier-4 baseline. The original repos
+are vendored unmodified under `baselines/tier4/vendor/` (`VENDOR_NOTICE.md` = SHAs +
+licensing).
+
+**Offline.** Compute nodes have no internet. Run `scripts/login_node_prep.sh` on the
+login node first (caches HF models, exports the uk_pv CSVs, runs the input contract
+check); the compute job (`scripts/slurm_rag_original.sh`) then runs fully offline with
+`HF_HUB_OFFLINE=1` and fails loud if a cache is missing. `CONTRACT_CHECK=1` runs only the
+baseline-contract gate (`tier4/vendor/contract_check.py`) and skips the heavy run.
 
 Per the agreed plan we report **two rows per method**:
 - **`*_orig` (faithful)** — Chronos-Bolt backbone, the authors' native **ctx-512 / pred-64**
@@ -61,14 +70,22 @@ We must instead:
    run with the train-only database (`--mode all_vars` pointed at the train DB, or a
    custom mode), never `only_self` on the test series.
 
-Export contract for the bridge script (to add as `baselines/tier4/vendor/export_ukpv.py`,
-pandas-only, runnable in our env):
-- read `configs/splits.json` + `all_curated.parquet`;
-- reindex each plant onto its native 30-min grid (reuse `common.windows.build_site_series`);
-- write `uk_pv_train.csv` (columns = train `site_id`s, `date` index, `OT`=first train plant)
-  and one `uk_pv_test_<site>.csv` per test plant (`OT`=that site);
-- emit `uk_pv` capacity table (`installed_power_w` per site) so predictions can be
-  de-normalised back for our metrics (step 6).
+The bridge is implemented in `baselines/tier4/vendor/export_ukpv.py` (pandas-only, runs
+in the baselines venv; verified on uk_pv). It reads `configs/splits.json` +
+`all_curated.parquet` and writes, to `--out`:
+- `uk_pv_train.csv` — dense 30-min grid, columns = train `site_id`s, `date` + `OT` (=first
+  train plant); the retrieval-datastore source (train plants only, §3);
+- `uk_pv_test_<site>.csv` per test plant (`date` + `OT`=that site);
+- `capacity.json` (`installed_power_w` per site) for de-normalising predictions (step 6);
+- `manifest.json`.
+
+Gaps (night/outage) are filled with 0.0 to give the upstream StandardScaler a dense grid.
+`tier4/vendor/contract_check.py --inputs <dir>` validates the result (date column, `OT`
+present, uniform 30-min grid, finite, in [0,1]) — wired as the SLURM preflight.
+
+> **Note (retrieval-DB fairness).** The remaining open item is wiring `do_retrieve` so the
+> datastore is built from `uk_pv_train.csv` only (never `only_self` on the test series) —
+> validate on the cluster before trusting the headline numbers.
 
 Keep cadence honest: uk_pv is 30-min ⇒ `--metadata_frequency half_hourly` (maps to
 seasonality 48 in `zeroshot.py::SEASONALITY_MAP`).
@@ -144,12 +161,16 @@ block (different backbone + regime), per §4.1.1 cadence rules.
 ## 7. Status
 
 - [x] Original code vendored (`vendor/ts_rag`, `vendor/cross_rag`) + provenance/licensing.
-- [x] SLURM wrapper `baselines/scripts/slurm_rag_original.sh` (orig + proto, guarded).
-- [ ] `export_ukpv.py` data bridge (contract in §3).
-- [ ] `dump_predictions.diff` patch (§6).
-- [ ] Cluster env + checkpoint download.
+- [x] SLURM wrapper `baselines/scripts/slurm_rag_original.sh` (orig + proto, offline-guarded).
+- [x] `export_ukpv.py` data bridge (§3) — verified on uk_pv (dense `date`+`OT` CSVs in [0,1]).
+- [x] `contract_check.py` + `CONTRACT_CHECK=1` gate — input + prediction baseline-contract checks.
+- [x] `login_node_prep.sh` — caches HF models + exports CSVs so compute nodes stay offline.
+- [ ] `dump_predictions.diff` patch (§6) — emit `*_pred.npz` for the output contract check + metric import.
+- [ ] Cluster env + released ARM/cross-attn checkpoint download (manual, off-repo).
 - [ ] Faithful + proto runs over the 14 test plants, ≥3 seeds.
 - [ ] Results imported, `summarize_ukpv.py` regenerated.
 
-The existing `baselines/tier4/rag.py` α-mix stays as the dependency-free fallback and the
-contract-test backbone; it is **not** the headline Tier-4 number once the above lands.
+There is no longer an in-repo α-mix fallback: `baselines/tier4/rag.py` was removed and
+`ts_rag` / `cross_rag` are **no longer registry baselines** — TS-RAG / Cross-RAG run
+exclusively from the vendored original code on the cluster. CoRA (`tier4/cora.py`) remains
+the only in-process Tier-4 baseline (no vendored upstream).

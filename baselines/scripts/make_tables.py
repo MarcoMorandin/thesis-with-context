@@ -25,7 +25,10 @@ TIER_ORDER = [
     ("T2", ["mlp", "dlinear", "patchtst", "itransformer", "tft"]),
     ("T3", ["chronos2_zs", "chronos2_ft", "timesfm_zs", "tirex_zs",
             "ttm_zs", "ttm_ft"]),
-    ("T4", ["ts_rag", "cross_rag", "cora"]),
+    # cora runs via run_eval; the *_orig/*_proto rows are imported from the
+    # vendored original TS-RAG / Cross-RAG cluster runs (TIER4_RAG_INTEGRATION.md)
+    ("T4", ["cora", "ts_rag_orig", "ts_rag_proto",
+            "cross_rag_orig", "cross_rag_proto"]),
 ]
 
 

@@ -63,10 +63,30 @@ if [[ "$REGIME" == "orig" ]]; then
     [[ -f "$MIXER_CKPT" ]] || { echo "ERROR: MIXER_CKPT not found: $MIXER_CKPT"; exit 1; }
 fi
 
+# ---- fully offline (compute node has no internet; prep on the login node) --
+# Everything below reads local caches only — run scripts/login_node_prep.sh first.
+export TRANSFORMERS_OFFLINE=1 HF_HUB_OFFLINE=1 HF_DATASETS_OFFLINE=1
+export TOKENIZERS_PARALLELISM=false WANDB_MODE=offline
+TEAM_SCRATCH="${TEAM_SCRATCH:-/leonardo_scratch/fast/IscrC_MTSFM}"
+export HF_HOME="${HF_HOME:-${TEAM_SCRATCH}/hf_cache}"
+[[ -d "$HF_HOME" ]] || { echo "ERROR: HF_HOME not found: $HF_HOME — run login_node_prep.sh"; exit 1; }
+# zeroshot.py hardcodes amazon/chronos-t5-base for retrieval embeddings: must be cached.
+if ! find "$HF_HOME" -path '*chronos-t5-base*' -name '*.safetensors' -o -path '*chronos-t5-base*' -name '*.bin' 2>/dev/null | grep -q .; then
+    echo "ERROR: amazon/chronos-t5-base not in HF_HOME cache ($HF_HOME)."
+    echo "       compute node is offline — cache it on the login node (login_node_prep.sh STAGE=rag)."
+    exit 1
+fi
+
 # ---- upstream env (conda, NOT uv) ------------------------------------------
-export TRANSFORMERS_OFFLINE=1 HF_HUB_OFFLINE=1
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate "$CONDA_ENV"
+
+# ---- baseline-contract preflight (offline, no model; needs the env's pandas)
+python tier4/vendor/contract_check.py --inputs "$UKPV_CSV_DIR"
+if [[ "${CONTRACT_CHECK:-0}" == "1" ]]; then
+    echo "✓ CONTRACT_CHECK gate passed (inputs valid); skipping the heavy run."
+    exit 0
+fi
 
 echo "============================================================"
 echo " Method  : $METHOD   Regime: $REGIME (ctx=$SEQ_LEN pred=$PRED_LEN)"
@@ -110,6 +130,21 @@ for csv in "$UKPV_CSV_DIR"/uk_pv_test_*.csv; do
 done
 
 cd "$ORIG_DIR"
+
+# ---- post-run baseline-contract check on dumped predictions ----------------
+# Requires the §6 dump_predictions patch (writes *_pred.npz next to results).
+shopt -s nullglob
+preds=("$VENDOR_DIR"/results/forecast_evaluation/*_pred.npz)
+if (( ${#preds[@]} )); then
+    echo ">>> predictions contract check (H=$PRED_LEN)"
+    for npz in "${preds[@]}"; do
+        python tier4/vendor/contract_check.py --predictions "$npz" --horizon "$PRED_LEN"
+    done
+else
+    echo "NOTE: no *_pred.npz found — apply the §6 dump patch to enable the"
+    echo "      output contract check + import into our NMAE/SS metrics."
+fi
+
 echo ""
 echo "✓ ${METHOD}/${REGIME} done. Import predictions into our metrics per"
 echo "  docs/experiments/TIER4_RAG_INTEGRATION.md §6 (dump_predictions patch),"
