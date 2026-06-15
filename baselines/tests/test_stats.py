@@ -9,11 +9,15 @@ from common.stats import block_bootstrap_ci, dm_test, holm_bonferroni
 
 
 def test_dm_equal_losses_not_significant():
+    # Two essentially-equal models: the loss differential is zero-mean noise,
+    # so the DM statistic is ~N(0,1) and the p-value is ~uniform on [0,1].
+    # The meaningful invariant (and the gate the framework actually uses) is
+    # that such a pair is NOT flagged significant at the 5 % level.
     rng = np.random.default_rng(0)
     loss = rng.random(500)
     noise = loss + rng.normal(0, 1e-9, 500)
     result = dm_test(loss, noise)
-    assert result["p_value"] > 0.5
+    assert result["p_value"] > 0.05
 
 
 def test_dm_clearly_better_model_is_significant():

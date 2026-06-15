@@ -70,7 +70,10 @@ def build_site_series(
                 site_id=str(site_id),
                 dataset=str(dataset),
                 capacity=float(g[config.CAPACITY_COL].dropna().iloc[0]),
-                timestamps=(grid.asi8 // 10**9).astype(np.int64),
+                # resolution-robust unix seconds: pandas 2.x date_range may
+                # return non-nanosecond datetime64, so asi8 // 1e9 mis-scales.
+                timestamps=((grid - pd.Timestamp(0, tz="UTC"))
+                            // pd.Timedelta("1s")).to_numpy().astype(np.int64),
                 y=g[config.TARGET_COL].to_numpy(dtype=np.float32),
                 cov=g[list(cov_cols)].to_numpy(dtype=np.float32) / scales,
                 clearsky=np.nan_to_num(
