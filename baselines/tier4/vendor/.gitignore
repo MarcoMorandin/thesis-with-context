@@ -1,0 +1,11 @@
+# Off-repo artifacts pulled at run time on the cluster (multi-GB, never commit)
+**/checkpoints/
+**/datasets/
+**/retrieval_database/
+**/results/
+**/__pycache__/
+*.pth
+*.parquet
+*.safetensors
+*.npz
+wandb/

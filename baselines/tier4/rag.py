@@ -1,8 +1,17 @@
 """Retrieval-augmented baselines over a frozen TSFM (Tier 4).
 
+**Lightweight, dependency-free reference implementation.** For the *headline*
+Tier-4 numbers we run the authors' original code, vendored under
+``baselines/tier4/vendor/{ts_rag,cross_rag}`` (TS-RAG arXiv:2503.07649 NeurIPS
+2025; Cross-RAG arXiv:2603.14709) — see ``docs/experiments/TIER4_RAG_INTEGRATION.md``
+for the cluster run recipe (their code needs Chronos-Bolt + faiss-gpu + numpy 1.25,
+a separate env). The classes below are kept as (a) a CPU/no-GPU fallback and (b)
+the contract-test backbone; they are an α-blend approximation, not the published
+ARM / cross-attention fusion.
+
 * TS-RAG (`ts_rag`, P0)    — analog retrieval over train-plant history
   windows blended with the frozen backbone forecast via a single mixing
-  weight α tuned on the validation plants (TS-RAG, arXiv:2503.07649).
+  weight α tuned on the validation plants.
 * Cross-RAG (`cross_rag`)  — stronger fusion (A08): retrieval keys augmented
   with the future clear-sky profile (clock/season-aware analogs) and a
   per-horizon-step mixing vector α_h tuned on validation plants.
