@@ -67,10 +67,10 @@ All Tier-2 models come essentially free via the [Time-Series-Library](https://gi
 
 | Model | Real images? | Why | Status |
 |---|---|---|---|
-| **Time-VLM** | ❌ (renders TS as image) | Must show that *real* satellite frames beat TS-rendered pseudo-images | 🔧 noted, ➕ **P0** to actually run |
-| **UniCast** ([arXiv:2508.11954](https://arxiv.org/abs/2508.11954)) | ✅ soft-prompt vision+text into TSFM | Frozen-FM multimodal prompting — same design space as ours, weaker fusion. Ideal contrast for H2 (deep fusion > prompting). | ➕ P1 |
-| **Aurora** ([arXiv:2509.22295](https://arxiv.org/abs/2509.22295)) | ✅ multimodal TSFM, ZS probabilistic | Generative multimodal TSFM; covers the "why not just use a multimodal TSFM" question | ➕ P2 |
-| VisionTS++ | ❌ (TS→image) | Cite + position; run only if reviewers demand | ➕ P2 |
+| **Time-VLM** | ❌ (renders TS as image) | Must show that *real* satellite frames beat TS-rendered pseudo-images | ✅ **P0** vendored `tier5/vendor/time_vlm` — numerical track (uk_pv), runnable (TIER5_INTEGRATION.md) |
+| **UniCast** ([arXiv:2508.11954](https://arxiv.org/abs/2508.11954)) | ✅ soft-prompt vision+text into TSFM | Frozen-FM multimodal prompting — same design space as ours, weaker fusion. Ideal contrast for H2 (deep fusion > prompting). | ✅ P1 vendored `tier5/vendor/unicast` — multimodal track (blocked on image+text data) |
+| **Aurora** ([arXiv:2509.22295](https://arxiv.org/abs/2509.22295)) | ✅ multimodal TSFM, ZS probabilistic | Generative multimodal TSFM; covers the "why not just use a multimodal TSFM" question | ✅ P2 vendored `tier5/vendor/aurora` — multimodal track (blocked) |
+| VisionTS++ | ❌ (TS→image) | Cite + position; run only if reviewers demand | ✅ P2 vendored `tier5/vendor/visionts_pp` — numerical track (uk_pv) |
 
 ### Tier 6 — PV-specialized multimodal (domain SOTA)
 

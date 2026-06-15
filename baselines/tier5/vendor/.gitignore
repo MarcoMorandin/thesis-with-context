@@ -1,0 +1,14 @@
+# Off-repo artifacts pulled on the login node (never commit)
+**/checkpoints/
+**/datasets/
+**/dataset/
+**/results/
+**/__pycache__/
+*.pth
+*.ckpt
+*.safetensors
+*.bin
+*.npz
+*.parquet
+*.csv
+wandb/

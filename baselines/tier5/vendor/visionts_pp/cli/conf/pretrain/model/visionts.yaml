@@ -1,0 +1,56 @@
+_target_: uni2ts.model.moirai.MoiraiPretrain
+module_kwargs:
+  patch_sizes: ${as_tuple:[1, 1]}
+  max_seq_len: 8192  # means the maximum length of the input sequence is 8192?
+min_patches: 16
+min_mask_ratio: 0.15
+max_mask_ratio: 0.5
+max_pre_mask_ratio: 0.5
+pre_mask_prob: 0.05
+num_patch_input: 7
+norm_const: 0.4
+
+# max_dim controls the maximum number of variables to be sampled.
+# max_dim: 128
+max_dim: 16
+# max_dim: 1
+
+loss_func:
+  _target_: uni2ts.loss.packed.PackedNLLLoss
+lr: 1e-4
+weight_decay: 1e-2
+beta1: 0.9
+beta2: 0.98
+num_training_steps: ${mul:${trainer.max_epochs},${train_dataloader.num_batches_per_epoch}}
+num_warmup_steps: 10_000
+
+# load_ckpt is to control whether to load the pre-trained model
+load_ckpt: true
+# load_ckpt: false
+
+# output_dist: gaussian
+output_dist: quantile
+
+# pixel_loss_weight: 0.5
+# pixel_loss_weight: 0.2
+pixel_loss_weight: 0.0
+
+# pixel_loss_type: huber
+pixel_loss_type: quantile
+
+# loss_topk: 0.7
+loss_topk: 1.0
+nonlinear_dist: false
+
+
+# If clip_input is 1, clipping will be applied.
+# If clip_input is 0, no clipping will be applied.
+# clip_input: 0
+clip_input: 1
+
+# complete_no_clip: true
+complete_no_clip: false
+
+# adapt_all_params controls whether to adapt all parameters or only the last layer.
+adapt_all_params: true
+# adapt_all_params: false

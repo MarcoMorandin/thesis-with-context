@@ -29,6 +29,10 @@ TIER_ORDER = [
     # vendored original TS-RAG / Cross-RAG cluster runs (TIER4_RAG_INTEGRATION.md)
     ("T4", ["cora", "ts_rag_orig", "ts_rag_proto",
             "cross_rag_orig", "cross_rag_proto"]),
+    # Tier 5: vendored original multimodal-TS baselines imported by file stem
+    # (TIER5_INTEGRATION.md). time_vlm/visionts_pp = numerical track (runnable);
+    # unicast/aurora = multimodal track (blocked on image+text data).
+    ("T5", ["time_vlm", "visionts_pp", "unicast", "aurora"]),
 ]
 
 

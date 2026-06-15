@@ -1,0 +1,9 @@
+accelerate==1.6.0
+torch==2.6.0
+pandas==2.2.3
+numpy==2.2.4
+transformers==4.40.1
+matplotlib==3.10.1
+safetensors==0.5.3
+scikit-learn==1.6.1
+pillow==11.1.0
