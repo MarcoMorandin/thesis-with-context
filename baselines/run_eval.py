@@ -16,7 +16,7 @@ Examples
     uv run python -m common.splits                     # once, committed
     uv run python run_eval.py --model smart_persistence persistence
     uv run python run_eval.py --model lightgbm dlinear patchtst --seeds 42 43 44
-    uv run python run_eval.py --model chronos2_zs ts_rag cora
+    uv run python run_eval.py --model chronos2_zs cora
     uv run python run_eval.py --model dlinear --horizon 48
     uv run python run_eval.py --model chronos2_zs --lopo-dataset goes_pvdaq
 """
