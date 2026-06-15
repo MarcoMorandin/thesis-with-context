@@ -5,9 +5,12 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --gres=gpu:1
 #SBATCH --partition=boost_usr_prod
-#SBATCH --qos=boost_qos_dbg
-#SBATCH --time=04:00:00
+#SBATCH --qos=normal
+#SBATCH --time=08:00:00
 #SBATCH --account=IscrC_MTSFM
+# Leonardo QOS: 'normal' = up to 24 h. For a quick <30 min smoke override at
+# submit time: sbatch --qos=boost_qos_dbg --time=00:30:00 scripts/slurm_baselines.sh
+# (boost_qos_dbg caps at 30 min / 2 nodes — never use it with --time>00:30:00).
 #SBATCH --output=logs/slurm/%j_%x.out
 #SBATCH --error=logs/slurm/%j_%x.err
 
@@ -15,7 +18,8 @@
 # numerical track via baselines/run_eval.py. Tiers 0-2 run on a laptop and are
 # excluded by default. run_eval does fit+eval in one pass, so "training" and
 # "testing" happen in the same invocation for the trained models
-# (chronos2_ft, ttm_ft, cora, ts_rag, cross_rag); the ZS models skip fit.
+# (chronos2_ft, ttm_ft, cora); the ZS models skip fit. TS-RAG / Cross-RAG run
+# separately from vendored original code (scripts/slurm_rag_original.sh).
 #
 # Usage (submit from the baselines/ directory):
 #   sbatch scripts/slurm_baselines.sh                       # default plan below
@@ -59,7 +63,9 @@ GROUP="${GROUP:-tier3}"
 DATA="${DATA:-${TEAM_SCRATCH}/data/numerical/all_curated.parquet}"
 
 ZS_MODELS="chronos2_zs timesfm_zs tirex_zs ttm_zs"
-TRAINED_MODELS="chronos2_ft ttm_ft cora ts_rag cross_rag"
+# ts_rag / cross_rag are NOT here — they run from vendored original code via
+# scripts/slurm_rag_original.sh, not through run_eval.
+TRAINED_MODELS="chronos2_ft ttm_ft cora"
 
 mkdir -p logs/slurm results
 

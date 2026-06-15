@@ -123,6 +123,35 @@ UKPV_CSV_DIR=…,BASE_CKPT=…,MIXER_CKPT=… scripts/slurm_rag_original.sh
 
 See `docs/experiments/TIER4_RAG_INTEGRATION.md` for the full recipe.
 
+### Leonardo (ISCRA-C) readiness checklist
+
+Before `sbatch`, on the **login node** (internet), in order:
+
+1. `git clone` the repo (brings `MMTSFM/src` for Chronos-2 and `configs/splits.json`).
+2. Stage the data: copy `all_curated.parquet` to
+   `$TEAM_SCRATCH/data/numerical/all_curated.parquet` (default
+   `TEAM_SCRATCH=/leonardo_scratch/fast/IscrC_MTSFM`; override the env if your
+   ISCRA-C project scratch differs).
+3. `uv sync --group tier3` (resolves the lock for linux; needs network).
+4. `bash scripts/login_node_prep.sh` — caches HF weights (chronos-2, timesfm,
+   tirex, ttm; chronos-t5-base + chronos-bolt for RAG) and exports the uk_pv CSVs.
+5. Confirm the SLURM account: scripts default to `--account=IscrC_MTSFM`; if your
+   ISCRA-C grant differs, submit with `sbatch --account=<your_account> …`.
+
+Then on compute nodes (offline):
+
+```bash
+sbatch scripts/slurm_baselines.sh                          # T3 ZS + T4 (cora) trained, S2
+sbatch --export=ALL,STAGE=lopo scripts/slurm_baselines.sh  # goes_pvdaq LOPO
+```
+
+QOS: scripts use `normal` (≤24 h). `boost_qos_dbg` (30 min cap) only for a smoke
+test via `sbatch --qos=boost_qos_dbg --time=00:30:00 …`.
+
+**Still manual for the RAG originals** (not auto-prepared): create the upstream
+conda env (`TIER4_RAG_INTEGRATION.md §1`) and download the released ARM /
+cross-attn checkpoints (Google Drive / HF). Everything else above is ready.
+
 ## Not in this package (other tiers)
 
 Tier 5/6 (Time-VLM, UniCast, SUNSET, CrossViVit, Solar-VLM — see
