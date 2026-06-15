@@ -73,6 +73,12 @@ pandas-only, runnable in our env):
 Keep cadence honest: uk_pv is 30-min ⇒ `--metadata_frequency half_hourly` (maps to
 seasonality 48 in `zeroshot.py::SEASONALITY_MAP`).
 
+> **SLURM wrapper.** `baselines/scripts/slurm_rag_original.sh` drives §4 and §5
+> end-to-end (conda env activation, optional re-pretrain, per-test-plant zero-shot)
+> with fail-loud prerequisite guards. Submit e.g.
+> `sbatch --export=ALL,METHOD=ts_rag,REGIME=orig,CONDA_ENV=tsrag,UKPV_CSV_DIR=…,BASE_CKPT=…,MIXER_CKPT=… scripts/slurm_rag_original.sh`.
+> The raw commands below document what it runs.
+
 ## 4. Faithful rows (`ts_rag_orig`, `cross_rag_orig`) — native 512/64
 
 From `baselines/tier4/vendor/ts_rag/TS-RAG/` (resp. `cross_rag/cross-rag/`):
@@ -138,6 +144,7 @@ block (different backbone + regime), per §4.1.1 cadence rules.
 ## 7. Status
 
 - [x] Original code vendored (`vendor/ts_rag`, `vendor/cross_rag`) + provenance/licensing.
+- [x] SLURM wrapper `baselines/scripts/slurm_rag_original.sh` (orig + proto, guarded).
 - [ ] `export_ukpv.py` data bridge (contract in §3).
 - [ ] `dump_predictions.diff` patch (§6).
 - [ ] Cluster env + checkpoint download.

@@ -94,6 +94,20 @@ uv run pytest                    # contract + metric tests (synthetic, no SSD ne
 Results land in `results/<model>.json` with a reproducibility manifest
 (git SHA, config hash, seed, dataset version) per BASELINE_COMPARISON.md §6.7.
 
+## Cluster execution (SLURM)
+
+Tiers 0-2 run on a laptop; Tiers 3-4 are GPU-bound. Submit from `baselines/`:
+
+```bash
+sbatch scripts/slurm_baselines.sh                          # T3 ZS + T4 trained, S2
+sbatch --export=ALL,STAGE=zs scripts/slurm_baselines.sh    # zero-shot only
+sbatch --export=ALL,STAGE=lopo scripts/slurm_baselines.sh  # goes_pvdaq LOPO (§4.1)
+```
+
+The *original* vendored TS-RAG / Cross-RAG (separate numpy-1.25 conda env, not
+`run_eval`) have their own runner with prerequisite guards —
+`scripts/slurm_rag_original.sh`; see `docs/experiments/TIER4_RAG_INTEGRATION.md`.
+
 ## Not in this package (other tiers)
 
 Tier 5/6 (Time-VLM, UniCast, SUNSET, CrossViVit, Solar-VLM — see
