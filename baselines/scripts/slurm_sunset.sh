@@ -11,19 +11,19 @@
 #SBATCH --output=logs/slurm/%j_%x.out
 #SBATCH --error=logs/slurm/%j_%x.err
 
-# Tier-6 SUNSET (P0, domain SOTA, MULTIMODAL track) — TRAIN + EVAL.
-# Nie et al. (Stanford) — canonical sky-image CNN: a stack of past sky images +
-# PV history → 15-min-ahead PV. Runs the authors' ORIGINAL TF2/Keras code
-# (tier6/vendor/sunset, MIT), adapted to our contract, NOT reimplemented.
-# SKIPP'D is SUNSET's NATIVE dataset (the same sky-image data solar_vlm/ uses),
-# so this is the least-blocked Tier-6 row: it needs the SKIPP'D HDF5
-# (forecast_dataset.hdf5), produced by the multimodal data pipeline.
+# Tier-6 SUNSET (P0, domain SOTA) on the uk_pv MULTIMODAL track — TRAIN + EVAL.
+# Nie et al. (Stanford) — canonical sky-image CNN: a stack of past sky frames +
+# PV history → PV forecast. Runs the authors' ORIGINAL TF2/Keras model
+# (faithfully transcribed from tier6/vendor/sunset/models/SUNSET_forecast.ipynb,
+# MIT), adapted to our contract via run_ukpv.py — NOT reimplemented. Consumes the
+# uk_pv numerical track (Y) + the satellite frames in images_uk128.h5 (V), wired
+# by tier6/uk_multimodal.py through the canonical image_uk128_index pointer.
 #
-#   sbatch --export=ALL,CONDA_ENV=sunset,SKIPPD_HDF5=<forecast_dataset.hdf5> \
-#          scripts/slurm_sunset.sh
+#   sbatch --export=ALL,CONDA_ENV=sunset,DATA=<all_curated.parquet>,\
+#          IMAGES_H5=<images_uk128.h5> scripts/slurm_sunset.sh
 #
-# Required: CONDA_ENV (TF2.4 env), SKIPPD_HDF5 (SUNSET forecast HDF5).
-# Optional: PRED_LEN(12) EPOCHS(20) SEED(42)
+# Required: CONDA_ENV (TF2 + h5py env, TIER6_INTEGRATION.md §1).
+# Optional: DATA IMAGES_H5 PRED_LEN(12) EPOCHS(20) SEED(42) IMG_SIZE(64) STRIDE(3)
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")/..}"
 [[ -f .env ]] && source .env
@@ -31,37 +31,34 @@ cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")/..}"
 export WANDB_MODE=offline TF_CPP_MIN_LOG_LEVEL=2
 TEAM_SCRATCH="${TEAM_SCRATCH:-/leonardo_scratch/fast/IscrC_MTSFM}"
 
-: "${CONDA_ENV:?set CONDA_ENV to the SUNSET TF2.4 conda env (TIER6_INTEGRATION.md §1)}"
+: "${CONDA_ENV:?set CONDA_ENV to the SUNSET TF2 conda env (TIER6_INTEGRATION.md §1)}"
+DATA="${DATA:-${TEAM_SCRATCH}/data/numerical/all_curated.parquet}"
+IMAGES_H5="${IMAGES_H5:-${TEAM_SCRATCH}/data/images_uk128.h5}"
 PRED_LEN="${PRED_LEN:-12}"; EPOCHS="${EPOCHS:-20}"; SEED="${SEED:-42}"
-OUT="${OUT:-tier6/vendor/sunset/results_skippd}"
+IMG_SIZE="${IMG_SIZE:-64}"; STRIDE="${STRIDE:-3}"
+OUT="${OUT:-tier6/vendor/sunset/results_ukpv}"
 
-# ---- multimodal-track guard (SKIPP'D sky-image HDF5 required) ---------------
-[[ -n "${SKIPPD_HDF5:-}" ]] || { echo "ERROR: SKIPPD_HDF5 unset — SUNSET needs the SKIPP'D
-  sky-image HDF5 (forecast_dataset.hdf5: images_log + PV history). Build it with the
-  SUNSET data_processing notebooks or reuse the solar_vlm SKIPP'D export, then set
-  SKIPPD_HDF5. See docs/experiments/TIER6_INTEGRATION.md."; exit 2; }
-[[ -f "$SKIPPD_HDF5" ]] || { echo "ERROR: SKIPPD_HDF5 not found: $SKIPPD_HDF5"; exit 1; }
+[[ -f "$DATA" ]] || { echo "ERROR: DATA parquet not found: $DATA"; exit 1; }
+[[ -f "$IMAGES_H5" ]] || { echo "ERROR: IMAGES_H5 not found: $IMAGES_H5 (uk_pv frames)"; exit 1; }
 
 source "$(conda info --base)/etc/profile.d/conda.sh"; conda activate "$CONDA_ENV"
 
-# ---- TRAIN + EVAL (self-contained runner from SUNSET_forecast.ipynb) --------
-# run_skippd.py is the adapted, no-notebook runner (added on vendor; see
-# tier6/vendor/VENDOR_NOTICE.md "Adaptations") — trains the original SUNSET
-# Keras model and dumps sunset_<site>_pred.npz in our baseline-contract format.
-echo ">>> TRAIN+EVAL SUNSET (SKIPP'D, multimodal)"
-RUNNER="tier6/vendor/sunset/run_skippd.py"
-[[ -f "$RUNNER" ]] || { echo "ERROR: $RUNNER not present — convert SUNSET_forecast.ipynb
-  to the self-contained run_skippd.py (TIER6_INTEGRATION.md §3) before submitting."; exit 3; }
-python "$RUNNER" \
-  --hdf5 "$SKIPPD_HDF5" --epochs "$EPOCHS" --seed "$SEED" \
-  --pred_len "$PRED_LEN" --out "$OUT"
+# ---- TRAIN + EVAL (run_ukpv.py = original SUNSET model on uk_pv multimodal) --
+# run_ukpv.py transcribes the upstream Keras graph (SUNSET_forecast.ipynb), feeds
+# it tier6.uk_multimodal windows, and dumps sunset_<site>_pred.npz per held-out
+# plant in our baseline-contract format. See tier6/vendor/VENDOR_NOTICE.md.
+echo ">>> TRAIN+EVAL SUNSET (uk_pv multimodal)"
+python tier6/vendor/sunset/run_ukpv.py \
+  --data "$DATA" --h5 "$IMAGES_H5" \
+  --epochs "$EPOCHS" --seed "$SEED" --pred_len "$PRED_LEN" \
+  --history 24 --img_size "$IMG_SIZE" --stride "$STRIDE" --out "$OUT"
 
 # ---- baseline-contract check + import → our NMAE/NRMSE/SS results JSON ------
 shopt -s nullglob
 for npz in "$OUT"/sunset_*_pred.npz; do
     uv run python tier4/vendor/contract_check.py --predictions "$npz" --horizon "$PRED_LEN" || true
 done
-uv run python scripts/import_predictions.py --model sunset --tag s2_mm \
+uv run python scripts/import_predictions.py --model sunset --tag s2_ukpv_mm \
     --glob "$OUT/sunset_*_pred.npz" \
     --reference results/smart_persistence_s2_ukpv.json
-echo "✓ SUNSET done → results/sunset_s2_mm.json (make_tables / summarize_ukpv pick it up)."
+echo "✓ SUNSET done → results/sunset_s2_ukpv_mm.json (make_tables / summarize_ukpv pick it up)."
