@@ -6,9 +6,12 @@ contract/dataset rather than reimplemented. Stripped on copy: `.git`, images,
 GIFs, videos, notebooks-as-figures, PDFs, bundled datasets, checkpoints. No
 upstream source edited (see "Adaptations").
 
-Both Tier-6 models consume **real images** (sky / satellite frames) → they live
-on the **multimodal track** (skippd / goes16_nsrdb per DATASET_CONTRACT), like
-Tier-5's UniCast / Aurora — vendored + scaffolded now, gated on that data.
+Both Tier-6 models consume **real images** (sky / satellite frames). They run on
+the **uk_pv multimodal track**: the curated numerical `Y` + the per-plant
+satellite frames in `images_uk128.h5`, aligned by the canonical
+`image_uk128_index` pointer and fed through `tier6/uk_multimodal.py`
+(`UKMultimodalDataset`). The vendored models are driven by their **own original
+code** via per-model `run_ukpv.py` adapters — see "Adaptations".
 
 | Vendor dir | Upstream | Commit SHA | License | Modality / track |
 |---|---|---|---|---|
@@ -38,10 +41,10 @@ cite-only for now — add here if reviewers demand (BASELINE_COMPARISON.md §1 T
 ## Track split (what runs where)
 
 Neither Tier-6 model renders the series as a pseudo-image (unlike Tier-5
-Time-VLM / VisionTS++) — both need **real frames**. They run on the multimodal
-track only: SKIPP'D (sky images, SUNSET-native and used by `solar_vlm/`) and
-goes16_nsrdb (satellite, CrossViViT-style context). Vendored + scaffolded now;
-runnable once the per-window `V` frames are wired to each harness's loader.
+Time-VLM / VisionTS++) — both need **real frames**. The uk_pv track carries them
+(`images_uk128.h5`, 128px per-plant satellite crops, 30-min daylight cadence,
+2019-2020), so both run on uk_pv now via the shared `tier6/uk_multimodal.py`
+bridge + the per-model `run_ukpv.py` runners.
 
 ## Licensing
 
@@ -51,22 +54,39 @@ is needed before a public release; keep both `LICENSE` files intact.
 
 ## Adaptations (where the vendored code stops being pristine)
 
-To make the cluster run "just submit", minimal in-place edits will land as the
-multimodal loaders are wired — diff against the pinned SHA to see them. As of
-this vendor drop **both trees are pristine** (no edits yet); the per-model SLURM
-scripts (`scripts/slurm_crossvivit.sh`, `scripts/slurm_sunset.sh`) fail loud
-until the multimodal dataset exists. Planned, when the data lands:
+The upstream model code is **unmodified** (diff against the pinned SHA to
+confirm). Each model gets ONE added file — a `run_ukpv.py` adapter that imports
+the original model and feeds it the uk_pv multimodal windows — plus the shared
+`tier6/uk_multimodal.py` bridge. No upstream source was edited.
 
-- `crossvivit/` — a thin `tscontext_datamodule` config pointing at our
-  multimodal-track frames + `Y`, and a prediction-dump hook in the Lightning
-  `test_step` writing `results/<setting>/<site>_pred.npz` in our
-  baseline-contract format (`pred`,`true` (N,H[,1])), for `import_predictions.py`.
-- `sunset/` — a self-contained `run_skippd.py` runner (converted from
-  `SUNSET_forecast.ipynb`, no notebook execution at run time) that trains/evals
-  on the SKIPP'D HDF5 and dumps `sunset_<site>_pred.npz`.
+- `crossvivit/run_ukpv.py` (added) — imports the original
+  `src.models.cross_vivit.RoCrossViViT` **unchanged** and drives it on uk_pv:
+  the last `pred_len` steps of each history window form CrossViViT's shared
+  context window (satellite `V` + PV/covariate `ts`), trained to forecast the
+  next `pred_len` PV steps. Dumps `crossvivit_<site>_pred.npz`.
+  **Approximations** (uk_pv ≠ the authors' georeferenced DeepLake SunLake):
+  single-channel 128px→S crops (`ctx_channels=1`) vs multi-band frames; no
+  optical-flow channels, no elevation; per-pixel `ctx_coords` synthesized as a
+  small lat/lon grid around the plant; `ts_coords` = plant lat/lon. These weaken
+  CrossViViT's spatial grounding — report the row with this caveat.
+- `sunset/run_ukpv.py` (added) — transcribes the original
+  `models/SUNSET_forecast.ipynb` Keras graph (2 conv blocks 24→48 + BN/maxpool,
+  Flatten ⊕ PV history, 2× Dense(1024)/Dropout, MSE/Adam) and feeds it the
+  uk_pv sky-image stack `V` + PV history. **Only change** vs upstream: final
+  Dense head widened 1 → H (the original predicts a single 15-min step; our
+  protocol forecasts H), masked MSE over `mask_future`. Dumps
+  `sunset_<site>_pred.npz`.
+
+Both runners dump `<model>_<site>_pred.npz` (`pred`,`true` (N,H)) for
+`scripts/import_predictions.py`; the per-model SLURM scripts
+(`scripts/slurm_{crossvivit,sunset}.sh`) wire export-free → train → eval →
+contract-check → import end-to-end on uk_pv. Verified to run end-to-end on the
+real data (CPU smoke test, tiny windows) before the cluster sweep.
 
 ## Off-repo artifacts (NOT in git — see `.gitignore`)
 
-Pretrained weights / checkpoints (CrossViViT released ckpts, any SUNSET weights)
-and datasets (DeepLake SunLake, SKIPP'D HDF5) are downloaded on the login node —
-see `docs/experiments/TIER6_INTEGRATION.md`.
+Both models train from scratch on uk_pv — no pretrained weights. The data
+(`numerical/all_curated.parquet` + `images_uk128.h5`) lives on the standardized
+read-only volume / staged to `$TEAM_SCRATCH` on the cluster; checkpoints
+(`*_best.pt`, `repetition_*/`) and the dumped `*_pred.npz` are run outputs, not
+committed. See `docs/experiments/TIER6_INTEGRATION.md`.

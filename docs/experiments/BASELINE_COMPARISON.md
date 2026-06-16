@@ -77,8 +77,8 @@ All Tier-2 models come essentially free via the [Time-Series-Library](https://gi
 | Model | Inputs | Why | Status |
 |---|---|---|---|
 | **Solar-VLM** | `Y, X_cov, V` (satellite) + text | Primary domain SOTA; already ported | ✅ `baselines/solar_vlm/` |
-| SUNSET | `Y, V` | Canonical CNN solar baseline, used by every related work | ✅ **P0** vendored `tier6/vendor/sunset` (MIT) — multimodal track (SKIPP'D-native, gated on data) |
-| **CrossViVit** (Boussif et al., NeurIPS 2023) | `Y, X_cov, V` (satellite) | The reference *deep* satellite+TS cross-attention model; the strongest non-FM multimodal competitor. Code public. | ✅ **P0** vendored `tier6/vendor/crossvivit` (MIT) — multimodal track (gated on data) |
+| SUNSET | `Y, V` | Canonical CNN solar baseline, used by every related work | ✅ **P0** vendored `tier6/vendor/sunset` (MIT) — runs on uk_pv multimodal (Y + images_uk128.h5), `run_ukpv.py` |
+| **CrossViVit** (Boussif et al., NeurIPS 2023) | `Y, X_cov, V` (satellite) | The reference *deep* satellite+TS cross-attention model; the strongest non-FM multimodal competitor. Code public. | ✅ **P0** vendored `tier6/vendor/crossvivit` (MIT) — runs on uk_pv multimodal via `run_ukpv.py` (single-channel/synthetic-coords approximations, see TIER6_INTEGRATION) |
 | SPIRIT | `Y, V` (ViT features) | Zero-shot vision-FM transfer — direct comparison for cross-plant ZS claims (H3) | ➕ P1 |
 | PV-VLM ([arXiv:2504.13624](https://arxiv.org/abs/2504.13624)) | `Y, X_cov, V` + text | Second PV-domain VLM; rebuttal breadth beyond Solar-VLM | ➕ P2 |
 | M3S-Net ([arXiv:2602.19832](https://arxiv.org/abs/2602.19832)) / FusionSF | `Y, X_cov, V` | Non-foundation PV multimodal fusion — "do FMs beat specialized PV fusion?" | ➕ P2 |

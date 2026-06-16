@@ -163,10 +163,10 @@ stem via `scripts/import_predictions.py`.
   UniCast, Aurora (multimodal track, gated). See `docs/experiments/TIER5_INTEGRATION.md`,
   `scripts/slurm_{time_vlm,visionts_pp,unicast,aurora}.sh`.
 - **Tier 6** (PV-specialized multimodal, domain SOTA): CrossViViT (`tier6/vendor/crossvivit`,
-  MIT) + SUNSET (`tier6/vendor/sunset`, MIT) — both multimodal track (real frames),
-  gated on that data; Solar-VLM is the third P0, already ported under `solar_vlm/`.
-  See `docs/experiments/TIER6_INTEGRATION.md`,
-  `scripts/slurm_{crossvivit,sunset}.sh`.
+  MIT) + SUNSET (`tier6/vendor/sunset`, MIT) — run on the **uk_pv multimodal track**
+  (curated `Y` + `images_uk128.h5` satellite frames, bridged by `tier6/uk_multimodal.py`);
+  Solar-VLM is the third P0, already ported under `solar_vlm/`. See
+  `docs/experiments/TIER6_INTEGRATION.md`, `scripts/slurm_{crossvivit,sunset}.sh`.
 
 ## Not in this package (other tiers)
 
