@@ -36,6 +36,10 @@ export SOLARVLM_SCRATCH="${SOLARVLM_SCRATCH:-/leonardo_scratch/fast/IscrC_MTSFM/
 # offline (compute node has no internet; weights cached on login node)
 export HF_DATASETS_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_HUB_OFFLINE=1
 export HF_HOME="${HF_HOME:-${SOLARVLM_SCRATCH}/.cache/huggingface}"
+export UV_CACHE_DIR="${UV_CACHE_DIR:-${SOLARVLM_SCRATCH}/uv_cache}"
+export PIP_CACHE_DIR="${PIP_CACHE_DIR:-${SOLARVLM_SCRATCH}/pip_cache}"
+export CONDA_PKGS_DIRS="${CONDA_PKGS_DIRS:-${SOLARVLM_SCRATCH}/conda_pkgs}"
+export CONDA_ENVS_DIRS="${CONDA_ENVS_DIRS:-${SOLARVLM_SCRATCH}/conda_envs}"
 
 echo ">>> Solar-VLM ($SOLARVLM_RUN) in $SOLARVLM_DIR"
 ( cd "$SOLARVLM_DIR" && bash "$SOLARVLM_RUN" )

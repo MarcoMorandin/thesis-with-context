@@ -30,6 +30,10 @@ cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")/..}"
 
 export WANDB_MODE=offline TF_CPP_MIN_LOG_LEVEL=2
 TEAM_SCRATCH="${TEAM_SCRATCH:-/leonardo_scratch/fast/IscrC_MTSFM}"
+export UV_CACHE_DIR="${UV_CACHE_DIR:-${TEAM_SCRATCH}/uv_cache}"
+export CONDA_PKGS_DIRS="${CONDA_PKGS_DIRS:-${TEAM_SCRATCH}/conda_pkgs}"
+export CONDA_ENVS_DIRS="${CONDA_ENVS_DIRS:-${TEAM_SCRATCH}/conda_envs}"
+export PIP_CACHE_DIR="${PIP_CACHE_DIR:-${TEAM_SCRATCH}/pip_cache}"
 
 : "${CONDA_ENV:?set CONDA_ENV to the SUNSET TF2 conda env (TIER6_INTEGRATION.md §1)}"
 DATA="${DATA:-${TEAM_SCRATCH}/data/dataset_all.parquet}"

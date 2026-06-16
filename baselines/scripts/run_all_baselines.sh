@@ -37,6 +37,10 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 # ---- config (override via --export / env) ----------------------------------
 TEAM_SCRATCH="${TEAM_SCRATCH:-/leonardo_scratch/fast/IscrC_MTSFM}"
+export UV_CACHE_DIR="${UV_CACHE_DIR:-${TEAM_SCRATCH}/uv_cache}"
+export CONDA_PKGS_DIRS="${CONDA_PKGS_DIRS:-${TEAM_SCRATCH}/conda_pkgs}"
+export CONDA_ENVS_DIRS="${CONDA_ENVS_DIRS:-${TEAM_SCRATCH}/conda_envs}"
+export PIP_CACHE_DIR="${PIP_CACHE_DIR:-${TEAM_SCRATCH}/pip_cache}"
 export HF_HOME="${HF_HOME:-${TEAM_SCRATCH}/hf_cache}"
 export TORCH_HOME="${TORCH_HOME:-${TEAM_SCRATCH}/torch_cache}"
 DATA_DIR="${DATA_DIR:-${TEAM_SCRATCH}/data}"
