@@ -81,6 +81,16 @@ def main() -> None:
         s.to_csv(path, index=False)
         test_paths.append(path.name)
 
+    # stacked single-series training set: all train plants concatenated in time.
+    # TSLib-style harnesses (Time-VLM, --features S) train ONE univariate `OT`
+    # series; stacking exposes every train plant without editing vendored code.
+    # Plant boundaries are mild discontinuities (documented), not a leak: still
+    # train-plants-only, disjoint from the test CSVs.
+    stacked = pd.concat([train[c] for c in train.columns], ignore_index=True)
+    synth = pd.date_range("2019-01-01", periods=len(stacked), freq="30min", tz="UTC")
+    pd.DataFrame({"date": synth, "OT": stacked.to_numpy()}).to_csv(
+        out / "uk_pv_train_stacked.csv", index=False)
+
     # capacities (W) for de-normalising predictions back to physical scale
     caps = (df.drop_duplicates(config.SITE_COL)
               .set_index(config.SITE_COL)[config.CAPACITY_COL].to_dict())
@@ -92,8 +102,10 @@ def main() -> None:
         "n_train_plants": len(splits["train"]),
         "n_test_plants": len(splits["test"]),
         "train_csv": "uk_pv_train.csv",
+        "train_stacked_csv": "uk_pv_train_stacked.csv",
         "test_csvs": test_paths,
         "rows_train": int(len(train)),
+        "rows_train_stacked": int(len(stacked)),
         "gap_fill": "0.0 (dense 30-min grid; night/outage = 0)",
         "target": "norm_power (capacity-normalised)",
     }

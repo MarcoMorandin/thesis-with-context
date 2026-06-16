@@ -45,3 +45,20 @@ def test_integration_doc_exists():
     assert doc.is_file()
     text = doc.read_text()
     assert "Time-VLM" in text and "multimodal track" in text
+
+
+def test_dedicated_slurm_scripts_present():
+    scripts = VENDOR.parents[1] / "scripts"
+    for name in ("slurm_time_vlm.sh", "slurm_visionts_pp.sh",
+                 "slurm_unicast.sh", "slurm_aurora.sh"):
+        assert (scripts / name).is_file(), f"missing dedicated SLURM script: {name}"
+
+
+def test_adaptations_present():
+    # VisionTS++ zero-shot uk_pv runner we added
+    assert (VENDOR / "visionts_pp" / "run_ukpv.py").is_file()
+    # Time-VLM prediction-dump patch (contract-format npz)
+    exp = (VENDOR / "time_vlm" / "exp" / "exp_long_term_forecasting.py").read_text()
+    assert "_pred.npz" in exp and "PVTSFM adaptation" in exp
+    # VENDOR_NOTICE documents that the code is no longer pristine
+    assert "NO LONGER pristine" in (VENDOR / "VENDOR_NOTICE.md").read_text()

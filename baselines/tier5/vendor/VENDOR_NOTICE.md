@@ -29,6 +29,21 @@ publishing this repo: confirm a license with each author, convert those three to
 submodules (no redistribution), or drop to cite-only. `visionts_pp` carries its
 `LICENSE.txt` (keep it); it bundles Apache-2.0 `uni2ts` code.
 
+## Adaptations (the vendored code is NO LONGER pristine)
+
+To make the cluster run "just submit" (no edits at run time), we made minimal in-place
+edits — diff against the pinned upstream SHA to see them:
+
+- `time_vlm/exp/exp_long_term_forecasting.py` — `test()` dumps per-window predictions to
+  `results/<setting>/<test_csv_stem>_pred.npz` in our baseline-contract format (keyed by
+  `data_path`, since one trained checkpoint is reused across all test plants).
+- `visionts_pp/run_ukpv.py` — **added** (not upstream): self-contained zero-shot runner over
+  the exported uk_pv CSVs, dumping `*_pred.npz`.
+- The uk_pv → CSV bridge `tier4/vendor/export_ukpv.py` also emits `uk_pv_train_stacked.csv`
+  (all train plants concatenated) for Time-VLM's univariate `--features S` training.
+
+UniCast / Aurora are unedited (multimodal track not available yet).
+
 ## Off-repo artifacts (NOT in git — see `.gitignore`)
 
 Pretrained weights (VLM/CLIP backbones for Time-VLM, the VisionTS++ MAE checkpoint,

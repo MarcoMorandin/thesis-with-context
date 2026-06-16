@@ -60,40 +60,28 @@ Cache every backbone on the login node (see `scripts/login_node_prep.sh` pattern
 - Aurora: the Aurora checkpoint (`utils/download_ckpt.py`).
 Then compute jobs run with `HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1`.
 
-## 3. Run recipes
+## 3. Run recipes — one dedicated SLURM script per model (train + eval)
 
-### Time-VLM (numerical, P0) — reuses the uk_pv Informer CSVs
-```bash
-cd baselines/tier5/vendor/time_vlm
-python run.py --task_name long_term_forecast --is_training 0 \
-  --model TimeVLM --vlm_type CLIP \
-  --data custom --root_path <ukpv_csv_dir> --data_path uk_pv_test_<site>.csv \
-  --features S --target OT \
-  --seq_len 24 --label_len 0 --pred_len 12 \
-  --gpu 0
-```
-Loop the 14 test plants; ≥3 seeds. seq_len=24/pred_len=12 = our protocol (T=24, H=12).
+Each model has its **own** offline-guarded script that does export → train → eval →
+contract-check end-to-end. Submit from `baselines/`; everything is set up in the script
+(no edits to vendored code at run time — the needed edits were made on push, see
+`tier5/vendor/VENDOR_NOTICE.md` "Adaptations").
 
-### VisionTS++ (numerical, P2)
-```bash
-cd baselines/tier5/vendor/visionts_pp
-python scripts/batch_evaluate.py --model_path <mae_ckpt> \
-  --dataset <ukpv_gluonts_dir> --context_length 24 --prediction_length 12
-```
+| Model | Script | Train | Eval |
+|---|---|---|---|
+| Time-VLM | `scripts/slurm_time_vlm.sh` | on `uk_pv_train_stacked.csv` | each test plant (reuses the checkpoint) |
+| VisionTS++ | `scripts/slurm_visionts_pp.sh` | — (zero-shot MAE) | `run_ukpv.py` over test plants |
+| UniCast | `scripts/slurm_unicast.sh` | multimodal (gated) | multimodal (gated) |
+| Aurora | `scripts/slurm_aurora.sh` | fine-tune (gated) | multimodal (gated) |
 
-### UniCast (multimodal, P1) — needs image+text
 ```bash
-cd baselines/tier5/vendor/unicast
-python test_multi_modal_chronos.py --forecasting_length 12 \
-  --test_dataset_path <ukpv_mm_dataset> --dataset_text <weather_text> \
-  --checkpoint_path <unicast_ckpt>
+sbatch --export=ALL,CONDA_ENV=timevlm,DATA=<parquet> scripts/slurm_time_vlm.sh
+sbatch --export=ALL,CONDA_ENV=visionts,MAE_CKPT=<ckpt>,DATA=<parquet> scripts/slurm_visionts_pp.sh
+# UniCast / Aurora fail loud until the multimodal dataset (frames+text) exists:
+sbatch --export=ALL,CONDA_ENV=unicast,MM_TRAIN=…,MM_TEST=…,MM_TEXT=…,CHRONOS_PATH=…,VISION_MODEL=…,TEXT_MODEL=… scripts/slurm_unicast.sh
+sbatch --export=ALL,CONDA_ENV=aurora,AURORA_CKPT=…,MM_DATASET=… scripts/slurm_aurora.sh
 ```
-
-### Aurora (multimodal, P2)
-```bash
-cd baselines/tier5/vendor/aurora
-python runner.py --model_path <aurora_ckpt> ...   # AuroraForPrediction.from_pretrained
-```
+Time-VLM / VisionTS++ run at seq_len=24/pred_len=12 (our protocol) on uk_pv now.
 
 ## 4. Metrics back into our pipeline
 
@@ -105,11 +93,13 @@ each model's normalisation back to `norm_power`, feed `(pred, true, mask·daylig
 ## 5. Status
 
 - [x] Original code vendored (`tier5/vendor/{time_vlm,visionts_pp,unicast,aurora}`) + provenance.
-- [x] SLURM runner `scripts/slurm_tier5.sh` (offline-guarded; Time-VLM + VisionTS++ enabled).
-- [x] Time-VLM reuses `export_ukpv.py` (Informer CSV) — no new bridge.
-- [ ] VisionTS++ GluonTS export of uk_pv.
-- [ ] Per-model `dump_predictions` patch + metric import.
-- [ ] Numerical runs (Time-VLM, VisionTS++) over the 14 test plants, ≥3 seeds.
+- [x] **Dedicated per-model SLURM scripts** (train+eval): `slurm_{time_vlm,visionts_pp,unicast,aurora}.sh`.
+- [x] Time-VLM reuses `export_ukpv.py` (+ `uk_pv_train_stacked.csv` for univariate training);
+      prediction-dump patch landed (`exp_long_term_forecasting.py`).
+- [x] VisionTS++ `run_ukpv.py` zero-shot runner over the uk_pv CSVs (no GluonTS export needed).
+- [x] Prediction-contract check wired into every script (`tier4/vendor/contract_check.py`).
+- [ ] Metric import (npz → NMAE/SS via `common/runner.py`) + `make_tables.py` rows.
+- [ ] First **cluster validation** run (none of this is laptop-runnable — verify on Leonardo).
 - [ ] UniCast / Aurora: blocked on the multimodal track (image+text data).
 
 Tier-5 is **not** an in-process registry baseline (unlike Tiers 0-4): the upstream stacks

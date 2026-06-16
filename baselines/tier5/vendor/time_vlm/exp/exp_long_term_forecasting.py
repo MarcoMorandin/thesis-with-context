@@ -232,7 +232,16 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         folder_path = './results/' + setting + '/'
         if not os.path.exists(folder_path):
             os.makedirs(folder_path)
-        
+
+        # PVTSFM adaptation: dump per-window predictions in our baseline-contract
+        # format (N, H[, 1]) so scripts/contract_check.py + the metric import can
+        # consume them. Keyed by data_path (the uk_pv test plant CSV), NOT model_id:
+        # eval reuses one trained checkpoint (constant model_id => constant setting)
+        # across all test plants, so model_id alone would collide.
+        _stem = os.path.splitext(os.path.basename(self.args.data_path))[0]
+        np.savez(os.path.join(folder_path, _stem + '_pred.npz'),
+                 pred=preds.astype('float32'), true=trues.astype('float32'))
+
         # dtw calculation
         if self.args.use_dtw:
             dtw_list = []
