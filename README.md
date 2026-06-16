@@ -52,12 +52,15 @@ uv run python -m mmtsfm.train
 ```
 
 ### 3. SolarVLM Baseline
-Run the multimodal LLM-driven baseline:
+Run the multimodal LLM-driven baseline (Tier-6 domain SOTA). On the dataset of
+record it consumes the `uk_pv` multimodal track (`Y` + `images_all.h5` frames);
+see [TIER6_INTEGRATION.md](docs/experiments/TIER6_INTEGRATION.md) and
+`baselines/solar_vlm/`:
 ```bash
 cd baselines/solar_vlm
 # Set up the environment
 source setup_env.sh
-# Train on SKIPP'D (using precomputed offline features)
+# (run_skippd.py is the legacy-named entrypoint; offline precomputed vision features)
 python run_skippd.py --is_training 1 --use_offline_vision --vision_feat_dir /path/to/feats
 ```
 
@@ -99,7 +102,7 @@ We use two systems to separate code understanding from research understanding:
 
 | Resource | Path |
 |----------|------|
-| Prepared dataset | `/Volumes/SSD/standardized-dataset` |
+| **Dataset of record** | `/Volumes/SSD/thesis-dataset/` (`dataset_all.parquet` 1.34M rows + `images_all.h5` 27 GB; `uk_pv` + `goes_pvdaq`, frame pointer `image_h5_index`) |
 | Prior implementation (MMTSFM) | `/Users/marcomorandin/Desktop/MMTSFM` |
 | SolarVLM baseline | `/Users/marcomorandin/Desktop/Code-Thesis/Solar-VLM-original` |
 | Baseline papers | `knowledge/papers/baselines/` |

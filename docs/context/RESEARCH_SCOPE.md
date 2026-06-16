@@ -15,7 +15,7 @@
 
 ## Out of scope
 
-- Dataset construction / ETL (data at `/Volumes/SSD/standardized-dataset`)
+- Dataset construction / ETL (dataset of record: `/Volumes/SSD/thesis-dataset/` = `dataset_all.parquet` + `images_all.h5`, read-only)
 - CSI / irradiance-only prediction (stay on **power** unless ablating as baseline)
 - Pre-2025 methods as primary contributions
 - Energy-market or grid operations research

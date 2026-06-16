@@ -5,9 +5,14 @@ Implements the Tier 0–2 baseline suite from
 on the disjoint cross-plant protocol
 ([BASELINE_PROTOCOL.md](../docs/experiments/BASELINE_PROTOCOL.md)).
 
-Data source: `/Volumes/SSD/standardized-dataset/numerical/all_curated.parquet`
-(produced by `dataset_exploration/curate_dataset.py`; native 30-min `uk_pv`
-and 15-min `goes_pvdaq` grids, capacity-normalized `norm_power` target).
+Data source (dataset of record): `/Volumes/SSD/thesis-dataset/dataset_all.parquet`
+(+ frames `images_all.h5`, canonical pointer `image_h5_index`). Native 30-min
+`uk_pv` (100 plants, 128px gray) and 15-min `goes_pvdaq` (10 plants, 256px RGB)
+grids, capacity-normalized `norm_power` target. Both datasets fully present
+(DATASET_CONTRACT.md §1.0).
+
+> **Note:** point `common/config.py::DEFAULT_DATA_PATH` at
+> `thesis-dataset/dataset_all.parquet` (and frame pointer `image_h5_index`).
 
 ## Implemented baselines
 
@@ -128,8 +133,8 @@ See `docs/experiments/TIER4_RAG_INTEGRATION.md` for the full recipe.
 Before `sbatch`, on the **login node** (internet), in order:
 
 1. `git clone` the repo (brings `MMTSFM/src` for Chronos-2 and `configs/splits.json`).
-2. Stage the data: copy `all_curated.parquet` to
-   `$TEAM_SCRATCH/data/numerical/all_curated.parquet` (default
+2. Stage the data: copy `dataset_all.parquet` (+ `images_all.h5` for the
+   multimodal tiers) to `$TEAM_SCRATCH/data/` (default
    `TEAM_SCRATCH=/leonardo_scratch/fast/IscrC_MTSFM`; override the env if your
    ISCRA-C project scratch differs).
 3. `uv sync --group tier3` (resolves the lock for linux; needs network).
@@ -164,7 +169,7 @@ stem via `scripts/import_predictions.py`.
   `scripts/slurm_{time_vlm,visionts_pp,unicast,aurora}.sh`.
 - **Tier 6** (PV-specialized multimodal, domain SOTA): CrossViViT (`tier6/vendor/crossvivit`,
   MIT) + SUNSET (`tier6/vendor/sunset`, MIT) — run on the **uk_pv multimodal track**
-  (curated `Y` + `images_uk128.h5` satellite frames, bridged by `tier6/uk_multimodal.py`);
+  (curated `Y` + `images_all.h5` satellite frames, bridged by `tier6/uk_multimodal.py`);
   Solar-VLM is the third P0, already ported under `solar_vlm/`. See
   `docs/experiments/TIER6_INTEGRATION.md`, `scripts/slurm_{crossvivit,sunset}.sh`.
 

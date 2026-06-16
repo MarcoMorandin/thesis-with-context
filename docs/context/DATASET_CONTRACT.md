@@ -8,31 +8,51 @@ No ETL or raw data processing code should be present in the model or baseline co
 
 ## 1. Physical Location and Directory Structure
 
-The dataset is mounted/stored as a read-only volume at:
-`/Volumes/SSD/standardized-dataset/`
+### 1.0 Experiment dataset of record — `/Volumes/SSD/thesis-dataset/`
 
-Two tracks live under this root:
+All experiments run against the **consolidated, experiment-ready dataset**: one
+flat numerical table plus one packed image archive covering **both** numerical-track
+datasets (`uk_pv` and `goes_pvdaq` — `goes_pvdaq` is now fully present, see §1.0a):
 
 ```
-/Volumes/SSD/standardized-dataset/
-├── numerical/                  # curated numerical track (tiers 0-4)
-│   ├── all.parquet             # unified raw extraction
-│   └── all_curated.parquet     # curated table (see §1bis)
-├── images.h5                   # packed frames for the numerical track
-├── images_uk128.h5             # 128px uk_pv frame variant
-├── solar/                      # multimodal track (tiers 5-6, PVTSFM)
-│   ├── skippd/
-│   ├── solarnet/
-│   └── goes16_nsrdb/
-└── meteorology/
-    ├── earthnet2021/
-    ├── era5_eu/
-    └── meteonet/
+/Volumes/SSD/thesis-dataset/
+├── dataset_all.parquet     # 1,337,654 rows × 35 cols (uk_pv + goes_pvdaq); see §1bis
+└── images_all.h5           # 27 GB, 110 per-site HDF5 groups <dataset>_<site>
 ```
 
-### 1bis. Numerical curated track (`numerical/all_curated.parquet`)
+`images_all.h5` packs every frame referenced by the table. Each per-site group
+`<dataset>_<site>` holds `images` + `timestamps` (`|S20` ISO-8601, e.g.
+`2019-01-01T08:00:00Z`). Frames are aligned to table rows by the canonical
+**`image_h5_index`** pointer — a *local-to-group* index into
+`images_all.h5[<dataset>_<site>]["images"]`, timestamp-exact, valid for **both**
+datasets (verified row-by-row).
 
-Produced by `dataset_exploration/curate_dataset.py` from `all.parquet`. One flat table, datasets `uk_pv` (100 plants, 30-min cadence) and `goes_pvdaq` (10 plants, 15-min cadence), native grids preserved, no gap interpolation. Key columns:
+#### 1.0a Per-dataset specs
+
+| Dataset | Sites | Rows | Valid power steps | Cadence | Span (UTC) | Frame tensor | Capacity | Region |
+| :--- | :---: | :---: | :---: | :---: | :--- | :--- | :--- | :--- |
+| `uk_pv` | 100 | 1,232,862 | 1,217,399 | 30-min | 2019-01-01 → 2020-12-31 | `(N,128,128)` uint8 grayscale | 1.5–4.0 kW (residential rooftop) | UK (lat 50.7–57.8, lon −5.6–0.5) |
+| `goes_pvdaq` | 10 | 104,792 | 103,451 | 15-min | 2019-01-01 → 2019-09-30 | `(N,256,256,3)` uint8 RGB | 1.8–408 kW (residential→utility) | US (lat 36.0–39.9, lon −115.2…−75.0) |
+
+Quality flags (`dataset_all.parquet`): `bad_site_flag` on **`uk_pv` 7239, 8587**
+and **`goes_pvdaq` 1283, 51**; `outage_flag` 15,486; `stuck_flag` 1,318;
+`night_clamped` 1,535. (The committed `goes_pvdaq` split in
+`baselines/configs/splits.json` predates these bad-site flags and still lists
+`1283`/`51` — reconcile before running `goes_pvdaq`.)
+
+`/Volumes/SSD/thesis-dataset/` is the **only** dataset volume — `dataset_all.parquet`
+(numerical) + `images_all.h5` (frames), covering both `uk_pv` and `goes_pvdaq`. There
+is no separate source/ETL volume.
+
+> **Code note:** any code with a hardcoded data path
+> (`baselines/common/config.py::DEFAULT_DATA_PATH`,
+> `tier6/uk_multimodal.py::DEFAULT_H5`, the per-model `run_ukpv.py` `--h5` defaults)
+> must point at `thesis-dataset/dataset_all.parquet` + `images_all.h5` with frame
+> pointer `image_h5_index`.
+
+### 1bis. Numerical table (`dataset_all.parquet`)
+
+One flat table, datasets `uk_pv` (100 plants, 30-min cadence) and `goes_pvdaq` (10 plants, 15-min cadence), native grids preserved, no gap interpolation. Key columns:
 
 | Column group | Columns |
 | :--- | :--- |
@@ -41,55 +61,24 @@ Produced by `dataset_exploration/curate_dataset.py` from `all.parquet`. One flat
 | Weather covariates | `temperature_2m`, `shortwave_radiation`, `direct_radiation`, `diffuse_radiation`, `direct_normal_irradiance`, `cloudcover`, `windspeed_10m`, `precipitation` |
 | Solar geometry / clear-sky | `solar_zenith`, `solar_azimuth`, `clearsky_ghi` (Haurwitz), `kt`, `csi` (NaN below 50 W/m² clear-sky), `doy_sin`, `doy_cos`, `solar_time` |
 | Quality flags | `capacity_fixed`, `outage_flag`, `stuck_flag`, `night_clamped`, `bad_site_flag` |
-| Frame pointers | `image_path`, `image_h5_index`, `image_uk128_index` (into `images.h5` / `images_uk128.h5`) |
+| Frame pointers | `image_h5_index` (**canonical** — local-to-group index into `images_all.h5[<dataset>_<site>]`, both datasets), `image_index` (≈ `image_h5_index`), `image_path` (relative frame path). (`image_uk128_index` is a dead column — it pointed into a removed file; use `image_h5_index`.) |
 
-Splits for this track are **not** in `metadata.json`: they are generated once (seed 42) and committed to `baselines/configs/splits.json`; `baselines/common/splits.py` asserts train/val/test plant disjointness at every load. Baseline code consumes this table through the windowing adapter in `baselines/common/windows.py`, which emits the numerical subset of the canonical dict in §4.
-
-### Files Present Per Dataset Folder
-Each dataset directory contains a standard set of files:
-1. `timeseries.parquet`: Tabular time series including targets, covariates, and target masks.
-2. `frame_index.parquet`: Index mapping timestamps and entity IDs to visual frames.
-3. `frames/`: Directory containing visual frames (either JPEGs or float16 NPZ arrays).
-4. `graph.json`: Spatial graph representation of the entities, including a precalculated adjacency matrix.
-5. `metadata.json`: Dataset-wide configurations, coordinate mapping, and normalization factors.
+Splits for this track are generated once (seed 42) and committed to `baselines/configs/splits.json`; `baselines/common/splits.py` asserts train/val/test plant disjointness at every load. Baseline code consumes this table through the windowing adapter in `baselines/common/windows.py`, which emits the numerical subset of the canonical dict in §4.
 
 ---
 
-## 2. Table Schemas
+## 2. Frames (`images_all.h5`)
 
-### `timeseries.parquet`
-This table holds the primary temporal records. Columns are divided into targets and covariates, including normalized versions of each.
+Frames live in `images_all.h5` as per-site HDF5 groups `<dataset>_<site>`, each with
+`images` (`uint8`) + `timestamps` (`|S20` ISO-8601), addressed by `image_h5_index`
+(§1.0):
 
-| Column | Type | Description |
-| :--- | :--- | :--- |
-| `entity_id` | `int32` / `int64` | Identifier for the plant / location / grid cell. |
-| `timestamp_unix` | `int64` | Epoch timestamp in seconds. |
-| `{target_cols}` | `float32` | Raw target variable (e.g., PV power output, GHI, NDVI). |
-| `{target_cols}_norm` | `float32` | Min-max or z-score normalized target (main model target). |
-| `{cov_cols}` | `float32` | Raw covariate variables (e.g., temperature, clear sky GHI, cloud cover). |
-| `{cov_cols}_norm` | `float32` | Normalized covariates. |
-| `mask_target` | `float32` (0 or 1) | Binary mask indicating target availability (1 = valid, 0 = missing/night). |
+* `uk_pv` — `(N, 128, 128)` single-channel satellite crops, 30-min daylight cadence.
+* `goes_pvdaq` — `(N, 256, 256, 3)` RGB satellite frames, 15-min daylight cadence.
 
-### `frame_index.parquet`
-This table matches temporal intervals to visual files.
-
-| Column | Type | Description |
-| :--- | :--- | :--- |
-| `entity_id` | `int32` / `int64` | Identifier for the plant / location / grid cell. |
-| `timestamp_unix` | `int64` | Epoch timestamp in seconds. |
-| `rel_path` | `string` | Relative path to the frame file in `frames/`. |
-| `mask_visual` | `float32` (0 or 1) | Binary mask indicating frame validity / availability. |
-
----
-
-## 3. Visual Modalities and Frames
-
-Visual files in the `frames/` directory differ by dataset:
-
-* **JPEG/PNG (Sky Cameras)**: Used in ground-station solar datasets (e.g., `skippd`, `solarnet`; the numerical-track `image_path` files are PNG). Stored as standard `RGB` images. Loaded and normalized to range `[0, 1]`.
-* **NPZs (Satellite Frames)**: Used in regional/satellite datasets (e.g., `goes16_nsrdb`, `earthnet2021`). Stored as `float16` numpy zip archives containing spatial channels (e.g., multispectral bands or pre-extracted variables).
-  * Load parameters must specify the `npz_key` (default is `"frame"`).
-  * Values are normalized to `[0, 1]` per band during loading.
+Normalize to `[0, 1]` on load (÷255); average-pool to a smaller side when a model
+needs one. A frame is valid (`mask_visual = 1`) on a step iff that step has a row with
+a matching `image_h5_index`/timestamp (daylight); night/outage steps have no frame.
 
 ---
 

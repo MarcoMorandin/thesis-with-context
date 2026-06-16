@@ -1,5 +1,21 @@
 # Deep Exploratory Data Analysis Report
 
+> ⚠ **Superseded snapshot.** This EDA predates the consolidated **dataset of
+> record** `/Volumes/SSD/thesis-dataset/` (`dataset_all.parquet` + `images_all.h5`;
+> DATASET_CONTRACT.md §1.0). Two numbers below changed after the full `goes_pvdaq`
+> download — rerun `run_eda.py` against `dataset_all.parquet` to regenerate the
+> figures/tables. Corrected top-line facts:
+>
+> | dataset | rows | sites | cadence | span (UTC) | capacity | frames |
+> |---|---|---|---|---|---|---|
+> | `uk_pv` | 1,232,862 | 100 | 30-min | 2019-01-01 → 2020-12-31 | 1.5–4.0 kW | `(N,128,128)` uint8 gray |
+> | `goes_pvdaq` | **104,792** | 10 | 15-min | **2019-01-01 → 2019-09-30** | 1.8–408 kW | `(N,256,256,3)` uint8 RGB |
+>
+> Total rows **1,337,654**; 35 columns; canonical frame pointer `image_h5_index`
+> (local-to-group into `images_all.h5[<dataset>_<site>]`). `bad_site_flag`:
+> `uk_pv` 7239/8587, `goes_pvdaq` 1283/51. The `goes_pvdaq` block in this report
+> (≈14.9k rows, June-2019-only) reflects a partial early download.
+
 Cross-site PV power dataset with satellite/sky image augmentation. This report covers data integrity, physical coherence of production, temporal structure, feature importance, cross-site similarity (zero-shot transfer relevance) and image quality.
 
 ## 1. Dataset Overview

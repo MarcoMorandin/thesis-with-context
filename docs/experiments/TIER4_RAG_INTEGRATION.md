@@ -72,7 +72,7 @@ We must instead:
 
 The bridge is implemented in `baselines/tier4/vendor/export_ukpv.py` (pandas-only, runs
 in the baselines venv; verified on uk_pv). It reads `configs/splits.json` +
-`all_curated.parquet` and writes, to `--out`:
+the numerical table (`thesis-dataset/dataset_all.parquet`) and writes, to `--out`:
 - `uk_pv_train.csv` — dense 30-min grid, columns = train `site_id`s, `date` + `OT` (=first
   train plant); the retrieval-datastore source (train plants only, §3);
 - `uk_pv_test_<site>.csv` per test plant (`date` + `OT`=that site);

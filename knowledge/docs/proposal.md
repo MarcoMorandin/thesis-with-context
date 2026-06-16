@@ -524,7 +524,7 @@ sbatch MMTSFM/scripts/slurm_train.sh \
 
 | Dataset                      | Sensor type             | SensorProjection | Modalities                                                     | Notes                                                |
 | ---------------------------- | ----------------------- | ---------------- | -------------------------------------------------------------- | ---------------------------------------------------- |
-| **SKIPP'D**                  | Fisheye RGB             | None             | Visual: sky camera · TS: PV power (1 min)                      | **Primary dev dataset** — read directly from `/Volumes/SSD/standardized-dataset/solar/skippd/`. |
+| **SKIPP'D**                  | Fisheye RGB             | None             | Visual: sky camera · TS: PV power (1 min)                      | Literature reference. (Project dataset of record: `uk_pv` + `goes_pvdaq` in `/Volumes/SSD/thesis-dataset/`.) |
 | **Girasol**                  | IR + visible fisheye    | IR: 1→3          | Visual: IR + visible · TS: GSI + sun position                  |                                                      |
 | **SolarBench (SkyImageNet)** | RGB sky camera          | None             | Visual: harmonized sky cameras · TS: irradiance + power        | ICLR 2024 Climate Change AI.                         |
 | **SolarNet**                 | RGB sky camera          | None             | Visual: cloud images · TS: pyranometer irradiance              |                                                      |

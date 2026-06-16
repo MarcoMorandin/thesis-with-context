@@ -30,7 +30,7 @@ Build a **research-grade AI foundation model** for PV power forecasting. Primary
 | **Files** | One class or one script capability per file; keep files short (target < 150 lines). |
 | **Models** | Multimodal foundation models (TS FM + vision FM) preferred. Avoid classical ML (XGBoost, etc.) unless explicitly justified as baseline. |
 | **Literature** | Prefer 2026 papers, then late 2025; nothing before 2025. |
-| **Data** | Read-only from `/Volumes/SSD/standardized-dataset` - do not refactor data pipelines here. |
+| **Data** | Read-only dataset of record `/Volumes/SSD/thesis-dataset/` (`dataset_all.parquet` + `images_all.h5`, frame pointer `image_h5_index`; both `uk_pv` and `goes_pvdaq`). Do not refactor data pipelines here. |
 
 ---
 
@@ -85,7 +85,7 @@ Every experiment must define:
 * Introduce energy-domain physics heuristics (CSI conversion, irradiance physics) unless explicitly ablating them out.
 * Introduce `scikit-learn`, `lightgbm`, or `xgboost` without explicit user approval.
 * Create monolithic files with multiple classes.
-* Modify `/Volumes/SSD/standardized-dataset`.
+* Modify `/Volumes/SSD/thesis-dataset` (read-only dataset of record).
 * Copy large checkpoints or datasets into the repository.
 
 ---

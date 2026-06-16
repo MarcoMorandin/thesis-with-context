@@ -76,7 +76,7 @@ Night-only horizon positions (NMAE≡0 across all models, masked out) are omitte
 
 ## 6. Caveats & local-compute deviations
 
-These runs were produced on a single MacBook Air M2 (16 GB) while `goes_pvdaq` was still downloading, so they are the **numerical-track `uk_pv` slice only**; cross-dataset (S3), LOPO `goes_pvdaq`, and the multimodal tiers are not included.
+These runs were produced on a single MacBook Air M2 (16 GB) before the consolidated `thesis-dataset` was assembled and while `goes_pvdaq` was still downloading, so they are the **numerical-track `uk_pv` slice only**; cross-dataset (S3), LOPO `goes_pvdaq`, and the multimodal tiers are not included. `goes_pvdaq` is now fully available in `thesis-dataset/dataset_all.parquet` (10 plants, 104,792 rows, 256px RGB frames in `images_all.h5`), so S3/LOPO/multimodal-`goes` are now unblocked (pending a cluster run on the dataset of record — DATASET_CONTRACT.md §1.0).
 
 1. **Tier-2 training stride.** The protocol default is `--train-stride 1` (980 k overlapping train windows). To keep 5 models × 3 seeds tractable on CPU/MPS, tier-2 models were trained with `--train-stride 12` (non-overlapping history → 49.9 k windows). LightGBM and all eval windows are unchanged (`--eval-stride 12`, the full 10 129-window test set). This subsampling plausibly handicaps the data-hungry transformers (PatchTST/iTransformer) more than MLP/DLinear; treat the tier-2 transformer rows as a lower bound pending a full-stride cluster run.
 2. **Seeds.** Trained models use seeds {42, 43, 44} (mean ± std shown). Tier-0/reference models are deterministic single runs. Std bands are tight (≤0.013 SS), so ranking is stable.

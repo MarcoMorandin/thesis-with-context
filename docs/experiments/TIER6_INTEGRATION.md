@@ -16,10 +16,10 @@ cross-attention over GPUs); each needs its **own env** (deps conflict with
 | **CrossViViT** | `V` satellite + `Y`/cov cross-attention | ✅ `run_ukpv.py` (with approximations) | P0 |
 
 Both vendored models consume **real frames** (unlike Tier-5 Time-VLM / VisionTS++
-which render the series as a pseudo-image). The uk_pv track carries them:
-`images_uk128.h5` (128px per-plant satellite crops, 30-min daylight cadence,
-2019-2020), aligned to the curated `Y` by the canonical `image_uk128_index`
-pointer (DATASET_CONTRACT.md §1bis). Solar-VLM, the third P0 domain-SOTA model,
+which render the series as a pseudo-image). The dataset of record carries them in
+`images_all.h5` (per-site groups `<dataset>_<site>`; `uk_pv` 128px gray, `goes_pvdaq`
+256px RGB), aligned to the curated `Y` by the canonical `image_h5_index` pointer
+(DATASET_CONTRACT.md §1.0). Solar-VLM, the third P0 domain-SOTA model,
 is already ported (`baselines/solar_vlm/`) and is **not** re-vendored here.
 SPIRIT (P1) and PV-VLM / M3S-Net / MDCTL-MCI (P2) are cite-only for now.
 
@@ -33,12 +33,12 @@ numerical/fairness logic (disjoint plant splits, NaN handling, deterministic
 future covariates, seasonal reference) and adds, per window:
 
 - `V` (T, 1, S, S) in [0,1] — the satellite frames over the history window,
-  read straight from `images_uk128.h5[uk_pv_<site>]["images"]` by
-  `image_uk128_index`, average-pooled from 128px to `img_size` (default 64);
+  read straight from `images_all.h5[<dataset>_<site>]["images"]` by
+  `image_h5_index`, average-pooled to `img_size` (default 64);
 - `mask_visual` (T,) — 1 where a frame exists on that 30-min step (daylight);
 - `latlon` — plant coordinates (for CrossViViT's station/grid coords).
 
-No ETL: frames come directly from the standardized HDF5. The disjoint plant
+No ETL: frames come directly from the dataset-of-record HDF5 (`images_all.h5`). The disjoint plant
 split + capacity-normalised `norm_power` target are shared with Tiers 0-5, so
 the fairness contract is identical.
 
@@ -61,9 +61,16 @@ from `baselines/` (the scripts put it on `PYTHONPATH` via the file layout).
 ## 2. Login-node prep (compute nodes are offline)
 
 No pretrained weights — both models train from scratch on uk_pv. Stage the data
-to `$TEAM_SCRATCH`:
-- `numerical/all_curated.parquet` (the `Y` + `image_uk128_index` pointer),
-- `images_uk128.h5` (the satellite frames).
+to `$TEAM_SCRATCH`. **Dataset of record** (DATASET_CONTRACT.md §1.0):
+- `thesis-dataset/dataset_all.parquet` (the `Y` + canonical `image_h5_index` pointer),
+- `thesis-dataset/images_all.h5` (the satellite frames; `uk_pv` 128px gray + `goes_pvdaq` 256px RGB).
+
+> **Code repoint needed:** the in-repo bridge `tier6/uk_multimodal.py`
+> (`DEFAULT_H5`, `FRAME_IDX_COL`) and the SLURM `DATA`/`IMAGES_H5` defaults still
+> hardcode the **now-removed** files. Point them at
+> `thesis-dataset/dataset_all.parquet` + `images_all.h5` with frame pointer
+> `image_h5_index` (works for both datasets — enables a `goes_pvdaq` multimodal
+> run too).
 
 ## 3. Run recipes — one dedicated SLURM script per model (train + eval)
 
@@ -76,10 +83,10 @@ contract-check → metric-import), submitted from `baselines/`:
 | SUNSET | `scripts/slurm_sunset.sh` | `tier6/vendor/sunset/run_ukpv.py` | `sunset_<site>_pred.npz` |
 
 ```bash
-sbatch --export=ALL,CONDA_ENV=crossvivit,DATA=<all_curated.parquet>,\
-       IMAGES_H5=<images_uk128.h5> scripts/slurm_crossvivit.sh
-sbatch --export=ALL,CONDA_ENV=sunset,DATA=<all_curated.parquet>,\
-       IMAGES_H5=<images_uk128.h5> scripts/slurm_sunset.sh
+sbatch --export=ALL,CONDA_ENV=crossvivit,DATA=<dataset_all.parquet>,\
+       IMAGES_H5=<images_all.h5> scripts/slurm_crossvivit.sh
+sbatch --export=ALL,CONDA_ENV=sunset,DATA=<dataset_all.parquet>,\
+       IMAGES_H5=<images_all.h5> scripts/slurm_sunset.sh
 ```
 
 Both default to seq_len=24 / pred_len=12 (our protocol), img_size=64, stride 3.
@@ -125,7 +132,7 @@ The same two caveats as Tiers 4–5 apply and are written into each result manif
 ## 5. Status
 
 - [x] Original code vendored (`tier6/vendor/{crossvivit,sunset}`) + provenance/SHAs/MIT.
-- [x] Shared uk_pv multimodal bridge `tier6/uk_multimodal.py` (Y + images_uk128.h5),
+- [x] Shared uk_pv multimodal bridge `tier6/uk_multimodal.py` (Y + frames from `images_all.h5`),
       reusing `common.windows`; verified on real data.
 - [x] Per-model `run_ukpv.py` runners driving the original models on uk_pv;
       verified end-to-end on real data (CPU smoke test): SUNSET (TF2, 13.7M

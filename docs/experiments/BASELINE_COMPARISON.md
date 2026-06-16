@@ -77,7 +77,7 @@ All Tier-2 models come essentially free via the [Time-Series-Library](https://gi
 | Model | Inputs | Why | Status |
 |---|---|---|---|
 | **Solar-VLM** | `Y, X_cov, V` (satellite) + text | Primary domain SOTA; already ported | ✅ `baselines/solar_vlm/` |
-| SUNSET | `Y, V` | Canonical CNN solar baseline, used by every related work | ✅ **P0** vendored `tier6/vendor/sunset` (MIT) — runs on uk_pv multimodal (Y + images_uk128.h5), `run_ukpv.py` |
+| SUNSET | `Y, V` | Canonical CNN solar baseline, used by every related work | ✅ **P0** vendored `tier6/vendor/sunset` (MIT) — runs on uk_pv multimodal (Y + `images_all.h5`, pointer `image_h5_index`), `run_ukpv.py` |
 | **CrossViVit** (Boussif et al., NeurIPS 2023) | `Y, X_cov, V` (satellite) | The reference *deep* satellite+TS cross-attention model; the strongest non-FM multimodal competitor. Code public. | ✅ **P0** vendored `tier6/vendor/crossvivit` (MIT) — runs on uk_pv multimodal via `run_ukpv.py` (single-channel/synthetic-coords approximations, see TIER6_INTEGRATION) |
 | SPIRIT | `Y, V` (ViT features) | Zero-shot vision-FM transfer — direct comparison for cross-plant ZS claims (H3) | ➕ P1 |
 | PV-VLM ([arXiv:2504.13624](https://arxiv.org/abs/2504.13624)) | `Y, X_cov, V` + text | Second PV-domain VLM; rebuttal breadth beyond Solar-VLM | ➕ P2 |
@@ -164,8 +164,8 @@ Rules (inherited from BASELINE_PROTOCOL.md, restated as hard constraints):
 | Scenario | Split | Question answered |
 |---|---|---|
 | **S1 In-domain** | train plants, held-out time range | Sanity / upper bound |
-| **S2 Cross-plant (primary)** | disjoint test plants — numerical track: `uk_pv` + `goes_pvdaq`; multimodal track: skippd + goes16_nsrdb | Headline result (H3) |
-| **S3 Cross-dataset** | numerical track: train `uk_pv` → test `goes_pvdaq` (and reverse); multimodal track: train SKIPP'D → test solarnet (and reverse) | Distribution-shift generalization |
+| **S2 Cross-plant (primary)** | disjoint test plants — `uk_pv` and `goes_pvdaq` | Headline result (H3) |
+| **S3 Cross-dataset** | train `uk_pv` → test `goes_pvdaq` (and reverse) | Distribution-shift generalization |
 | **S4 Long-horizon** | S2 with H ∈ {12, 24, 48} | Skill decay curves (short / mid / long) |
 | **S5 Data efficiency** | S2 with 10/25/50/100 % train plants | FM sample-efficiency claim |
 | **S6 Ramp subset** | S2 restricted to high-variability windows (top-decile \|ΔY\| cloud-transition periods) | Where vision *should* win — the sharpest test of H1/H2 |
@@ -173,14 +173,17 @@ Rules (inherited from BASELINE_PROTOCOL.md, restated as hard constraints):
 
 Plant-split variants for S2: if test-plant count is small, use **leave-one-plant-out** rotation (mean ± std over folds); if geographic metadata permits, prefer a **distance/region-based split** over random plant assignment — random splits of nearby plants leak spatial information. **LOPO is mandatory for `goes_pvdaq`**: with only 10 plants, a 70/15/15 split leaves 1-2 test plants and per-plant variance dominates (`run_eval.py --lopo-dataset goes_pvdaq`, preset `lopo` in `baselines/scripts/run_suite.py`).
 
-### 4.1.1 Data tracks and cadence semantics
+### 4.1.1 Data and cadence semantics
 
-Two data tracks share the protocol:
+One dataset of record, `thesis-dataset/dataset_all.parquet` (+ frames `images_all.h5`,
+pointer `image_h5_index`; DATASET_CONTRACT.md §1.0), serves every tier — the
+numerical channels `Y, X_cov` (Tiers 0-4) and the satellite frames `V` (Tiers 5-6,
+PVTSFM, vision controls A09-A14):
 
-| Track | Source | Datasets | Used by |
+| Dataset | Cadence | Frames | Used by |
 |---|---|---|---|
-| **Numerical** | `numerical/all_curated.parquet` (see `dataset_exploration/curate_dataset.py`) | `uk_pv` (100 plants, 30-min), `goes_pvdaq` (10 plants, 15-min) | Tiers 0-4 (`baselines/`) |
-| **Multimodal** | `solar/{skippd, solarnet, goes16_nsrdb}` per DATASET_CONTRACT | sky-camera + satellite datasets | Tiers 5-6, PVTSFM, vision controls A09-A14 |
+| `uk_pv` | 100 plants, 30-min | `(N,128,128)` gray | all tiers |
+| `goes_pvdaq` | 10 plants, 15-min | `(N,256,256,3)` RGB | all tiers |
 
 Window sizes are defined in **steps**, so the physical lead time differs by cadence: at H=12, `uk_pv` forecasts 6 h ahead and `goes_pvdaq` 3 h ahead (T=24 history = 12 h vs 6 h). Consequences (hard rules):
 1. Report the **physical lead time next to every per-dataset table**; never present mixed-cadence step-horizons as the same forecasting task.

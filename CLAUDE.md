@@ -52,8 +52,8 @@ graphify update .
 # Local dev training smoke-test (synthetic data)
 uv run python -m mmtsfm.train
 
-# Local training on SKIPP'D
-uv run python -m mmtsfm.train data.dataset_name=skippd data.data_dir=/Volumes/SSD/standardized-dataset/solar/skippd
+# Local training on the dataset of record (uk_pv / goes_pvdaq)
+uv run python -m mmtsfm.train data.dataset_name=uk_pv data.data_dir=/Volumes/SSD/thesis-dataset
 
 # Submit training run to SLURM cluster
 sbatch MMTSFM/scripts/slurm_train.sh
@@ -64,7 +64,8 @@ sbatch MMTSFM/scripts/slurm_train.sh
 # Set up environment for SolarVLM
 source baselines/solar_vlm/setup_env.sh
 
-# Train SolarVLM on SKIPP'D (using offline precomputed features)
+# Train SolarVLM on the uk_pv multimodal track (offline precomputed vision features)
+# (run_skippd.py is the legacy-named entrypoint)
 python baselines/solar_vlm/run_skippd.py --is_training 1 --use_offline_vision --vision_feat_dir /path/to/feats
 ```
 

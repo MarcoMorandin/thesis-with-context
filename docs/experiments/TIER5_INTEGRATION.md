@@ -15,7 +15,7 @@ contract/dataset, not reimplemented. **Cluster-only** (heavy VLM/MAE/Chronos sta
 
 Time-VLM / VisionTS++ render the series itself as an image and need **no satellite
 frames** → they run on the numerical uk_pv track and match our `Y → ŷ` contract.
-UniCast needs **real frames** — now available on uk_pv (`images_uk128.h5`). Aurora is
+UniCast needs **real frames** — available in `images_all.h5` (pointer `image_h5_index`). Aurora is
 **TS + text** (its `Aurora_Single_Dataset` reads a CSV + JSON text, no image input), so
 uk images do not apply; it was blocked on the per-window text. `tier5/uk_export.py`
 emits each model's native on-disk format from the shared `tier6.uk_multimodal` bridge,
@@ -34,12 +34,19 @@ for UniCast, the Aurora checkpoint).
   (one series per plant; reuse `common.windows.build_site_series` for the native grid).
 - **UniCast** (real images) and **Aurora** (TS + text) consume the uk_pv multimodal
   windows via `tier5/uk_export.py`, which reuses the shared `tier6.uk_multimodal` bridge
-  (curated `Y` + `images_uk128.h5` frames + covariate-templated text) and writes each
+  (curated `Y` + `images_all.h5` frames + covariate-templated text) and writes each
   model's native on-disk format — UniCast: `inputs.pt`/`targets_<H>.pt`/`img/`; Aurora:
   per-series CSV + JSON text. No separate multimodal pipeline needed.
 
 Capacity de-normalisation + the baseline-contract check on outputs reuse
 `tier4/vendor/contract_check.py --predictions <npz>` (shape (N,H[,1]), finite, [0,1]).
+
+> **Dataset of record** (DATASET_CONTRACT.md §1.0): `thesis-dataset/dataset_all.parquet`
+> + `images_all.h5`, canonical frame pointer `image_h5_index` (both `uk_pv` 128px
+> gray and `goes_pvdaq` 256px RGB). **Code repoint needed:** the shared
+> `tier6.uk_multimodal` bridge (`DEFAULT_H5`, `FRAME_IDX_COL`) still hardcodes the
+> **now-removed** files — point it at `images_all.h5` / `image_h5_index` to run on
+> the dataset of record and to add a `goes_pvdaq` multimodal run.
 
 ## 1. Environments (one per model; never share the `baselines/` venv)
 
@@ -124,7 +131,7 @@ the table (they also apply to the Tier-4 RAG originals):
 - [x] Metric import wired: `scripts/import_predictions.py` (npz → results JSON) called by
       each SLURM script; `summarize_ukpv.py` + `make_tables.py` carry the Tier-5 rows.
 - [x] UniCast on uk_pv: `tier5/uk_export.py --model unicast` builds its image layout
-      from `images_uk128.h5`; `slurm_unicast.sh` exports → trains → per-plant test
+      from `images_all.h5`; `slurm_unicast.sh` exports → trains → per-plant test
       (`--dump_npz`, added) → import (tag `s2_ukpv_mm`). Export verified on real data;
       model run gated only on the CLIP/BLIP + Chronos-Bolt weights.
 - [x] Aurora on uk_pv: it is **TS + text** (no image branch); `tier5/uk_export.py
