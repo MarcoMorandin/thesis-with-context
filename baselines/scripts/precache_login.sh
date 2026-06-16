@@ -1,0 +1,142 @@
+#!/bin/bash
+# =============================================================================
+# MASTER LOGIN-NODE PRECACHE  —  run ONCE on the Leonardo login node (internet).
+# =============================================================================
+# Prepares every off-repo artifact the offline GPU orchestrator
+# (scripts/run_all_baselines.sh) needs, so compute nodes run FULLY OFFLINE:
+#   1. uv env (+ tier3 group) and all Tier-3/4 HF weights
+#   2. RAG Chronos backbones + uk_pv CSV export
+#   3. Tier-5/6 backbone weights (CLIP / VisionTS++ MAE / Chronos-Bolt / Aurora)
+#   4. one conda env per vendored model (Tier 5/6 + RAG)
+#   5. Solar-VLM repo setup (optional)
+#   6. data-staging checks (dataset_all.parquet + images_all.h5)
+#
+#   bash scripts/precache_login.sh
+#   MAKE_ENVS=0 bash scripts/precache_login.sh           # skip conda env creation
+#   STAGE=weights bash scripts/precache_login.sh         # only HF/torch weights
+#
+# After it finishes, allocate a GPU node and run scripts/run_all_baselines.sh.
+set -uo pipefail
+cd "$(dirname "$0")/.."
+BASELINES_DIR="$PWD"
+
+STAGE="${STAGE:-all}"          # all | weights | envs | data
+MAKE_ENVS="${MAKE_ENVS:-1}"
+TEAM_SCRATCH="${TEAM_SCRATCH:-/leonardo_scratch/fast/IscrC_MTSFM}"
+export HF_HOME="${HF_HOME:-${TEAM_SCRATCH}/hf_cache}"
+export TORCH_HOME="${TORCH_HOME:-${TEAM_SCRATCH}/torch_cache}"
+DATA_DIR="${DATA_DIR:-${TEAM_SCRATCH}/data}"
+DATA="${DATA:-${DATA_DIR}/dataset_all.parquet}"
+IMAGES_H5="${IMAGES_H5:-${DATA_DIR}/images_all.h5}"
+UKPV_CSV_DIR="${UKPV_CSV_DIR:-${DATA_DIR}/ukpv_rag}"
+CKPT_DIR="${CKPT_DIR:-${TEAM_SCRATCH}/checkpoints}"
+WEIGHTS_DIR="${WEIGHTS_DIR:-${TEAM_SCRATCH}/weights}"   # tier5/6 backbone dirs
+SOLARVLM_DIR="${SOLARVLM_DIR:-}"
+PY_VER="${PY_VER:-3.10}"
+
+mkdir -p "$HF_HOME" "$TORCH_HOME" "$DATA_DIR" "$UKPV_CSV_DIR" "$CKPT_DIR" \
+         "$WEIGHTS_DIR" logs/slurm
+info() { echo "[precache] $*"; }
+warn() { echo "[precache][WARN] $*" >&2; }
+
+# --- conda env helper -------------------------------------------------------
+HAVE_CONDA=0
+if command -v conda >/dev/null 2>&1; then
+    HAVE_CONDA=1
+    source "$(conda info --base)/etc/profile.d/conda.sh"
+fi
+make_env() {   # make_env <name> <install-command...>
+    local name="$1"; shift
+    [[ "$MAKE_ENVS" == "1" ]] || { info "skip env $name (MAKE_ENVS=0)"; return; }
+    [[ "$HAVE_CONDA" == "1" ]] || { warn "conda not found; create env '$name' manually"; return; }
+    if conda env list | awk '{print $1}' | grep -qx "$name"; then
+        info "conda env '$name' already exists — skipping create"
+    else
+        info "creating conda env '$name' (python=$PY_VER)"
+        conda create -y -n "$name" "python=$PY_VER" >/dev/null || { warn "create $name failed"; return; }
+    fi
+    info "installing deps into '$name'"
+    conda run -n "$name" "$@" || warn "dep install in '$name' failed (inspect log)"
+}
+hf_pull() {    # hf_pull <repo> [local_dir]
+    local repo="$1" dest="${2:-}"
+    uv run --group tier3 python - "$repo" "$dest" <<'PY' || warn "HF cache failed: $1"
+import sys
+from huggingface_hub import snapshot_download
+repo, dest = sys.argv[1], (sys.argv[2] or None)
+p = snapshot_download(repo_id=repo, local_dir=dest) if dest else snapshot_download(repo_id=repo)
+print("cached", repo, "->", p)
+PY
+}
+
+echo "=============================================================="
+echo " MASTER PRECACHE   stage=$STAGE  make_envs=$MAKE_ENVS"
+echo " HF_HOME=$HF_HOME"
+echo " weights=$WEIGHTS_DIR   data=$DATA_DIR"
+echo "=============================================================="
+
+# --- 1/6 + 2/6: Tier-3/4 HF weights + RAG export (reuse login_node_prep) ----
+if [[ "$STAGE" == "all" || "$STAGE" == "weights" ]]; then
+    info "uv sync (base + tier3)"
+    uv sync --group tier3 || warn "uv sync failed"
+    info ">>> Tier-3/4 + RAG via login_node_prep.sh"
+    DATA="$DATA" UKPV_CSV_DIR="$UKPV_CSV_DIR" bash scripts/login_node_prep.sh || warn "login_node_prep had warnings"
+
+    # --- 3/6: Tier-5/6 backbone weights ------------------------------------
+    info ">>> Tier-5/6 backbones"
+    hf_pull "openai/clip-vit-base-patch32" "${WEIGHTS_DIR}/clip-vit-base-patch32"   # Time-VLM + UniCast vision
+    hf_pull "Lefei/VisionTSpp"             "${WEIGHTS_DIR}/visiontspp"              # VisionTS++ MAE ckpt
+    hf_pull "amazon/chronos-bolt-base"     "${WEIGHTS_DIR}/chronos-bolt-base"       # UniCast backbone + RAG BASE_CKPT
+fi
+
+# --- 4/6: one conda env per vendored model ----------------------------------
+if [[ "$STAGE" == "all" || "$STAGE" == "envs" ]]; then
+    info ">>> vendored model conda envs"
+    make_env timevlm   pip install -r "$BASELINES_DIR/tier5/vendor/time_vlm/requirements.txt"
+    make_env visionts  pip install -e "$BASELINES_DIR/tier5/vendor/visionts_pp"
+    [[ -f tier5/vendor/unicast/requirements.txt ]] && make_env unicast pip install -r "$BASELINES_DIR/tier5/vendor/unicast/requirements.txt"
+    [[ -f tier5/vendor/aurora/requirements.txt  ]] && make_env aurora  pip install -r "$BASELINES_DIR/tier5/vendor/aurora/requirements.txt"
+    make_env crossvivit pip install -r "$BASELINES_DIR/tier6/vendor/crossvivit/requirements.txt"
+    make_env sunset    pip install tensorflow h5py pyarrow pandas numpy
+    # RAG originals pin numpy==1.25 + chronos-forecasting + faiss-gpu (TIER4_RAG_INTEGRATION §1)
+    [[ -f tier4/vendor/ts_rag/requirements.txt    ]] && make_env tsrag   pip install -r "$BASELINES_DIR/tier4/vendor/ts_rag/requirements.txt"
+    [[ -f tier4/vendor/cross_rag/requirements.txt ]] && make_env crossrag pip install -r "$BASELINES_DIR/tier4/vendor/cross_rag/requirements.txt"
+
+    # Aurora checkpoint (its own downloader, runs inside the aurora env)
+    if [[ "$MAKE_ENVS" == "1" && "$HAVE_CONDA" == "1" ]] && conda env list | awk '{print $1}' | grep -qx aurora; then
+        info "Aurora checkpoint download"
+        ( cd tier5/vendor/aurora && conda run -n aurora python utils/download_ckpt.py ) || warn "Aurora ckpt download failed"
+    fi
+fi
+
+# --- 5/6: Solar-VLM repo (optional, its own setup) --------------------------
+if [[ -n "$SOLARVLM_DIR" && -d "$SOLARVLM_DIR" ]]; then
+    info ">>> Solar-VLM setup_env.sh"
+    ( cd "$SOLARVLM_DIR" && bash setup_env.sh ) || warn "Solar-VLM setup_env had warnings"
+fi
+
+# --- 6/6: data-staging checks -----------------------------------------------
+if [[ "$STAGE" == "all" || "$STAGE" == "data" ]]; then
+    info ">>> data staging"
+    [[ -f "$DATA" ]]       && info "OK dataset_all.parquet  : $DATA" || warn "MISSING $DATA — copy thesis-dataset/dataset_all.parquet here"
+    [[ -f "$IMAGES_H5" ]]  && info "OK images_all.h5        : $IMAGES_H5" || warn "MISSING $IMAGES_H5 — copy thesis-dataset/images_all.h5 here"
+    if [[ -f "$DATA" ]]; then
+        uv run python tier4/vendor/export_ukpv.py --data "$DATA" --out "$UKPV_CSV_DIR" || warn "uk_pv export failed"
+    fi
+fi
+
+echo ""
+echo "=============================================================="
+echo " PRECACHE DONE. The offline GPU run reads (override-able):"
+echo "   DATA            = $DATA"
+echo "   IMAGES_H5       = $IMAGES_H5"
+echo "   UKPV_CSV_DIR    = $UKPV_CSV_DIR"
+echo "   MAE_CKPT        = ${WEIGHTS_DIR}/visiontspp/<file>.ckpt   (set exact path)"
+echo "   VISION_MODEL_PATH = ${WEIGHTS_DIR}/clip-vit-base-patch32"
+echo "   CHRONOS_PATH / RAG_BASE_CKPT = ${WEIGHTS_DIR}/chronos-bolt-base"
+echo "   RAG_MIXER_CKPT  = <download ARM/cross-attn ckpt into $CKPT_DIR by hand>"
+echo "   AURORA_CKPT     = tier5/vendor/aurora/<ckpt dir>"
+echo "   SOLARVLM_DIR    = ${SOLARVLM_DIR:-<unset>}"
+echo ""
+echo " Then on a GPU node:  sbatch scripts/run_all_baselines.sh"
+echo "=============================================================="
