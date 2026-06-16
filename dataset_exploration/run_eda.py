@@ -29,8 +29,8 @@ sns.set_theme(style="whitegrid")
 plt.rcParams["figure.dpi"] = 110
 
 DATA_DIR = "/Volumes/SSD/standardized-dataset"
-NUMERIC_PATH = os.path.join(DATA_DIR, "numerical/all.parquet")
-OUTPUT_DIR = "/Volumes/SSD/dataset-exploration"
+NUMERIC_PATH = os.path.join(DATA_DIR, "numerical/all_curated.parquet")
+OUTPUT_DIR = "."
 PLOTS_DIR = os.path.join(OUTPUT_DIR, "plots")
 os.makedirs(PLOTS_DIR, exist_ok=True)
 
