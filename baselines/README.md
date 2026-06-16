@@ -152,8 +152,23 @@ test via `sbatch --qos=boost_qos_dbg --time=00:30:00 …`.
 conda env (`TIER4_RAG_INTEGRATION.md §1`) and download the released ARM /
 cross-attn checkpoints (Google Drive / HF). Everything else above is ready.
 
+## Cluster-only vendored tiers (originals, own env)
+
+Tiers 5–6 run the authors' **original** code, vendored under `tier5/vendor/` and
+`tier6/vendor/` (own conda env per model; heavy stacks conflict with this venv).
+Not in-process registry baselines — `make_tables.py` ingests their results by file
+stem via `scripts/import_predictions.py`.
+
+- **Tier 5** (generic multimodal TS): Time-VLM, VisionTS++ (numerical track, runnable),
+  UniCast, Aurora (multimodal track, gated). See `docs/experiments/TIER5_INTEGRATION.md`,
+  `scripts/slurm_{time_vlm,visionts_pp,unicast,aurora}.sh`.
+- **Tier 6** (PV-specialized multimodal, domain SOTA): CrossViViT (`tier6/vendor/crossvivit`,
+  MIT) + SUNSET (`tier6/vendor/sunset`, MIT) — both multimodal track (real frames),
+  gated on that data; Solar-VLM is the third P0, already ported under `solar_vlm/`.
+  See `docs/experiments/TIER6_INTEGRATION.md`,
+  `scripts/slurm_{crossvivit,sunset}.sh`.
+
 ## Not in this package (other tiers)
 
-Tier 5/6 (Time-VLM, UniCast, SUNSET, CrossViVit, Solar-VLM — see
-`solar_vlm/`) and MEMTS (T4, P2) follow per the execution order in
-BASELINE_COMPARISON.md §8.
+MEMTS (T4, P2) and the Tier-6 P1/P2 cite-only rows (SPIRIT, PV-VLM, M3S-Net,
+MDCTL-MCI) follow per the execution order in BASELINE_COMPARISON.md §8.
