@@ -57,12 +57,7 @@ if [[ "$STAGE" == "all" || "$STAGE" == "rag" ]]; then
     # ChronosBolt base weights are passed as a local dir (--pretrained_model_path).
     export UV_ENVS_DIR="${UV_ENVS_DIR:-${TEAM_SCRATCH}/uv_envs}"
     VENV_NAME="${VENV_NAME:-tsrag}"
-    if [[ -d "$UV_ENVS_DIR/$VENV_NAME" ]]; then
-        source "$UV_ENVS_DIR/$VENV_NAME/bin/activate"
-    else
-        echo "WARN: uv env '$VENV_NAME' not found in $UV_ENVS_DIR"
-    fi
-    python - <<PY || echo "WARN: HF cache step needs the upstream env (huggingface_hub)"
+    uv run python - <<PY || echo "WARN: HF cache step needs the upstream env (huggingface_hub)"
 from huggingface_hub import snapshot_download
 for repo in ("amazon/chronos-t5-base", "amazon/chronos-bolt-base"):
     try:
