@@ -11,14 +11,17 @@
 #SBATCH --output=logs/slurm/%j_%x.out
 #SBATCH --error=logs/slurm/%j_%x.err
 
-# Tier-5 Aurora (P2, MULTIMODAL track) — TRAIN (fine-tune) + EVAL.
-# Aurora is a generative multimodal TSFM (image+text) loaded via
-# AuroraForPrediction.from_pretrained; zero-shot eval needs only the checkpoint,
-# but multimodal forecasting needs the real frames+text from the multimodal track
-# (skippd/goes16). Ready; fails loud until that dataset exists.
+# Tier-5 Aurora (P2) on the uk_pv track — TRAIN (fine-tune) + EVAL.
+# NOTE: Aurora's data pipeline (utils/pretrain_dataset.py::Aurora_Single_Dataset)
+# is **time-series + TEXT**, NOT images — it reads a per-series CSV (date+value)
+# plus a matching JSON weather-text list (BERT-tokenized). So uk *images* do not
+# apply to Aurora; it was blocked on the per-window TEXT, which tier5/uk_export.py
+# now generates (templated from the uk covariates) alongside the CSVs. The
+# authors' runner.py consumes that layout unchanged.
 #
-#   sbatch --export=ALL,CONDA_ENV=aurora,AURORA_CKPT=<dir>,MM_DATASET=<dir>,\
-#          MODE=eval scripts/slurm_aurora.sh        # MODE=eval | finetune
+#   sbatch --export=ALL,CONDA_ENV=aurora,AURORA_CKPT=<dir>,\
+#          DATA=<all_curated.parquet>,IMAGES_H5=<images_uk128.h5>,MODE=eval \
+#          scripts/slurm_aurora.sh                    # MODE=eval | finetune
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")/..}"
 [[ -f .env ]] && source .env
@@ -31,24 +34,28 @@ export HF_HOME="${HF_HOME:-${TEAM_SCRATCH}/hf_cache}"
 : "${CONDA_ENV:?set CONDA_ENV to the Aurora conda env (TIER5_INTEGRATION.md §1)}"
 : "${AURORA_CKPT:?set AURORA_CKPT to the Aurora checkpoint dir (utils/download_ckpt.py)}"
 [[ -d "$AURORA_CKPT" ]] || { echo "ERROR: AURORA_CKPT not a dir: $AURORA_CKPT"; exit 1; }
+DATA="${DATA:-${TEAM_SCRATCH}/data/numerical/all_curated.parquet}"
+IMAGES_H5="${IMAGES_H5:-${TEAM_SCRATCH}/data/images_uk128.h5}"
 MODE="${MODE:-eval}"; PRED_LEN="${PRED_LEN:-12}"
+EXPORT="${EXPORT:-tier5/vendor/aurora/data_ukpv}"
+[[ -f "$DATA" ]] || { echo "ERROR: DATA parquet not found: $DATA"; exit 1; }
 
-# ---- multimodal-track guard ------------------------------------------------
-[[ -n "${MM_DATASET:-}" && -d "${MM_DATASET:-/nonexistent}" ]] || {
-    echo "ERROR: MM_DATASET unset/missing — Aurora multimodal forecasting needs the
-  real frames+text dataset (multimodal track). Build it from skippd/goes16 once
-  that data lands, then set MM_DATASET. See TIER5_INTEGRATION.md §0/§3."; exit 2; }
+# ---- 1. export uk_pv → Aurora layout (per-series CSV + weather-text JSON) ---
+# (images_uk128.h5 only used to share the tier6 window builder; Aurora ignores V)
+uv run --with h5py --with pillow python tier5/uk_export.py --model aurora \
+    --out "$EXPORT" --data "$DATA" --h5 "$IMAGES_H5" --pred_len "$PRED_LEN"
 
 source "$(conda info --base)/etc/profile.d/conda.sh"; conda activate "$CONDA_ENV"
 cd tier5/vendor/aurora
 
 if [[ "$MODE" == "finetune" ]]; then
-    echo ">>> Aurora fine-tune"
+    echo ">>> Aurora fine-tune (uk_pv TS+text)"
     python runner.py --mode pretrain --model_path "$AURORA_CKPT" \
-        --dataset "$MM_DATASET" --prediction_length "$PRED_LEN"
+        --dataset "../../../$EXPORT" --prediction_length "$PRED_LEN"
 fi
-echo ">>> Aurora EVAL (zero-shot/probabilistic)"
+echo ">>> Aurora EVAL (uk_pv TS+text)"
 python runner.py --mode eval --model_path "$AURORA_CKPT" \
-    --dataset "$MM_DATASET" --prediction_length "$PRED_LEN"
+    --dataset "../../../$EXPORT" --prediction_length "$PRED_LEN"
 
-echo "✓ Aurora done. Dump predictions + import to our metrics per TIER5_INTEGRATION.md §4."
+echo "✓ Aurora done. Dump predictions (runner eval output) → *_pred.npz, then"
+echo "  uv run python scripts/import_predictions.py --model aurora --tag s2_ukpv_mm ... (TIER5_INTEGRATION.md §4)."

@@ -10,12 +10,17 @@ contract/dataset, not reimplemented. **Cluster-only** (heavy VLM/MAE/Chronos sta
 |---|---|---|---|---|
 | **Time-VLM** | numerical (uk_pv) | `Y` → pseudo-image (+auto text) | ✅ yes | P0 |
 | **VisionTS++** | numerical (uk_pv) | `Y` → image (MAE) | ✅ yes | P2 |
-| **UniCast** | multimodal | `Y` + real frames + text | ⛔ needs image track | P1 |
-| **Aurora** | multimodal | `Y` + real frames + text | ⛔ needs image track | P2 |
+| **UniCast** | uk_pv multimodal (images) | `Y` + real CLIP/BLIP frames + text | ✅ via `tier5/uk_export.py` | P1 |
+| **Aurora** | uk_pv (TS + **text**) | `Y` + BERT text (**no image branch**) | ✅ via `tier5/uk_export.py` | P2 |
 
-Two of four render the series itself as an image and need **no satellite frames** → they run
-on the numerical uk_pv track today and match our `Y → ŷ` contract. UniCast/Aurora consume
-**real** image+text → blocked on the multimodal track (skippd / goes16_nsrdb, downloading).
+Time-VLM / VisionTS++ render the series itself as an image and need **no satellite
+frames** → they run on the numerical uk_pv track and match our `Y → ŷ` contract.
+UniCast needs **real frames** — now available on uk_pv (`images_uk128.h5`). Aurora is
+**TS + text** (its `Aurora_Single_Dataset` reads a CSV + JSON text, no image input), so
+uk images do not apply; it was blocked on the per-window text. `tier5/uk_export.py`
+emits each model's native on-disk format from the shared `tier6.uk_multimodal` bridge,
+so both now run on uk_pv (gated only on their backbone weights — CLIP/BLIP + Chronos-Bolt
+for UniCast, the Aurora checkpoint).
 
 ---
 
@@ -27,9 +32,11 @@ on the numerical uk_pv track today and match our `Y → ŷ` contract. UniCast/Au
   `uk_pv_train.csv`). No new exporter needed.
 - **VisionTS++** uses `uni2ts`/GluonTS datasets → export uk_pv as a GluonTS `FileDataset`
   (one series per plant; reuse `common.windows.build_site_series` for the native grid).
-- **UniCast / Aurora** need the per-window **image + text** tensors of the multimodal track
-  (DATASET_CONTRACT `V` frames + generated weather text) — produced by the multimodal data
-  pipeline, not the numerical parquet. Defer until that data lands.
+- **UniCast** (real images) and **Aurora** (TS + text) consume the uk_pv multimodal
+  windows via `tier5/uk_export.py`, which reuses the shared `tier6.uk_multimodal` bridge
+  (curated `Y` + `images_uk128.h5` frames + covariate-templated text) and writes each
+  model's native on-disk format — UniCast: `inputs.pt`/`targets_<H>.pt`/`img/`; Aurora:
+  per-series CSV + JSON text. No separate multimodal pipeline needed.
 
 Capacity de-normalisation + the baseline-contract check on outputs reuse
 `tier4/vendor/contract_check.py --predictions <npz>` (shape (N,H[,1]), finite, [0,1]).
@@ -116,8 +123,14 @@ the table (they also apply to the Tier-4 RAG originals):
 - [x] Prediction-contract check wired into every script (`tier4/vendor/contract_check.py`).
 - [x] Metric import wired: `scripts/import_predictions.py` (npz → results JSON) called by
       each SLURM script; `summarize_ukpv.py` + `make_tables.py` carry the Tier-5 rows.
+- [x] UniCast on uk_pv: `tier5/uk_export.py --model unicast` builds its image layout
+      from `images_uk128.h5`; `slurm_unicast.sh` exports → trains → per-plant test
+      (`--dump_npz`, added) → import (tag `s2_ukpv_mm`). Export verified on real data;
+      model run gated only on the CLIP/BLIP + Chronos-Bolt weights.
+- [x] Aurora on uk_pv: it is **TS + text** (no image branch); `tier5/uk_export.py
+      --model aurora` emits per-series CSV + weather text; `slurm_aurora.sh` consumes it.
+      Export verified; eval-output → npz dump is the remaining cluster step.
 - [ ] First **cluster validation** run (none of this is laptop-runnable — verify on Leonardo).
-- [ ] UniCast / Aurora: blocked on the multimodal track (image+text data).
 
 Tier-5 is **not** an in-process registry baseline (unlike Tiers 0-4): the upstream stacks
 are too heavy and conflict with our venv, so they run from their own code/env like the

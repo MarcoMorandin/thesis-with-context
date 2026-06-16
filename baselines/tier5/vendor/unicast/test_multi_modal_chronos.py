@@ -25,6 +25,9 @@ if __name__ == "__main__":
     parser.add_argument('--test_dataset_path', type=str)
     parser.add_argument('--dataset_text', type=str)
     parser.add_argument('--checkpoint_path', type=str)
+    parser.add_argument('--dump_npz', type=str, default=None,
+                        help='ADDED (uk_pv adaptation): write pred/true to this .npz '
+                             'in our baseline-contract format for import_predictions.py')
 
     args = parser.parse_args()
     
@@ -59,3 +62,9 @@ if __name__ == "__main__":
 
     mse = np.mean(np.square(pred-true))
     print(f"MSE: {mse:.4f}")
+
+    if args.dump_npz:  # ADDED (uk_pv adaptation): dump for scripts/import_predictions.py
+        os.makedirs(os.path.dirname(os.path.abspath(args.dump_npz)), exist_ok=True)
+        np.savez(args.dump_npz, pred=np.clip(pred, 0.0, 1.0).astype('float32'),
+                 true=true.astype('float32'))
+        print(f"dumped predictions → {args.dump_npz}")
