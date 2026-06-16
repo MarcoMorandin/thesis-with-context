@@ -83,12 +83,28 @@ sbatch --export=ALL,CONDA_ENV=aurora,AURORA_CKPT=…,MM_DATASET=… scripts/slur
 ```
 Time-VLM / VisionTS++ run at seq_len=24/pred_len=12 (our protocol) on uk_pv now.
 
-## 4. Metrics back into our pipeline
+## 4. Metrics back into our pipeline (wired)
 
-Same as Tier 4 (TIER4_RAG_INTEGRATION.md §6): dump per-window `pred`/`true` to `.npz`, invert
-each model's normalisation back to `norm_power`, feed `(pred, true, mask·daylight)` to
-`common/runner.py`'s metric core, register results under `time_vlm` / `visionts_pp` /
-`unicast` / `aurora` in `results/` so `make_tables.py` (Tier-5 rows) picks them up.
+The per-model SLURM scripts already call **`scripts/import_predictions.py`**, which reduces
+the dumped `*_pred.npz` to the same result JSON the in-repo baselines write
+(`PerPlantAccumulator` → macro NMAE/NRMSE/SS/CRPS, per plant), so
+`scripts/summarize_ukpv.py` and `make_tables.py` render the Tier-5 rows:
+
+```bash
+uv run python scripts/import_predictions.py --model time_vlm --tag s2_ukpv \
+    --glob 'tier5/vendor/time_vlm/results/*/uk_pv_test_*_pred.npz' \
+    --reference results/smart_persistence_s2_ukpv.json
+# → results/time_vlm_s2_ukpv.json
+```
+
+Two caveats are written into each result manifest and **must** be respected when reading
+the table (they also apply to the Tier-4 RAG originals):
+- **Daylight mask = `true > 0`** (a proxy; night `norm_power` is exactly 0), not the exact
+  clear-sky daylight mask of Tiers 0-4 — a few daytime near-zero overcast steps may drop.
+- **Native eval windows**: each harness uses its own windowing (Time-VLM = TSLib test
+  split; VisionTS++ `run_ukpv.py` = our non-overlapping windows), so these are **not
+  bit-aligned** with Tiers 0-4. There is no per-window loss sidecar ⇒ no DM/bootstrap vs
+  Smart Persistence; compare via **SS / win-rate / rank** (§4.4), not pooled raw NMAE.
 
 ## 5. Status
 
@@ -98,7 +114,8 @@ each model's normalisation back to `norm_power`, feed `(pred, true, mask·daylig
       prediction-dump patch landed (`exp_long_term_forecasting.py`).
 - [x] VisionTS++ `run_ukpv.py` zero-shot runner over the uk_pv CSVs (no GluonTS export needed).
 - [x] Prediction-contract check wired into every script (`tier4/vendor/contract_check.py`).
-- [ ] Metric import (npz → NMAE/SS via `common/runner.py`) + `make_tables.py` rows.
+- [x] Metric import wired: `scripts/import_predictions.py` (npz → results JSON) called by
+      each SLURM script; `summarize_ukpv.py` + `make_tables.py` carry the Tier-5 rows.
 - [ ] First **cluster validation** run (none of this is laptop-runnable — verify on Leonardo).
 - [ ] UniCast / Aurora: blocked on the multimodal track (image+text data).
 

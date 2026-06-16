@@ -56,4 +56,9 @@ shopt -s nullglob
 for npz in "$OUT"/visionts_pp_*_pred.npz; do
     uv run python tier4/vendor/contract_check.py --predictions "$npz" --horizon "$PRED_LEN" || true
 done
-echo "✓ VisionTS++ done. Import *_pred.npz into our metrics per TIER5_INTEGRATION.md §4."
+
+# ---- 4. import predictions → our NMAE/NRMSE/SS results JSON -----------------
+uv run python scripts/import_predictions.py --model visionts_pp --tag s2_ukpv \
+    --glob "$OUT/visionts_pp_*_pred.npz" \
+    --reference results/smart_persistence_s2_ukpv.json
+echo "✓ VisionTS++ done → results/visionts_pp_s2_ukpv.json (make_tables / summarize_ukpv pick it up)."

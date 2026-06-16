@@ -35,6 +35,21 @@ MODELS: list[tuple[str, str, str, bool, str]] = [
     ("T2", "patchtst", "PatchTST", False, "transformer"),
     ("T2", "itransformer", "iTransformer", False, "transformer"),
     ("T2", "tft", "TFT-lite (quantile)", False, "transformer"),
+    # Tier 3/4/5 appear only when their cluster results land in results/.
+    ("T3", "chronos2_zs", "Chronos-2 ZS", True, "0"),
+    ("T3", "chronos2_ft", "Chronos-2 FT", False, "adapter"),
+    ("T3", "timesfm_zs", "TimesFM 2.5 ZS", True, "0"),
+    ("T3", "tirex_zs", "TiRex ZS", True, "0"),
+    ("T4", "cora", "CoRA (Chronos-2)", False, "adapter"),
+    ("T4", "ts_rag_orig", "TS-RAG (orig 512/64)", True, "mixer"),
+    ("T4", "ts_rag_proto", "TS-RAG (proto 24/12)", False, "mixer"),
+    ("T4", "cross_rag_orig", "Cross-RAG (orig)", True, "mixer"),
+    ("T4", "cross_rag_proto", "Cross-RAG (proto)", False, "mixer"),
+    # Tier 5 (vendored, native eval windows — see import_predictions.py caveats)
+    ("T5", "time_vlm", "Time-VLM", False, "VLM+TSLib"),
+    ("T5", "visionts_pp", "VisionTS++ (ZS)", True, "MAE"),
+    ("T5", "unicast", "UniCast", False, "prompt"),
+    ("T5", "aurora", "Aurora", True, "MTSFM"),
 ]
 
 

@@ -151,9 +151,12 @@ predictions and re-score with ours:
   to recover `norm_power`, then feed `(pred, true, mask·daylight)` to
   `common/runner.py::evaluate_model`'s metric core to produce NMAE/NRMSE/SS/CRPS and the
   per-window `*_losses.npz` the DM/bootstrap test consumes.
-- Register the resulting numbers under `ts_rag_orig`, `ts_rag_proto`, `cross_rag_orig`,
-  `cross_rag_proto` in `results/` so `scripts/summarize_ukpv.py` and `make_tables.py` pick
-  them up.
+- Once the `.npz` carries `pred`/`true`, the shared glue
+  **`scripts/import_predictions.py`** turns it into our result JSON (same as Tier 5):
+  `--model ts_rag_orig --glob '…/*_pred.npz' --reference results/smart_persistence_s2_ukpv.json`
+  → `results/ts_rag_orig_s2_ukpv.json`, which `summarize_ukpv.py` / `make_tables.py` pick up
+  (rows `ts_rag_orig` / `ts_rag_proto` / `cross_rag_orig` / `cross_rag_proto`). Same two
+  caveats as Tier 5 apply (proxy daylight mask; native eval windows ⇒ no DM sidecar).
 
 Only the `*_proto` rows are input-parity; keep `*_orig` in a clearly-labelled companion
 block (different backbone + regime), per §4.1.1 cadence rules.

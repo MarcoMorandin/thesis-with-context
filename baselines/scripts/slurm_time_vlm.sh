@@ -70,4 +70,9 @@ shopt -s nullglob
 for npz in tier5/vendor/time_vlm/results/*/uk_pv_test_*_pred.npz; do
     uv run python tier4/vendor/contract_check.py --predictions "$npz" --horizon "$PRED_LEN" || true
 done
-echo "✓ Time-VLM done. Import *_pred.npz into our metrics per TIER5_INTEGRATION.md §4."
+
+# ---- 5. import predictions → our NMAE/NRMSE/SS results JSON -----------------
+uv run python scripts/import_predictions.py --model time_vlm --tag s2_ukpv \
+    --glob 'tier5/vendor/time_vlm/results/*/uk_pv_test_*_pred.npz' \
+    --reference results/smart_persistence_s2_ukpv.json
+echo "✓ Time-VLM done → results/time_vlm_s2_ukpv.json (make_tables / summarize_ukpv pick it up)."
