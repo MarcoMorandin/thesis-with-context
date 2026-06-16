@@ -7,12 +7,12 @@
 #   1. uv env (+ tier3 group) and all Tier-3/4 HF weights
 #   2. RAG Chronos backbones + uk_pv CSV export
 #   3. Tier-5/6 backbone weights (CLIP / VisionTS++ MAE / Chronos-Bolt / Aurora)
-#   4. one conda env per vendored model (Tier 5/6 + RAG)
+#   4. one uv env per vendored model (Tier 5/6 + RAG)
 #   5. Solar-VLM repo setup (optional)
 #   6. data-staging checks (dataset_all.parquet + images_all.h5)
 #
 #   bash scripts/precache_login.sh
-#   MAKE_ENVS=0 bash scripts/precache_login.sh           # skip conda env creation
+#   MAKE_ENVS=0 bash scripts/precache_login.sh           # skip uv env creation
 #   STAGE=weights bash scripts/precache_login.sh         # only HF/torch weights
 #
 # After it finishes, allocate a GPU node and run scripts/run_all_baselines.sh.
@@ -43,24 +43,22 @@ mkdir -p "$HF_HOME" "$TORCH_HOME" "$DATA_DIR" "$UKPV_CSV_DIR" "$CKPT_DIR" \
 info() { echo "[precache] $*"; }
 warn() { echo "[precache][WARN] $*" >&2; }
 
-# --- conda env helper -------------------------------------------------------
-HAVE_CONDA=0
-if command -v conda >/dev/null 2>&1; then
-    HAVE_CONDA=1
-    source "$(conda info --base)/etc/profile.d/conda.sh"
-fi
+# --- uv env helper -------------------------------------------------------
+export UV_ENVS_DIR="${UV_ENVS_DIR:-${TEAM_SCRATCH}/uv_envs}"
+mkdir -p "$UV_ENVS_DIR"
+
 make_env() {   # make_env <name> <install-command...>
     local name="$1"; shift
+    local venv_path="$UV_ENVS_DIR/$name"
     [[ "$MAKE_ENVS" == "1" ]] || { info "skip env $name (MAKE_ENVS=0)"; return; }
-    [[ "$HAVE_CONDA" == "1" ]] || { warn "conda not found; create env '$name' manually"; return; }
-    if conda env list | awk '{print $1}' | grep -qx "$name"; then
-        info "conda env '$name' already exists — skipping create"
+    if [[ -d "$venv_path" ]]; then
+        info "uv env '$name' already exists — skipping create"
     else
-        info "creating conda env '$name' (python=$PY_VER)"
-        conda create -y -n "$name" "python=$PY_VER" >/dev/null || { warn "create $name failed"; return; }
+        info "creating uv env '$name' (python=$PY_VER)"
+        uv venv --python "$PY_VER" "$venv_path" >/dev/null || { warn "create $name failed"; return; }
     fi
     info "installing deps into '$name'"
-    conda run -n "$name" "$@" || warn "dep install in '$name' failed (inspect log)"
+    VIRTUAL_ENV="$venv_path" uv "$@" || warn "dep install in '$name' failed (inspect log)"
 }
 hf_pull() {    # hf_pull <repo> [local_dir]
     local repo="$1" dest="${2:-}"
@@ -93,7 +91,7 @@ if [[ "$STAGE" == "all" || "$STAGE" == "weights" ]]; then
     hf_pull "amazon/chronos-bolt-base"     "${WEIGHTS_DIR}/chronos-bolt-base"       # UniCast backbone + RAG BASE_CKPT
 fi
 
-# --- 4/6: one conda env per vendored model ----------------------------------
+# --- 4/6: one uv env per vendored model ----------------------------------
 if [[ "$STAGE" == "all" || "$STAGE" == "envs" ]]; then
     info ">>> vendored model conda envs"
     make_env timevlm   pip install -r "$BASELINES_DIR/tier5/vendor/time_vlm/requirements.txt"
@@ -107,9 +105,9 @@ if [[ "$STAGE" == "all" || "$STAGE" == "envs" ]]; then
     [[ -f tier4/vendor/cross_rag/requirements.txt ]] && make_env crossrag pip install -r "$BASELINES_DIR/tier4/vendor/cross_rag/requirements.txt"
 
     # Aurora checkpoint (its own downloader, runs inside the aurora env)
-    if [[ "$MAKE_ENVS" == "1" && "$HAVE_CONDA" == "1" ]] && conda env list | awk '{print $1}' | grep -qx aurora; then
+    if [[ "$MAKE_ENVS" == "1" && -d "$UV_ENVS_DIR/aurora" ]]; then
         info "Aurora checkpoint download"
-        ( cd tier5/vendor/aurora && conda run -n aurora python utils/download_ckpt.py ) || warn "Aurora ckpt download failed"
+        ( cd tier5/vendor/aurora && VIRTUAL_ENV="$UV_ENVS_DIR/aurora" "$UV_ENVS_DIR/aurora/bin/python" utils/download_ckpt.py ) || warn "Aurora ckpt download failed"
     fi
 fi
 

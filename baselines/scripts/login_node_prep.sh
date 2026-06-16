@@ -55,10 +55,12 @@ if [[ "$STAGE" == "all" || "$STAGE" == "rag" ]]; then
     echo ">>> pre-cache the Chronos backbones the upstream code loads"
     # zeroshot.py hardcodes amazon/chronos-t5-base for retrieval embeddings;
     # ChronosBolt base weights are passed as a local dir (--pretrained_model_path).
-    CONDA_ENV="${CONDA_ENV:-tsrag}"
-    if command -v conda >/dev/null 2>&1; then
-        source "$(conda info --base)/etc/profile.d/conda.sh"
-        conda activate "$CONDA_ENV" 2>/dev/null || { echo "WARN: conda env '$CONDA_ENV' not found; create it per TIER4_RAG_INTEGRATION.md §1"; }
+    export UV_ENVS_DIR="${UV_ENVS_DIR:-${TEAM_SCRATCH}/uv_envs}"
+    VENV_NAME="${VENV_NAME:-tsrag}"
+    if [[ -d "$UV_ENVS_DIR/$VENV_NAME" ]]; then
+        source "$UV_ENVS_DIR/$VENV_NAME/bin/activate"
+    else
+        echo "WARN: uv env '$VENV_NAME' not found in $UV_ENVS_DIR"
     fi
     python - <<PY || echo "WARN: HF cache step needs the upstream env (huggingface_hub)"
 from huggingface_hub import snapshot_download
@@ -78,6 +80,6 @@ fi
 echo ""
 echo "✓ login-node prep done. Compute jobs can now run with HF_HUB_OFFLINE=1."
 echo "  sbatch scripts/slurm_baselines.sh"
-echo "  sbatch --export=ALL,METHOD=ts_rag,REGIME=orig,CONDA_ENV=$CONDA_ENV,\\"
+echo "  sbatch --export=ALL,METHOD=ts_rag,REGIME=orig,VENV_NAME=$VENV_NAME,\\"
 echo "         UKPV_CSV_DIR=$UKPV_CSV_DIR,BASE_CKPT=<chronos-bolt-dir>,MIXER_CKPT=<arm.pth> \\"
 echo "         scripts/slurm_rag_original.sh"

@@ -16,7 +16,7 @@
 # Run the *original* vendored TS-RAG / Cross-RAG code (baselines/tier4/vendor/)
 # on the uk_pv test plants. This is NOT the uv/run_eval path — the upstream repos
 # pin numpy==1.25 + chronos-forecasting + faiss-gpu and conflict with the
-# baselines venv, so they run from a dedicated conda env and their own zeroshot.py.
+# baselines venv, so they run from a dedicated uv env and their own zeroshot.py.
 #
 # Full recipe + fairness mapping: docs/experiments/TIER4_RAG_INTEGRATION.md
 #
@@ -29,7 +29,7 @@
 #   sbatch --export=ALL,METHOD=cross_rag,REGIME=proto scripts/slurm_rag_original.sh
 #
 # Required overrides (no defaults — these are off-repo artifacts, see the doc):
-#   CONDA_ENV     conda env name with the upstream requirements (e.g. tsrag/crossrag)
+#   VENV_NAME     uv env name with the upstream requirements (e.g. tsrag/crossrag)
 #   UKPV_CSV_DIR  dir of exported uk_pv CSVs + train retrieval DB (export_ukpv.py)
 #   BASE_CKPT     Chronos-Bolt base weights dir (amazon/chronos-bolt-base)
 #   MIXER_CKPT    pretrained ARM / cross-attn checkpoint (REGIME=orig only)
@@ -55,7 +55,7 @@ case "$REGIME" in
 esac
 
 # ---- prerequisite guards (fail loud, never silently mis-run) ---------------
-: "${CONDA_ENV:?set CONDA_ENV to the upstream conda env (see TIER4_RAG_INTEGRATION.md §1)}"
+: "${VENV_NAME:?set VENV_NAME to the upstream uv env (see TIER4_RAG_INTEGRATION.md §1)}"
 : "${UKPV_CSV_DIR:?set UKPV_CSV_DIR to the exported uk_pv data dir (§3)}"
 : "${BASE_CKPT:?set BASE_CKPT to the Chronos-Bolt base weights dir (§2)}"
 [[ -d "$VENDOR_DIR" ]] || { echo "ERROR: vendored code missing: $VENDOR_DIR"; exit 1; }

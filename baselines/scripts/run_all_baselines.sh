@@ -53,7 +53,7 @@ SEEDS="${SEEDS:-42 43 44}"
 GROUP="${GROUP:-tier3}"
 RUN_LOPO="${RUN_LOPO:-0}"
 
-# vendored-model conda envs
+# vendored-model uv envs
 ENV_TIMEVLM="${ENV_TIMEVLM:-timevlm}"; ENV_VISIONTS="${ENV_VISIONTS:-visionts}"
 ENV_UNICAST="${ENV_UNICAST:-unicast}"; ENV_AURORA="${ENV_AURORA:-aurora}"
 ENV_CROSSVIVIT="${ENV_CROSSVIVIT:-crossvivit}"; ENV_SUNSET="${ENV_SUNSET:-sunset}"
@@ -83,12 +83,9 @@ echo " DATA=$DATA"
 echo " IMAGES_H5=$IMAGES_H5   logs=$LOGDIR"
 echo "=============================================================="
 
-# ---- conda ------------------------------------------------------------------
-HAVE_CONDA=0
-if command -v conda >/dev/null 2>&1; then
-    HAVE_CONDA=1; source "$(conda info --base)/etc/profile.d/conda.sh"
-fi
-conda_has() { [[ "$HAVE_CONDA" == 1 ]] && conda env list 2>/dev/null | awk '{print $1}' | grep -qx "$1"; }
+# ---- uv envs ------------------------------------------------------------------
+export UV_ENVS_DIR="${UV_ENVS_DIR:-${TEAM_SCRATCH}/uv_envs}"
+env_has() { [[ -d "$UV_ENVS_DIR/$1" ]]; }
 
 # ---- task table + gating ----------------------------------------------------
 declare -a T_NAME=() T_CMD=()
@@ -112,35 +109,35 @@ if [[ "$RUN_LOPO" == 1 ]]; then
     add "lopo_goes" "uv run --group $GROUP python run_eval.py --model chronos2_zs timesfm_zs tirex_zs ttm_zs chronos2_ft ttm_ft cora --data '$DATA' --lopo-dataset goes_pvdaq --tag lopo --seeds $SEEDS"
 fi
 
-# Tier 4 RAG originals (own conda env + gated ckpts)
-if conda_has "$ENV_TSRAG" && [[ -d "$UKPV_CSV_DIR" && -d "$RAG_BASE_CKPT" && -f "$RAG_MIXER_CKPT" ]]; then
-    add "ts_rag" "METHOD=ts_rag REGIME=orig CONDA_ENV=$ENV_TSRAG UKPV_CSV_DIR='$UKPV_CSV_DIR' BASE_CKPT='$RAG_BASE_CKPT' MIXER_CKPT='$RAG_MIXER_CKPT' bash scripts/slurm_rag_original.sh"
-else skip "ts_rag" "needs conda:$ENV_TSRAG + UKPV_CSV_DIR + RAG_BASE_CKPT + RAG_MIXER_CKPT"; fi
-if conda_has "$ENV_CROSSRAG" && [[ -d "$UKPV_CSV_DIR" && -d "$RAG_BASE_CKPT" && -f "$RAG_MIXER_CKPT" ]]; then
-    add "cross_rag" "METHOD=cross_rag REGIME=orig CONDA_ENV=$ENV_CROSSRAG UKPV_CSV_DIR='$UKPV_CSV_DIR' BASE_CKPT='$RAG_BASE_CKPT' MIXER_CKPT='$RAG_MIXER_CKPT' bash scripts/slurm_rag_original.sh"
-else skip "cross_rag" "needs conda:$ENV_CROSSRAG + UKPV_CSV_DIR + RAG_BASE_CKPT + RAG_MIXER_CKPT"; fi
+# Tier 4 RAG originals (own uv env + gated ckpts)
+if env_has "$ENV_TSRAG" && [[ -d "$UKPV_CSV_DIR" && -d "$RAG_BASE_CKPT" && -f "$RAG_MIXER_CKPT" ]]; then
+    add "ts_rag" "METHOD=ts_rag REGIME=orig VENV_NAME=$ENV_TSRAG UKPV_CSV_DIR='$UKPV_CSV_DIR' BASE_CKPT='$RAG_BASE_CKPT' MIXER_CKPT='$RAG_MIXER_CKPT' bash scripts/slurm_rag_original.sh"
+else skip "ts_rag" "needs uv env:$ENV_TSRAG + UKPV_CSV_DIR + RAG_BASE_CKPT + RAG_MIXER_CKPT"; fi
+if env_has "$ENV_CROSSRAG" && [[ -d "$UKPV_CSV_DIR" && -d "$RAG_BASE_CKPT" && -f "$RAG_MIXER_CKPT" ]]; then
+    add "cross_rag" "METHOD=cross_rag REGIME=orig VENV_NAME=$ENV_CROSSRAG UKPV_CSV_DIR='$UKPV_CSV_DIR' BASE_CKPT='$RAG_BASE_CKPT' MIXER_CKPT='$RAG_MIXER_CKPT' bash scripts/slurm_rag_original.sh"
+else skip "cross_rag" "needs uv env:$ENV_CROSSRAG + UKPV_CSV_DIR + RAG_BASE_CKPT + RAG_MIXER_CKPT"; fi
 
-# Tier 5 (own conda env; private UKPV_DIR per task avoids export races)
-if conda_has "$ENV_TIMEVLM"; then
-    add "time_vlm" "CONDA_ENV=$ENV_TIMEVLM DATA='$DATA' UKPV_DIR='${UKPV_CSV_DIR}_tvlm' bash scripts/slurm_time_vlm.sh"
-else skip "time_vlm" "needs conda:$ENV_TIMEVLM"; fi
-if conda_has "$ENV_VISIONTS" && [[ -f "$MAE_CKPT" ]]; then
-    add "visionts_pp" "CONDA_ENV=$ENV_VISIONTS MAE_CKPT='$MAE_CKPT' DATA='$DATA' UKPV_DIR='${UKPV_CSV_DIR}_vts' bash scripts/slurm_visionts_pp.sh"
-else skip "visionts_pp" "needs conda:$ENV_VISIONTS + MAE_CKPT (set to VisionTS++ .ckpt)"; fi
-if conda_has "$ENV_UNICAST" && [[ -d "$VISION_MODEL_PATH" && -d "$CHRONOS_PATH" && -f "$IMAGES_H5" ]]; then
-    add "unicast" "CONDA_ENV=$ENV_UNICAST VISION_MODEL=CLIP VISION_MODEL_PATH='$VISION_MODEL_PATH' CHRONOS_PATH='$CHRONOS_PATH' DATA='$DATA' IMAGES_H5='$IMAGES_H5' bash scripts/slurm_unicast.sh"
-else skip "unicast" "needs conda:$ENV_UNICAST + VISION_MODEL_PATH + CHRONOS_PATH + IMAGES_H5"; fi
-if conda_has "$ENV_AURORA" && [[ -d "$AURORA_CKPT" ]]; then
-    add "aurora" "CONDA_ENV=$ENV_AURORA AURORA_CKPT='$AURORA_CKPT' DATA='$DATA' IMAGES_H5='$IMAGES_H5' MODE=finetune bash scripts/slurm_aurora.sh"
-else skip "aurora" "needs conda:$ENV_AURORA + AURORA_CKPT dir"; fi
+# Tier 5 (own uv env; private UKPV_DIR per task avoids export races)
+if env_has "$ENV_TIMEVLM"; then
+    add "time_vlm" "VENV_NAME=$ENV_TIMEVLM DATA='$DATA' UKPV_DIR='${UKPV_CSV_DIR}_tvlm' bash scripts/slurm_time_vlm.sh"
+else skip "time_vlm" "needs uv env:$ENV_TIMEVLM"; fi
+if env_has "$ENV_VISIONTS" && [[ -f "$MAE_CKPT" ]]; then
+    add "visionts_pp" "VENV_NAME=$ENV_VISIONTS MAE_CKPT='$MAE_CKPT' DATA='$DATA' UKPV_DIR='${UKPV_CSV_DIR}_vts' bash scripts/slurm_visionts_pp.sh"
+else skip "visionts_pp" "needs uv env:$ENV_VISIONTS + MAE_CKPT (set to VisionTS++ .ckpt)"; fi
+if env_has "$ENV_UNICAST" && [[ -d "$VISION_MODEL_PATH" && -d "$CHRONOS_PATH" && -f "$IMAGES_H5" ]]; then
+    add "unicast" "VENV_NAME=$ENV_UNICAST VISION_MODEL=CLIP VISION_MODEL_PATH='$VISION_MODEL_PATH' CHRONOS_PATH='$CHRONOS_PATH' DATA='$DATA' IMAGES_H5='$IMAGES_H5' bash scripts/slurm_unicast.sh"
+else skip "unicast" "needs uv env:$ENV_UNICAST + VISION_MODEL_PATH + CHRONOS_PATH + IMAGES_H5"; fi
+if env_has "$ENV_AURORA" && [[ -d "$AURORA_CKPT" ]]; then
+    add "aurora" "VENV_NAME=$ENV_AURORA AURORA_CKPT='$AURORA_CKPT' DATA='$DATA' IMAGES_H5='$IMAGES_H5' MODE=finetune bash scripts/slurm_aurora.sh"
+else skip "aurora" "needs uv env:$ENV_AURORA + AURORA_CKPT dir"; fi
 
-# Tier 6 (own conda env)
-if conda_has "$ENV_CROSSVIVIT" && [[ -f "$IMAGES_H5" ]]; then
-    add "crossvivit" "CONDA_ENV=$ENV_CROSSVIVIT DATA='$DATA' IMAGES_H5='$IMAGES_H5' bash scripts/slurm_crossvivit.sh"
-else skip "crossvivit" "needs conda:$ENV_CROSSVIVIT + IMAGES_H5"; fi
-if conda_has "$ENV_SUNSET" && [[ -f "$IMAGES_H5" ]]; then
-    add "sunset" "CONDA_ENV=$ENV_SUNSET DATA='$DATA' IMAGES_H5='$IMAGES_H5' bash scripts/slurm_sunset.sh"
-else skip "sunset" "needs conda:$ENV_SUNSET + IMAGES_H5"; fi
+# Tier 6 (own uv env)
+if env_has "$ENV_CROSSVIVIT" && [[ -f "$IMAGES_H5" ]]; then
+    add "crossvivit" "VENV_NAME=$ENV_CROSSVIVIT DATA='$DATA' IMAGES_H5='$IMAGES_H5' bash scripts/slurm_crossvivit.sh"
+else skip "crossvivit" "needs uv env:$ENV_CROSSVIVIT + IMAGES_H5"; fi
+if env_has "$ENV_SUNSET" && [[ -f "$IMAGES_H5" ]]; then
+    add "sunset" "VENV_NAME=$ENV_SUNSET DATA='$DATA' IMAGES_H5='$IMAGES_H5' bash scripts/slurm_sunset.sh"
+else skip "sunset" "needs uv env:$ENV_SUNSET + IMAGES_H5"; fi
 if [[ -n "$SOLARVLM_DIR" && -d "$SOLARVLM_DIR" ]]; then
     add "solar_vlm" "SOLARVLM_DIR='$SOLARVLM_DIR' bash scripts/slurm_solar_vlm.sh"
 else skip "solar_vlm" "set SOLARVLM_DIR to the Solar-VLM repo"; fi

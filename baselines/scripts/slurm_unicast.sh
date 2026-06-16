@@ -18,7 +18,7 @@
 # from the uk multimodal windows; the authors' train/test code runs UNCHANGED on
 # it (only a --dump_npz flag was added to the test script, see VENDOR_NOTICE.md).
 #
-#   sbatch --export=ALL,CONDA_ENV=unicast,VISION_MODEL=CLIP,\
+#   sbatch --export=ALL,VENV_NAME=unicast,VISION_MODEL=CLIP,\
 #          VISION_MODEL_PATH=<clip_weights_dir>,CHRONOS_PATH=<chronos_bolt_dir>,\
 #          DATA=<dataset_all.parquet>,IMAGES_H5=<images_all.h5> \
 #          scripts/slurm_unicast.sh
@@ -39,7 +39,7 @@ export CONDA_ENVS_DIRS="${CONDA_ENVS_DIRS:-${TEAM_SCRATCH}/conda_envs}"
 export PIP_CACHE_DIR="${PIP_CACHE_DIR:-${TEAM_SCRATCH}/pip_cache}"
 export HF_HOME="${HF_HOME:-${TEAM_SCRATCH}/hf_cache}"
 
-: "${CONDA_ENV:?set CONDA_ENV to the UniCast conda env (TIER5_INTEGRATION.md §1)}"
+: "${VENV_NAME:?set VENV_NAME to the UniCast uv env (TIER5_INTEGRATION.md §1)}"
 : "${VISION_MODEL:?set VISION_MODEL=CLIP or BLIP}"
 : "${VISION_MODEL_PATH:?set VISION_MODEL_PATH to the CLIP/BLIP weights dir (login-node cached)}"
 : "${CHRONOS_PATH:?set CHRONOS_PATH to the Chronos-Bolt weights dir (login-node cached)}"

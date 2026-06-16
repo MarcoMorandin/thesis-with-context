@@ -20,10 +20,10 @@
 # approximations (single-channel 128px crops, synthetic per-pixel coords, no
 # optical flow/elevation — see tier6/vendor/VENDOR_NOTICE.md).
 #
-#   sbatch --export=ALL,CONDA_ENV=crossvivit,DATA=<dataset_all.parquet>,\
+#   sbatch --export=ALL,VENV_NAME=crossvivit,DATA=<dataset_all.parquet>,\
 #          IMAGES_H5=<images_all.h5> scripts/slurm_crossvivit.sh
 #
-# Required: CONDA_ENV (torch+einops+lightning env, TIER6_INTEGRATION.md §1).
+# Required: VENV_NAME (torch+einops+lightning env, TIER6_INTEGRATION.md §1).
 # Optional: DATA IMAGES_H5 PRED_LEN(12) SEED(42) MAX_EPOCHS(50) IMG_SIZE(64) STRIDE(3)
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")/..}"
@@ -37,7 +37,7 @@ export CONDA_PKGS_DIRS="${CONDA_PKGS_DIRS:-${TEAM_SCRATCH}/conda_pkgs}"
 export CONDA_ENVS_DIRS="${CONDA_ENVS_DIRS:-${TEAM_SCRATCH}/conda_envs}"
 export PIP_CACHE_DIR="${PIP_CACHE_DIR:-${TEAM_SCRATCH}/pip_cache}"
 
-: "${CONDA_ENV:?set CONDA_ENV to the CrossViViT conda env (TIER6_INTEGRATION.md §1)}"
+: "${VENV_NAME:?set VENV_NAME to the CrossViViT uv env (TIER6_INTEGRATION.md §1)}"
 DATA="${DATA:-${TEAM_SCRATCH}/data/dataset_all.parquet}"
 IMAGES_H5="${IMAGES_H5:-${TEAM_SCRATCH}/data/images_all.h5}"
 PRED_LEN="${PRED_LEN:-12}"; SEED="${SEED:-42}"; MAX_EPOCHS="${MAX_EPOCHS:-50}"

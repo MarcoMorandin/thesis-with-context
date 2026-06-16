@@ -16,7 +16,7 @@
 # stage (the "train" of train+eval is a no-op by design); we run the adapted
 # zero-shot runner tier5/vendor/visionts_pp/run_ukpv.py and contract-check.
 #
-#   sbatch --export=ALL,CONDA_ENV=visionts,MAE_CKPT=/path/visiontspp.ckpt,\
+#   sbatch --export=ALL,VENV_NAME=visionts,MAE_CKPT=/path/visiontspp.ckpt,\
 #          DATA=/path/dataset_all.parquet scripts/slurm_visionts_pp.sh
 #
 # Required: CONDA_ENV, MAE_CKPT (VisionTS++ checkpoint, HF Lefei/VisionTSpp).
@@ -35,7 +35,7 @@ export PIP_CACHE_DIR="${PIP_CACHE_DIR:-${TEAM_SCRATCH}/pip_cache}"
 export HF_HOME="${HF_HOME:-${TEAM_SCRATCH}/hf_cache}"
 [[ -d "$HF_HOME" ]] || { echo "ERROR: HF_HOME missing ($HF_HOME) — run login_node_prep.sh"; exit 1; }
 
-: "${CONDA_ENV:?set CONDA_ENV to the VisionTS++ conda env (TIER5_INTEGRATION.md §1)}"
+: "${VENV_NAME:?set VENV_NAME to the VisionTS++ uv env (TIER5_INTEGRATION.md §1)}"
 : "${MAE_CKPT:?set MAE_CKPT to the VisionTS++ MAE checkpoint}"
 [[ -f "$MAE_CKPT" ]] || { echo "ERROR: MAE_CKPT not found: $MAE_CKPT"; exit 1; }
 DATA="${DATA:-${TEAM_SCRATCH}/data/dataset_all.parquet}"

@@ -19,10 +19,10 @@
 # uk_pv numerical track (Y) + the satellite frames in images_all.h5 (V), wired
 # by tier6/uk_multimodal.py through the canonical image_h5_index pointer.
 #
-#   sbatch --export=ALL,CONDA_ENV=sunset,DATA=<dataset_all.parquet>,\
+#   sbatch --export=ALL,VENV_NAME=sunset,DATA=<dataset_all.parquet>,\
 #          IMAGES_H5=<images_all.h5> scripts/slurm_sunset.sh
 #
-# Required: CONDA_ENV (TF2 + h5py env, TIER6_INTEGRATION.md §1).
+# Required: VENV_NAME (TF2 + h5py env, TIER6_INTEGRATION.md §1).
 # Optional: DATA IMAGES_H5 PRED_LEN(12) EPOCHS(20) SEED(42) IMG_SIZE(64) STRIDE(3)
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")/..}"
@@ -35,7 +35,7 @@ export CONDA_PKGS_DIRS="${CONDA_PKGS_DIRS:-${TEAM_SCRATCH}/conda_pkgs}"
 export CONDA_ENVS_DIRS="${CONDA_ENVS_DIRS:-${TEAM_SCRATCH}/conda_envs}"
 export PIP_CACHE_DIR="${PIP_CACHE_DIR:-${TEAM_SCRATCH}/pip_cache}"
 
-: "${CONDA_ENV:?set CONDA_ENV to the SUNSET TF2 conda env (TIER6_INTEGRATION.md §1)}"
+: "${VENV_NAME:?set VENV_NAME to the SUNSET TF2 uv env (TIER6_INTEGRATION.md §1)}"
 DATA="${DATA:-${TEAM_SCRATCH}/data/dataset_all.parquet}"
 IMAGES_H5="${IMAGES_H5:-${TEAM_SCRATCH}/data/images_all.h5}"
 PRED_LEN="${PRED_LEN:-12}"; EPOCHS="${EPOCHS:-20}"; SEED="${SEED:-42}"

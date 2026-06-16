@@ -19,7 +19,7 @@
 # now generates (templated from the uk covariates) alongside the CSVs. The
 # authors' runner.py consumes that layout unchanged.
 #
-#   sbatch --export=ALL,CONDA_ENV=aurora,AURORA_CKPT=<dir>,\
+#   sbatch --export=ALL,VENV_NAME=aurora,AURORA_CKPT=<dir>,\
 #          DATA=<dataset_all.parquet>,IMAGES_H5=<images_all.h5>,MODE=eval \
 #          scripts/slurm_aurora.sh                    # MODE=eval | finetune
 set -euo pipefail
@@ -35,7 +35,7 @@ export CONDA_ENVS_DIRS="${CONDA_ENVS_DIRS:-${TEAM_SCRATCH}/conda_envs}"
 export PIP_CACHE_DIR="${PIP_CACHE_DIR:-${TEAM_SCRATCH}/pip_cache}"
 export HF_HOME="${HF_HOME:-${TEAM_SCRATCH}/hf_cache}"
 
-: "${CONDA_ENV:?set CONDA_ENV to the Aurora conda env (TIER5_INTEGRATION.md §1)}"
+: "${VENV_NAME:?set VENV_NAME to the Aurora uv env (TIER5_INTEGRATION.md §1)}"
 : "${AURORA_CKPT:?set AURORA_CKPT to the Aurora checkpoint dir (utils/download_ckpt.py)}"
 [[ -d "$AURORA_CKPT" ]] || { echo "ERROR: AURORA_CKPT not a dir: $AURORA_CKPT"; exit 1; }
 DATA="${DATA:-${TEAM_SCRATCH}/data/dataset_all.parquet}"

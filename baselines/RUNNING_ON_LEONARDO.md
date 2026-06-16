@@ -23,9 +23,9 @@ Submit everything **from the `baselines/` directory**.
 | T1 | lightgbm | uv | no |
 | T2 | mlp, dlinear, patchtst, itransformer, tft | uv | no |
 | T3 | chronos2_zs/ft, timesfm_zs, tirex_zs, ttm_zs/ft | uv (`--group tier3`) | yes |
-| T4 | cora (uv); ts_rag, cross_rag (vendored, conda) | uv / conda | yes |
-| T5 | time_vlm, visionts_pp, unicast, aurora (vendored) | conda (one env each) | yes |
-| T6 | crossvivit, sunset (vendored); solar_vlm (own repo) | conda / own venv | yes |
+| T4 | cora (uv); ts_rag, cross_rag (vendored, uv) | uv / uv | yes |
+| T5 | time_vlm, visionts_pp, unicast, aurora (vendored) | uv (one env each) | yes |
+| T6 | crossvivit, sunset (vendored); solar_vlm (own repo) | uv / own venv | yes |
 
 Tiers 0–2 are CPU and run first (Phase A); Tiers 3–6 run on the GPU pool
 (Phase B). Smart Persistence is the skill-score reference and is always produced.
@@ -48,7 +48,7 @@ It does:
    into `$HF_HOME`.
 2. Caches the Tier-5/6 backbones into `$WEIGHTS_DIR`
    (`clip-vit-base-patch32`, `Lefei/VisionTSpp` MAE, `chronos-bolt-base`).
-3. Creates **one conda env per vendored model**: `timevlm`, `visionts`,
+3. Creates **one uv env per vendored model**: `timevlm`, `visionts`,
    `unicast`, `aurora`, `crossvivit`, `sunset`, `tsrag`, `crossrag`
    (skip with `MAKE_ENVS=0`; skips envs that already exist).
 4. Downloads the Aurora checkpoint (in the `aurora` env) and, if `SOLARVLM_DIR`
@@ -58,7 +58,7 @@ It does:
 Useful overrides:
 
 ```bash
-MAKE_ENVS=0 bash scripts/precache_login.sh          # weights only, no conda envs
+MAKE_ENVS=0 bash scripts/precache_login.sh          # weights only, no uv envs
 STAGE=weights bash scripts/precache_login.sh         # only HF/torch weights
 SOLARVLM_DIR=/leonardo/home/userexternal/<you>/Solar-VLM bash scripts/precache_login.sh
 ```
@@ -108,7 +108,7 @@ Phases:
 - **A (CPU, first):** plant splits + Tiers 0–2 → canonical `smart_persistence_s2.json`
   reference + uk_pv CSV export.
 - **B (GPU pool):** up to `NUM_GPUS` jobs at once (auto-detected via `nvidia-smi`,
-  default 8), each pinned to one GPU. Heterogeneous envs (uv / conda) are handled
+  default 8), each pinned to one GPU. Heterogeneous envs (uv / uv) are handled
   per task. Per-task logs in `logs/orchestrator/<jobid>/<task>.log`.
 - **C (aggregate):** `aggregate_all.py` → **`results/ALL_RESULTS.md` + `.json`**,
   then a run summary listing each task as OK / FAIL / SKIP.
@@ -121,7 +121,7 @@ Knobs (`--export=ALL,KEY=VAL`):
 | `SEEDS` | `42 43 44` | seeds for trained models |
 | `RUN_LOPO` | `0` | also run goes_pvdaq leave-one-plant-out (heavy, §4.1) |
 | `DATA` / `IMAGES_H5` | `$TEAM_SCRATCH/data/...` | dataset of record |
-| `ENV_TIMEVLM`, `ENV_CROSSVIVIT`, … | model name | conda env names |
+| `ENV_TIMEVLM`, `ENV_CROSSVIVIT`, … | model name | uv env names |
 
 ### SLURM sizing
 
@@ -155,12 +155,12 @@ env/weights aren't ready and logs the reason in the final summary. Checklist:
 | Baseline | Needs |
 |---|---|
 | T3 / cora | nothing extra (uv `tier3` group cached on login node) |
-| ts_rag / cross_rag | conda env + `UKPV_CSV_DIR` + `RAG_BASE_CKPT` + `RAG_MIXER_CKPT` |
-| time_vlm | conda env `timevlm` |
-| visionts_pp | conda env `visionts` + `MAE_CKPT` |
-| unicast | conda env `unicast` + `VISION_MODEL_PATH` + `CHRONOS_PATH` + `IMAGES_H5` |
-| aurora | conda env `aurora` + `AURORA_CKPT` |
-| crossvivit / sunset | conda env + `IMAGES_H5` |
+| ts_rag / cross_rag | uv env + `UKPV_CSV_DIR` + `RAG_BASE_CKPT` + `RAG_MIXER_CKPT` |
+| time_vlm | uv env `timevlm` |
+| visionts_pp | uv env `visionts` + `MAE_CKPT` |
+| unicast | uv env `unicast` + `VISION_MODEL_PATH` + `CHRONOS_PATH` + `IMAGES_H5` |
+| aurora | uv env `aurora` + `AURORA_CKPT` |
+| crossvivit / sunset | uv env + `IMAGES_H5` |
 | solar_vlm | `SOLARVLM_DIR` (its own repo + venv) |
 
 ---
@@ -170,7 +170,7 @@ env/weights aren't ready and logs the reason in the final summary. Checklist:
 Each baseline keeps its own script — submit it directly (1 GPU):
 
 ```bash
-sbatch --export=ALL,CONDA_ENV=crossvivit,IMAGES_H5=$TEAM_SCRATCH/data/images_all.h5 \
+sbatch --export=ALL,VENV_NAME=crossvivit,IMAGES_H5=$TEAM_SCRATCH/data/images_all.h5 \
        scripts/slurm_crossvivit.sh
 sbatch --export=ALL,MODELS="chronos2_ft cora",SCENARIO=s2 scripts/slurm_baselines.sh
 ```
@@ -188,7 +188,7 @@ uv run python scripts/aggregate_all.py --results results \
 
 - **`HF_HOME missing` / offline download error** → the login precache didn't run
   or `$TEAM_SCRATCH` differs; re-run `precache_login.sh` on the login node.
-- **A Tier-5/6 task fails immediately** → its conda env or a checkpoint is
+- **A Tier-5/6 task fails immediately** → its uv env or a checkpoint is
   missing; check `logs/orchestrator/<jobid>/<task>.log` and §4.
 - **`uv run` tries to hit the network on the compute node** → ensure
   `UV_OFFLINE=1 UV_NO_SYNC=1` (the orchestrator sets them; if you call a
