@@ -3,7 +3,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
-#SBATCH --gres=gpu:8
+#SBATCH --gres=gpu:4
 #SBATCH --partition=boost_usr_prod
 #SBATCH --qos=boost_qos_lprod
 #SBATCH --time=4-00:00:00
@@ -70,7 +70,7 @@ SOLARVLM_DIR="${SOLARVLM_DIR:-}"
 # ---- GPU count -------------------------------------------------------------
 if [[ -n "${NUM_GPUS:-}" ]]; then :;
 elif command -v nvidia-smi >/dev/null 2>&1; then NUM_GPUS=$(nvidia-smi -L | wc -l);
-else NUM_GPUS=8; fi
+else NUM_GPUS=4; fi
 (( NUM_GPUS > 0 )) || NUM_GPUS=1
 
 LOGDIR="logs/orchestrator/${SLURM_JOB_ID:-local}"
