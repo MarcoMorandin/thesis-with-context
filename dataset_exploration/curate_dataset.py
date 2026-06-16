@@ -1,6 +1,6 @@
 """Curate the standardized PV dataset for model training.
 
-Reads  numerical/all.parquet  and writes  numerical/all_curated.parquet  with:
+Reads the raw  all.parquet  and writes  dataset_all.parquet  (dataset of record) with:
 
   1. Capacity audit/fix: effective capacity = p99.5 of observed power when it
      exceeds the declared capacity by >5% (metadata error, not bad readings);
@@ -30,9 +30,12 @@ import numpy as np
 import pandas as pd
 import pvlib
 
-DATA_DIR = "/Volumes/SSD/standardized-dataset"
-IN_PATH = os.path.join(DATA_DIR, "numerical/all.parquet")
-OUT_PATH = os.path.join(DATA_DIR, "numerical/all_curated.parquet")
+# Dataset-build script: reads the raw extraction (external) and writes the
+# curated table of record. The raw `all.parquet` is an upstream artifact;
+# the output is `thesis-dataset/dataset_all.parquet` (DATASET_CONTRACT §1.0).
+DATA_DIR = "/Volumes/SSD/thesis-dataset"
+IN_PATH = os.path.join(DATA_DIR, "all.parquet")
+OUT_PATH = os.path.join(DATA_DIR, "dataset_all.parquet")
 
 CAPACITY_TOLERANCE = 1.05   # declared capacity considered wrong above this
 CSI_MIN_CLEARSKY = 50.0     # W/m² floor below which kt/csi are undefined

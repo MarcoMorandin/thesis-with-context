@@ -17,7 +17,7 @@
 # zero-shot runner tier5/vendor/visionts_pp/run_ukpv.py and contract-check.
 #
 #   sbatch --export=ALL,CONDA_ENV=visionts,MAE_CKPT=/path/visiontspp.ckpt,\
-#          DATA=/path/all_curated.parquet scripts/slurm_visionts_pp.sh
+#          DATA=/path/dataset_all.parquet scripts/slurm_visionts_pp.sh
 #
 # Required: CONDA_ENV, MAE_CKPT (VisionTS++ checkpoint, HF Lefei/VisionTSpp).
 # Optional: DATA, SEQ_LEN(24) PRED_LEN(12) PERIODICITY(48)
@@ -34,7 +34,7 @@ export HF_HOME="${HF_HOME:-${TEAM_SCRATCH}/hf_cache}"
 : "${CONDA_ENV:?set CONDA_ENV to the VisionTS++ conda env (TIER5_INTEGRATION.md §1)}"
 : "${MAE_CKPT:?set MAE_CKPT to the VisionTS++ MAE checkpoint}"
 [[ -f "$MAE_CKPT" ]] || { echo "ERROR: MAE_CKPT not found: $MAE_CKPT"; exit 1; }
-DATA="${DATA:-${TEAM_SCRATCH}/data/numerical/all_curated.parquet}"
+DATA="${DATA:-${TEAM_SCRATCH}/data/dataset_all.parquet}"
 UKPV_DIR="${UKPV_DIR:-${TEAM_SCRATCH}/data/ukpv_rag}"
 SEQ_LEN="${SEQ_LEN:-24}"; PRED_LEN="${PRED_LEN:-12}"; PERIODICITY="${PERIODICITY:-48}"
 

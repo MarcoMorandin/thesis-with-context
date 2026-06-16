@@ -18,7 +18,7 @@ notebooks, PDFs, bundled CSV/parquet datasets, checkpoints. No source edited.
   **no real satellite frames**, so they run on the **numerical uk_pv track** and match our
   `Y → ŷ` contract directly (like Tiers 0-4). These are the runnable Tier-5 rows today.
 - **UniCast** soft-prompts **real images** (CLIP/BLIP) + a text string into Chronos →
-  it needs real frames, now available on uk_pv (`images_uk128.h5`). `tier5/uk_export.py
+  it needs real frames, available in `images_all.h5` (pointer `image_h5_index`). `tier5/uk_export.py
   --model unicast` emits its native layout (`inputs.pt`/`targets_<H>.pt`/`img/`) from
   the uk multimodal windows, so it runs on uk_pv now.
 - **Aurora** is **TS + TEXT**, not images (`Aurora_Single_Dataset` reads a CSV + a

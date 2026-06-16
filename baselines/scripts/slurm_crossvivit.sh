@@ -15,13 +15,13 @@
 # Boussif et al., NeurIPS 2023 — deep satellite(V)+irradiance(Y) cross-attention.
 # Drives the authors' ORIGINAL model src.models.cross_vivit.RoCrossViViT unchanged
 # (tier6/vendor/crossvivit), via run_ukpv.py which feeds it our uk_pv multimodal
-# windows (Y + images_uk128.h5 frames, wired by tier6/uk_multimodal.py). The model
+# windows (Y + images_all.h5 frames, wired by tier6/uk_multimodal.py). The model
 # is NOT reimplemented; only the data adapter is ours, with documented
 # approximations (single-channel 128px crops, synthetic per-pixel coords, no
 # optical flow/elevation — see tier6/vendor/VENDOR_NOTICE.md).
 #
-#   sbatch --export=ALL,CONDA_ENV=crossvivit,DATA=<all_curated.parquet>,\
-#          IMAGES_H5=<images_uk128.h5> scripts/slurm_crossvivit.sh
+#   sbatch --export=ALL,CONDA_ENV=crossvivit,DATA=<dataset_all.parquet>,\
+#          IMAGES_H5=<images_all.h5> scripts/slurm_crossvivit.sh
 #
 # Required: CONDA_ENV (torch+einops+lightning env, TIER6_INTEGRATION.md §1).
 # Optional: DATA IMAGES_H5 PRED_LEN(12) SEED(42) MAX_EPOCHS(50) IMG_SIZE(64) STRIDE(3)
@@ -34,8 +34,8 @@ export TOKENIZERS_PARALLELISM=false WANDB_MODE=offline
 TEAM_SCRATCH="${TEAM_SCRATCH:-/leonardo_scratch/fast/IscrC_MTSFM}"
 
 : "${CONDA_ENV:?set CONDA_ENV to the CrossViViT conda env (TIER6_INTEGRATION.md §1)}"
-DATA="${DATA:-${TEAM_SCRATCH}/data/numerical/all_curated.parquet}"
-IMAGES_H5="${IMAGES_H5:-${TEAM_SCRATCH}/data/images_uk128.h5}"
+DATA="${DATA:-${TEAM_SCRATCH}/data/dataset_all.parquet}"
+IMAGES_H5="${IMAGES_H5:-${TEAM_SCRATCH}/data/images_all.h5}"
 PRED_LEN="${PRED_LEN:-12}"; SEED="${SEED:-42}"; MAX_EPOCHS="${MAX_EPOCHS:-50}"
 IMG_SIZE="${IMG_SIZE:-64}"; STRIDE="${STRIDE:-3}"
 OUT="${OUT:-tier6/vendor/crossvivit/results_ukpv}"

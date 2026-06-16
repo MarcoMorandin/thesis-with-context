@@ -16,7 +16,7 @@
 # each disjoint test plant (reusing the trained checkpoint), baseline-contract
 # check. No edits to the vendored code at run time (already adapted on push).
 #
-#   sbatch --export=ALL,CONDA_ENV=timevlm,DATA=/path/all_curated.parquet,\
+#   sbatch --export=ALL,CONDA_ENV=timevlm,DATA=/path/dataset_all.parquet,\
 #          VLM_CKPT_OK=1 scripts/slurm_time_vlm.sh
 #
 # Required: CONDA_ENV (Time-VLM env, TIER5_INTEGRATION.md §1).
@@ -33,7 +33,7 @@ export HF_HOME="${HF_HOME:-${TEAM_SCRATCH}/hf_cache}"
 [[ -d "$HF_HOME" ]] || { echo "ERROR: HF_HOME missing ($HF_HOME) — run login_node_prep.sh"; exit 1; }
 
 : "${CONDA_ENV:?set CONDA_ENV to the Time-VLM conda env (TIER5_INTEGRATION.md §1)}"
-DATA="${DATA:-${TEAM_SCRATCH}/data/numerical/all_curated.parquet}"
+DATA="${DATA:-${TEAM_SCRATCH}/data/dataset_all.parquet}"
 UKPV_DIR="${UKPV_DIR:-${TEAM_SCRATCH}/data/ukpv_rag}"
 SEQ_LEN="${SEQ_LEN:-24}"; PRED_LEN="${PRED_LEN:-12}"
 VLM_TYPE="${VLM_TYPE:-CLIP}"; EPOCHS="${EPOCHS:-10}"; MODEL_ID="${MODEL_ID:-ukpv_tvlm}"

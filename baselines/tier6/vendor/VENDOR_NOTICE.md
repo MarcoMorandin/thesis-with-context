@@ -8,8 +8,8 @@ upstream source edited (see "Adaptations").
 
 Both Tier-6 models consume **real images** (sky / satellite frames). They run on
 the **uk_pv multimodal track**: the curated numerical `Y` + the per-plant
-satellite frames in `images_uk128.h5`, aligned by the canonical
-`image_uk128_index` pointer and fed through `tier6/uk_multimodal.py`
+satellite frames in `images_all.h5`, aligned by the canonical
+`image_h5_index` pointer and fed through `tier6/uk_multimodal.py`
 (`UKMultimodalDataset`). The vendored models are driven by their **own original
 code** via per-model `run_ukpv.py` adapters — see "Adaptations".
 
@@ -41,9 +41,9 @@ cite-only for now — add here if reviewers demand (BASELINE_COMPARISON.md §1 T
 ## Track split (what runs where)
 
 Neither Tier-6 model renders the series as a pseudo-image (unlike Tier-5
-Time-VLM / VisionTS++) — both need **real frames**. The uk_pv track carries them
-(`images_uk128.h5`, 128px per-plant satellite crops, 30-min daylight cadence,
-2019-2020), so both run on uk_pv now via the shared `tier6/uk_multimodal.py`
+Time-VLM / VisionTS++) — both need **real frames**. The dataset of record carries
+them (`images_all.h5`, per-site groups; `uk_pv` 128px gray, 30-min daylight
+cadence), so both run on uk_pv via the shared `tier6/uk_multimodal.py`
 bridge + the per-model `run_ukpv.py` runners.
 
 ## Licensing
@@ -86,7 +86,7 @@ real data (CPU smoke test, tiny windows) before the cluster sweep.
 ## Off-repo artifacts (NOT in git — see `.gitignore`)
 
 Both models train from scratch on uk_pv — no pretrained weights. The data
-(`numerical/all_curated.parquet` + `images_uk128.h5`) lives on the standardized
-read-only volume / staged to `$TEAM_SCRATCH` on the cluster; checkpoints
+(`dataset_all.parquet` + `images_all.h5`) lives on the read-only dataset of record
+(`/Volumes/SSD/thesis-dataset/`) / staged to `$TEAM_SCRATCH` on the cluster; checkpoints
 (`*_best.pt`, `repetition_*/`) and the dumped `*_pred.npz` are run outputs, not
 committed. See `docs/experiments/TIER6_INTEGRATION.md`.

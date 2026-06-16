@@ -3,7 +3,7 @@ gated Tier-5 multimodal models consume — so they run on uk data unmodified.
 
 Two of the four Tier-5 vendors render the series as a pseudo-image and already
 run on uk_pv (Time-VLM, VisionTS++). The other two were "gated on the multimodal
-track"; with the uk satellite frames (`images_uk128.h5`) available, this exporter
+track"; with the satellite frames (`images_all.h5`) available, this exporter
 unblocks them by reusing `tier6.uk_multimodal.UKMultimodalDataset` (shared Y + V
 + covariates bridge, same disjoint plant splits as every other tier):
 
@@ -110,16 +110,18 @@ def export_aurora(out: Path, H: int, stride: int, data: str, h5: str) -> None:
                                      horizon=H, stride=1, img_size=8)  # tiny V (unused)
             if len(ds) == 0:
                 continue
-            series, texts = [], []
+            series, texts, ds_name = [], [], "uk_pv"
             for i in range(len(ds)):
                 it = ds[i]
+                ds_name = str(it["dataset"])
                 # contiguous series: emit the per-window future head so the CSV is
                 # a regular value column Aurora windows over (date is a placeholder).
                 series.append(float(it["y_future"][0]))
                 if i % interval == 0:
                     texts.append({"text": _weather_text(it["cov"][:config.HISTORY_STEPS].mean(0))})
-            dates = pd.date_range("2019-01-01", periods=len(series), freq="30min")
-            tag = f"uk_pv_{site}_{part}"
+            freq = "15min" if ds_name == "goes_pvdaq" else "30min"
+            dates = pd.date_range("2019-01-01", periods=len(series), freq=freq)
+            tag = f"{ds_name}_{site}_{part}"
             pd.DataFrame({"date": dates, "norm_power": series}).to_csv(
                 ts_dir / f"{tag}.csv", index=False)
             (txt_dir / f"{tag}.json").write_text(json.dumps(texts or [{"text": DATASET_TEXT}]))
@@ -131,7 +133,7 @@ def main() -> None:
     ap.add_argument("--model", required=True, choices=["unicast", "aurora"])
     ap.add_argument("--out", required=True)
     ap.add_argument("--data", default=config.DEFAULT_DATA_PATH)
-    ap.add_argument("--h5", default="/Volumes/SSD/standardized-dataset/images_uk128.h5")
+    ap.add_argument("--h5", default=config.DEFAULT_IMAGES_H5)
     ap.add_argument("--pred_len", type=int, default=config.HORIZON_STEPS)
     ap.add_argument("--img_size", type=int, default=128)
     ap.add_argument("--stride", type=int, default=3)

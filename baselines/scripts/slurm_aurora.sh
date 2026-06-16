@@ -20,7 +20,7 @@
 # authors' runner.py consumes that layout unchanged.
 #
 #   sbatch --export=ALL,CONDA_ENV=aurora,AURORA_CKPT=<dir>,\
-#          DATA=<all_curated.parquet>,IMAGES_H5=<images_uk128.h5>,MODE=eval \
+#          DATA=<dataset_all.parquet>,IMAGES_H5=<images_all.h5>,MODE=eval \
 #          scripts/slurm_aurora.sh                    # MODE=eval | finetune
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")/..}"
@@ -34,14 +34,14 @@ export HF_HOME="${HF_HOME:-${TEAM_SCRATCH}/hf_cache}"
 : "${CONDA_ENV:?set CONDA_ENV to the Aurora conda env (TIER5_INTEGRATION.md §1)}"
 : "${AURORA_CKPT:?set AURORA_CKPT to the Aurora checkpoint dir (utils/download_ckpt.py)}"
 [[ -d "$AURORA_CKPT" ]] || { echo "ERROR: AURORA_CKPT not a dir: $AURORA_CKPT"; exit 1; }
-DATA="${DATA:-${TEAM_SCRATCH}/data/numerical/all_curated.parquet}"
-IMAGES_H5="${IMAGES_H5:-${TEAM_SCRATCH}/data/images_uk128.h5}"
+DATA="${DATA:-${TEAM_SCRATCH}/data/dataset_all.parquet}"
+IMAGES_H5="${IMAGES_H5:-${TEAM_SCRATCH}/data/images_all.h5}"
 MODE="${MODE:-eval}"; PRED_LEN="${PRED_LEN:-12}"
 EXPORT="${EXPORT:-tier5/vendor/aurora/data_ukpv}"
 [[ -f "$DATA" ]] || { echo "ERROR: DATA parquet not found: $DATA"; exit 1; }
 
 # ---- 1. export uk_pv → Aurora layout (per-series CSV + weather-text JSON) ---
-# (images_uk128.h5 only used to share the tier6 window builder; Aurora ignores V)
+# (images_all.h5 only used to share the tier6 window builder; Aurora ignores V)
 uv run --with h5py --with pillow python tier5/uk_export.py --model aurora \
     --out "$EXPORT" --data "$DATA" --h5 "$IMAGES_H5" --pred_len "$PRED_LEN"
 

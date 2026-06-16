@@ -33,7 +33,7 @@
 #   MODELS    explicit model list (overrides STAGE's model set)
 #   SCENARIO  s2 | s3 | s4 | s1                   (default: s2 cross-plant)
 #   SEEDS     trained-model seeds                 (default: "42 43 44")
-#   DATA      path to all_curated.parquet
+#   DATA      path to dataset_all.parquet
 #   GROUP     uv dependency group                 (default: tier3)
 
 set -euo pipefail
@@ -60,7 +60,7 @@ STAGE="${STAGE:-all}"
 SCENARIO="${SCENARIO:-s2}"
 SEEDS="${SEEDS:-42 43 44}"
 GROUP="${GROUP:-tier3}"
-DATA="${DATA:-${TEAM_SCRATCH}/data/numerical/all_curated.parquet}"
+DATA="${DATA:-${TEAM_SCRATCH}/data/dataset_all.parquet}"
 
 ZS_MODELS="chronos2_zs timesfm_zs tirex_zs ttm_zs"
 # ts_rag / cross_rag are NOT here — they run from vendored original code via

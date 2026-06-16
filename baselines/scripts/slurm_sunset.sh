@@ -16,11 +16,11 @@
 # PV history → PV forecast. Runs the authors' ORIGINAL TF2/Keras model
 # (faithfully transcribed from tier6/vendor/sunset/models/SUNSET_forecast.ipynb,
 # MIT), adapted to our contract via run_ukpv.py — NOT reimplemented. Consumes the
-# uk_pv numerical track (Y) + the satellite frames in images_uk128.h5 (V), wired
-# by tier6/uk_multimodal.py through the canonical image_uk128_index pointer.
+# uk_pv numerical track (Y) + the satellite frames in images_all.h5 (V), wired
+# by tier6/uk_multimodal.py through the canonical image_h5_index pointer.
 #
-#   sbatch --export=ALL,CONDA_ENV=sunset,DATA=<all_curated.parquet>,\
-#          IMAGES_H5=<images_uk128.h5> scripts/slurm_sunset.sh
+#   sbatch --export=ALL,CONDA_ENV=sunset,DATA=<dataset_all.parquet>,\
+#          IMAGES_H5=<images_all.h5> scripts/slurm_sunset.sh
 #
 # Required: CONDA_ENV (TF2 + h5py env, TIER6_INTEGRATION.md §1).
 # Optional: DATA IMAGES_H5 PRED_LEN(12) EPOCHS(20) SEED(42) IMG_SIZE(64) STRIDE(3)
@@ -32,8 +32,8 @@ export WANDB_MODE=offline TF_CPP_MIN_LOG_LEVEL=2
 TEAM_SCRATCH="${TEAM_SCRATCH:-/leonardo_scratch/fast/IscrC_MTSFM}"
 
 : "${CONDA_ENV:?set CONDA_ENV to the SUNSET TF2 conda env (TIER6_INTEGRATION.md §1)}"
-DATA="${DATA:-${TEAM_SCRATCH}/data/numerical/all_curated.parquet}"
-IMAGES_H5="${IMAGES_H5:-${TEAM_SCRATCH}/data/images_uk128.h5}"
+DATA="${DATA:-${TEAM_SCRATCH}/data/dataset_all.parquet}"
+IMAGES_H5="${IMAGES_H5:-${TEAM_SCRATCH}/data/images_all.h5}"
 PRED_LEN="${PRED_LEN:-12}"; EPOCHS="${EPOCHS:-20}"; SEED="${SEED:-42}"
 IMG_SIZE="${IMG_SIZE:-64}"; STRIDE="${STRIDE:-3}"
 OUT="${OUT:-tier6/vendor/sunset/results_ukpv}"

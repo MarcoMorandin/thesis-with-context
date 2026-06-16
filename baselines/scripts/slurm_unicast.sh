@@ -13,14 +13,14 @@
 
 # Tier-5 UniCast (P1) on the uk_pv MULTIMODAL track — TRAIN + EVAL.
 # UniCast soft-prompts real vision (CLIP/BLIP) + text into a frozen Chronos-Bolt
-# backbone. It needs REAL frames — now available on uk_pv via images_uk128.h5.
+# backbone. It needs REAL frames — now available on uk_pv via images_all.h5.
 # tier5/uk_export.py emits UniCast's native on-disk layout (inputs.pt/targets/img)
 # from the uk multimodal windows; the authors' train/test code runs UNCHANGED on
 # it (only a --dump_npz flag was added to the test script, see VENDOR_NOTICE.md).
 #
 #   sbatch --export=ALL,CONDA_ENV=unicast,VISION_MODEL=CLIP,\
 #          VISION_MODEL_PATH=<clip_weights_dir>,CHRONOS_PATH=<chronos_bolt_dir>,\
-#          DATA=<all_curated.parquet>,IMAGES_H5=<images_uk128.h5> \
+#          DATA=<dataset_all.parquet>,IMAGES_H5=<images_all.h5> \
 #          scripts/slurm_unicast.sh
 #
 # Required: CONDA_ENV, VISION_MODEL(CLIP|BLIP), VISION_MODEL_PATH, CHRONOS_PATH
@@ -39,8 +39,8 @@ export HF_HOME="${HF_HOME:-${TEAM_SCRATCH}/hf_cache}"
 : "${VISION_MODEL:?set VISION_MODEL=CLIP or BLIP}"
 : "${VISION_MODEL_PATH:?set VISION_MODEL_PATH to the CLIP/BLIP weights dir (login-node cached)}"
 : "${CHRONOS_PATH:?set CHRONOS_PATH to the Chronos-Bolt weights dir (login-node cached)}"
-DATA="${DATA:-${TEAM_SCRATCH}/data/numerical/all_curated.parquet}"
-IMAGES_H5="${IMAGES_H5:-${TEAM_SCRATCH}/data/images_uk128.h5}"
+DATA="${DATA:-${TEAM_SCRATCH}/data/dataset_all.parquet}"
+IMAGES_H5="${IMAGES_H5:-${TEAM_SCRATCH}/data/images_all.h5}"
 PRED_LEN="${PRED_LEN:-12}"; EPOCHS="${EPOCHS:-10}"; LR="${LR:-1e-4}"
 EXPORT="${EXPORT:-tier5/vendor/unicast/data_ukpv}"
 OUT="${OUT:-tier5/vendor/unicast/out_ukpv_${VISION_MODEL}}"   # name carries CLIP/BLIP (test autodetects)

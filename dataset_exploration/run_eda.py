@@ -28,9 +28,43 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 sns.set_theme(style="whitegrid")
 plt.rcParams["figure.dpi"] = 110
 
-DATA_DIR = "/Volumes/SSD/standardized-dataset"
-NUMERIC_PATH = os.path.join(DATA_DIR, "numerical/all_curated.parquet")
+DATA_DIR = "/Volumes/SSD/thesis-dataset"
+NUMERIC_PATH = os.path.join(DATA_DIR, "dataset_all.parquet")
+IMAGES_H5 = os.path.join(DATA_DIR, "images_all.h5")
 OUTPUT_DIR = "."
+
+
+# Frames live in images_all.h5 (per-site group <dataset>_<site>), addressed by
+# the canonical image_h5_index pointer — no PNG tree. Lazy, single open.
+_H5_HANDLE = {"f": None}
+
+
+def _h5():
+    import h5py
+
+    if _H5_HANDLE["f"] is None:
+        _H5_HANDLE["f"] = h5py.File(IMAGES_H5, "r")
+    return _H5_HANDLE["f"]
+
+
+def open_frame(row):
+    """Return a PIL.Image for a row's frame from images_all.h5, or None."""
+    try:
+        grp = _h5()[f"{row.dataset}_{row.site_id}"]
+        arr = np.asarray(grp["images"][int(row.image_h5_index)])
+        return Image.fromarray(arr)          # mode 'L' (HxW) or 'RGB' (HxWx3)
+    except Exception:
+        return None
+
+
+def frame_timestamp(row):
+    """ISO timestamp string stored in the h5 group for this row's frame, or ''."""
+    try:
+        grp = _h5()[f"{row.dataset}_{row.site_id}"]
+        ts = grp["timestamps"][int(row.image_h5_index)]
+        return ts.decode() if isinstance(ts, bytes) else str(ts)
+    except Exception:
+        return ""
 PLOTS_DIR = os.path.join(OUTPUT_DIR, "plots")
 os.makedirs(PLOTS_DIR, exist_ok=True)
 
@@ -667,35 +701,34 @@ print("Image analysis...")
 add_md("## 7. Image Modality")
 add_md()
 
-# integrity: existence + readability on a large sample
+# integrity: index validity + readability on a large sample (images_all.h5)
 n_img_check = 3000
 img_sample = df.sample(n_img_check, random_state=RNG)
 missing_imgs, corrupt_imgs = [], []
-for p in img_sample.image_path:
-    full = os.path.join(DATA_DIR, str(p))
-    if not os.path.exists(full):
-        missing_imgs.append(p)
+for _, row in img_sample.iterrows():
+    im = open_frame(row)
+    if im is None:
+        missing_imgs.append((row.dataset, row.site_id, row.image_h5_index))
         continue
     try:
-        with Image.open(full) as im:
-            im.verify()
+        im.verify()
     except Exception:
-        corrupt_imgs.append(p)
-add_md(f"- Existence/readability check on {n_img_check:,} random rows: "
+        corrupt_imgs.append((row.dataset, row.site_id, row.image_h5_index))
+add_md(f"- Index/readability check on {n_img_check:,} random rows: "
        f"**{len(missing_imgs)} missing**, **{len(corrupt_imgs)} corrupt**.")
 if missing_imgs:
-    add_issue("error", f"{len(missing_imgs)}/{n_img_check} sampled image paths missing "
+    add_issue("error", f"{len(missing_imgs)}/{n_img_check} sampled frames unreadable "
                        f"(e.g. {missing_imgs[:3]})")
 if corrupt_imgs:
     add_issue("error", f"{len(corrupt_imgs)}/{n_img_check} sampled images corrupt")
 
-# timestamp alignment: filename encodes the row timestamp
+# timestamp alignment: the frame stored at image_h5_index matches the row time
 mis_aligned = 0
 for _, row in img_sample.head(500).iterrows():
-    expected = row.timestamp_utc.strftime("%Y-%m-%dT%H-%M-%SZ")
-    if expected not in os.path.basename(str(row.image_path)):
+    expected = row.timestamp_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+    if expected != frame_timestamp(row):
         mis_aligned += 1
-add_md(f"- Filename↔timestamp alignment check on 500 rows: **{mis_aligned} mismatches**.")
+add_md(f"- image_h5_index↔timestamp alignment check on 500 rows: **{mis_aligned} mismatches**.")
 add_md()
 if mis_aligned:
     add_issue("error", f"{mis_aligned}/500 image filenames do not match row timestamp")
@@ -705,11 +738,12 @@ prop_rows = []
 for ds, g in df.groupby("dataset"):
     s = g.sample(min(400, len(g)), random_state=RNG)
     for _, row in s.iterrows():
-        full = os.path.join(DATA_DIR, str(row.image_path))
+        im = open_frame(row)
+        if im is None:
+            continue
         try:
-            with Image.open(full) as im:
-                arr = np.array(im.convert("L"), dtype=np.float32)
-                size, mode = im.size, im.mode
+            arr = np.array(im.convert("L"), dtype=np.float32)
+            size, mode = im.size, im.mode
             prop_rows.append({
                 "dataset": ds, "site_id": row.site_id, "size": size,
                 "mode": mode, "brightness": arr.mean(), "contrast": arr.std(),
@@ -777,11 +811,10 @@ for ds, g in df.groupby("dataset"):
     high = gg.nlargest(2000, "norm_power").sample(4, random_state=RNG)
     fig, axes = plt.subplots(2, 4, figsize=(14, 7))
     for ax, (_, row) in zip(axes.flat, pd.concat([high, low]).iterrows()):
-        full = os.path.join(DATA_DIR, str(row.image_path))
-        try:
-            im = Image.open(full)
+        im = open_frame(row)
+        if im is not None:
             ax.imshow(im, cmap="gray" if im.mode == "L" else None)
-        except Exception:
+        else:
             ax.text(0.5, 0.5, "missing", ha="center")
         ax.set_title(f"{row.site_id}\nnp={row.norm_power:.2f} cc={row.cloudcover:.0f}%",
                      fontsize=8)
@@ -800,10 +833,10 @@ for ds, g in df.groupby("dataset"):
     day_rows = day_rows.iloc[::step][:8]
     fig, axes = plt.subplots(1, len(day_rows), figsize=(16, 3))
     for ax, (_, row) in zip(np.atleast_1d(axes), day_rows.iterrows()):
-        try:
-            im = Image.open(os.path.join(DATA_DIR, str(row.image_path)))
+        im = open_frame(row)
+        if im is not None:
             ax.imshow(im, cmap="gray" if im.mode == "L" else None)
-        except Exception:
+        else:
             ax.text(0.5, 0.5, "missing", ha="center")
         ax.set_title(f"{row.timestamp_utc:%H:%M}\nnp={row.norm_power:.2f}", fontsize=7)
         ax.axis("off")

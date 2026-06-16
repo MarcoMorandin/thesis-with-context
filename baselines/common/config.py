@@ -17,7 +17,7 @@ LONG_HORIZONS = (12, 24, 48)
 # Probabilistic evaluation (BASELINE_COMPARISON.md §4.3)
 QUANTILE_LEVELS = (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
 
-# Dataset columns (numerical/all_curated.parquet)
+# Dataset columns (dataset_all.parquet)
 TARGET_COL = "norm_power"           # capacity-normalized power in [0, 1]
 CAPACITY_COL = "installed_power_w"
 CLEARSKY_COL = "clearsky_ghi"       # W/m², Haurwitz, zenith-only
@@ -70,4 +70,8 @@ DETERMINISTIC_COV_IDX: tuple[int, ...] = tuple(
 # Plant-split fractions per dataset (disjoint cross-plant protocol)
 SPLIT_FRACTIONS = {"train": 0.7, "val": 0.15, "test": 0.15}
 
-DEFAULT_DATA_PATH = "/Volumes/SSD/standardized-dataset/numerical/all_curated.parquet"
+# Dataset of record (DATASET_CONTRACT.md §1.0): one flat numerical table +
+# packed frames, covering both uk_pv and goes_pvdaq.
+DEFAULT_DATA_PATH = "/Volumes/SSD/thesis-dataset/dataset_all.parquet"
+DEFAULT_IMAGES_H5 = "/Volumes/SSD/thesis-dataset/images_all.h5"
+FRAME_INDEX_COL = "image_h5_index"   # canonical local-to-group frame pointer

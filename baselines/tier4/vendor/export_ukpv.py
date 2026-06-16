@@ -16,7 +16,7 @@ run happen later in the upstream env on the cluster (see
 docs/experiments/TIER4_RAG_INTEGRATION.md and scripts/login_node_prep.sh).
 
     uv run python tier4/vendor/export_ukpv.py \
-        --data /Volumes/SSD/.../all_curated.parquet --out /tmp/ukpv_rag
+        --data /Volumes/SSD/thesis-dataset/dataset_all.parquet --out /tmp/ukpv_rag
 """
 
 from __future__ import annotations

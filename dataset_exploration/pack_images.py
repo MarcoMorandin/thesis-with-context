@@ -1,11 +1,11 @@
-"""Pack the standardized-dataset image tree into a single HDF5 file.
+"""Pack the raw image tree into a single HDF5 file (images_all.h5, dataset of record).
 
 Why: the SSD is exFAT with 128 KiB allocation blocks; 2.5M tiny PNGs (+ macOS
 ``._`` sidecars) burn ~305 GB of disk for ~3 GB of pixels. One HDF5 file
 removes the cluster waste and is faster for training DataLoaders.
 
-Layout of images.h5:
-    /<site_key>/images      uint8, (N, 32, 32) for uk_pv, (N, 256, 256, 3) for goes
+Layout of images_all.h5:
+    /<site_key>/images      uint8, (N, 128, 128) for uk_pv, (N, 256, 256, 3) for goes
     /<site_key>/timestamps  bytes, ISO-8601 UTC, sorted, aligned with images
 
 uk_pv images are rebuilt straight from the source netCDF (single 4.7 GB read)
@@ -13,12 +13,12 @@ using the exact transform of dataset_builder/build_dataset.py
 (nan_to_num -> clip(0,1) -> *255 uint8), instead of 2.5M slow exFAT reads.
 goes images are read from their PNGs (only ~15k files).
 
-After packing, a verification pass samples rows from all.parquet and compares
-HDF5 arrays against the original PNG pixels — must match exactly before the
-PNG tree may be deleted.
+After packing, a verification pass samples rows and compares HDF5 arrays
+against the original PNG pixels — must match exactly before the PNG tree may
+be deleted.
 
 Adds ``image_h5_index`` (row index within the site's image stack) to both
-all.parquet and all_curated.parquet.
+all.parquet and dataset_all.parquet.
 """
 
 import os
@@ -30,13 +30,15 @@ import pandas as pd
 import xarray as xr
 from PIL import Image
 
-DATA_DIR = "/Volumes/SSD/standardized-dataset"
+# Dataset-build script: packs the raw frame tree (external) into the packed
+# archive of record `thesis-dataset/images_all.h5` (DATASET_CONTRACT §1.0).
+DATA_DIR = "/Volumes/SSD/thesis-dataset"
 IMAGES_DIR = os.path.join(DATA_DIR, "images")
-H5_PATH = os.path.join(DATA_DIR, "images.h5")
+H5_PATH = os.path.join(DATA_DIR, "images_all.h5")
 UK_NC = "/Volumes/SSD/useless-stuff-dataset/uk-data/uk_pv_local_paired_dataset.nc"
 PARQUETS = [
-    os.path.join(DATA_DIR, "numerical/all.parquet"),
-    os.path.join(DATA_DIR, "numerical/all_curated.parquet"),
+    os.path.join(DATA_DIR, "all.parquet"),
+    os.path.join(DATA_DIR, "dataset_all.parquet"),
 ]
 N_VERIFY = 300
 

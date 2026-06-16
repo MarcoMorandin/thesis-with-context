@@ -14,8 +14,12 @@ Trains on the train plants, evaluates each held-out test plant, and dumps
 `sunset_<site>_pred.npz` (`pred`,`true` (N,H)) in our baseline-contract format
 for `scripts/import_predictions.py`.
 
-    python run_ukpv.py --data <all_curated.parquet> --h5 <images_uk128.h5> \
+    python run_ukpv.py --data <dataset_all.parquet> --h5 <images_all.h5> \
         --out results_ukpv --epochs 20 --pred_len 12
+
+Runs on the whole dataset (uk_pv + goes_pvdaq) by default — `sites_for_split`
+returns plants of every dataset in the split, and the bridge grayscales both
+128px and 256px frames to a single channel.
 """
 
 from __future__ import annotations
@@ -90,7 +94,7 @@ def masked_mse(y_true, y_pred):
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--data", default=config.DEFAULT_DATA_PATH)
-    ap.add_argument("--h5", default="/Volumes/SSD/standardized-dataset/images_uk128.h5")
+    ap.add_argument("--h5", default=config.DEFAULT_IMAGES_H5)
     ap.add_argument("--out", default="results_ukpv")
     ap.add_argument("--epochs", type=int, default=20)
     ap.add_argument("--pred_len", type=int, default=config.HORIZON_STEPS)
