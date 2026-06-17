@@ -17,4 +17,4 @@ umap-learn==0.5.7
 seaborn==0.13.2
 PyWavelets==1.4.1
 pytorch-wavelets
-setuptools
+setuptools<70.0.0
