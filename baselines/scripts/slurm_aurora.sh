@@ -49,7 +49,7 @@ EXPORT="${EXPORT:-tier5/vendor/aurora/data_ukpv}"
 uv run --with h5py --with pillow python tier5/uk_export.py --model aurora \
     --out "$EXPORT" --data "$DATA" --h5 "$IMAGES_H5" --pred_len "$PRED_LEN"
 
-source "$(conda info --base)/etc/profile.d/conda.sh"; conda activate "$CONDA_ENV"
+source "$UV_ENVS_DIR/$VENV_NAME/bin/activate"
 cd tier5/vendor/aurora
 
 if [[ "$MODE" == "finetune" ]]; then

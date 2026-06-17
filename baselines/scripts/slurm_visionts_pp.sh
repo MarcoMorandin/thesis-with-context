@@ -46,7 +46,7 @@ SEQ_LEN="${SEQ_LEN:-24}"; PRED_LEN="${PRED_LEN:-12}"; PERIODICITY="${PERIODICITY
 uv run python tier4/vendor/export_ukpv.py --data "$DATA" --out "$UKPV_DIR"
 uv run python tier4/vendor/contract_check.py --inputs "$UKPV_DIR"
 
-source "$(conda info --base)/etc/profile.d/conda.sh"; conda activate "$CONDA_ENV"
+source "$UV_ENVS_DIR/$VENV_NAME/bin/activate"
 
 # ---- 2. zero-shot forecast + dump predictions ------------------------------
 OUT="tier5/vendor/visionts_pp/results_ukpv"

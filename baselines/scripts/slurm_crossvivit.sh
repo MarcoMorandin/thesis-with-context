@@ -47,7 +47,7 @@ OUT="${OUT:-tier6/vendor/crossvivit/results_ukpv}"
 [[ -f "$DATA" ]] || { echo "ERROR: DATA parquet not found: $DATA"; exit 1; }
 [[ -f "$IMAGES_H5" ]] || { echo "ERROR: IMAGES_H5 not found: $IMAGES_H5 (uk_pv frames)"; exit 1; }
 
-source "$(conda info --base)/etc/profile.d/conda.sh"; conda activate "$CONDA_ENV"
+source "$UV_ENVS_DIR/$VENV_NAME/bin/activate"
 
 # ---- TRAIN + EVAL (run_ukpv.py drives the original RoCrossViViT on uk_pv) ----
 echo ">>> TRAIN+EVAL CrossViViT (uk_pv multimodal)"

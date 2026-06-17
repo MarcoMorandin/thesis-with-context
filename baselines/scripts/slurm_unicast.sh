@@ -57,7 +57,7 @@ uv run --with h5py --with pillow python tier5/uk_export.py --model unicast \
     --out "$EXPORT" --data "$DATA" --h5 "$IMAGES_H5" --pred_len "$PRED_LEN"
 DATASET_TEXT="$(cat "$EXPORT/dataset_text.txt")"
 
-source "$(conda info --base)/etc/profile.d/conda.sh"; conda activate "$CONDA_ENV"
+source "$UV_ENVS_DIR/$VENV_NAME/bin/activate"
 cd tier5/vendor/unicast
 
 # ---- 2. TRAIN (train/ + val/ under the export root) ------------------------

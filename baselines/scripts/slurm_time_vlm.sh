@@ -46,7 +46,7 @@ VLM_TYPE="${VLM_TYPE:-CLIP}"; EPOCHS="${EPOCHS:-10}"; MODEL_ID="${MODEL_ID:-ukpv
 uv run python tier4/vendor/export_ukpv.py --data "$DATA" --out "$UKPV_DIR"
 uv run python tier4/vendor/contract_check.py --inputs "$UKPV_DIR"
 
-source "$(conda info --base)/etc/profile.d/conda.sh"; conda activate "$CONDA_ENV"
+source "$UV_ENVS_DIR/$VENV_NAME/bin/activate"
 cd tier5/vendor/time_vlm
 
 common_args=(--task_name long_term_forecast --model TimeVLM --vlm_type "$VLM_TYPE"

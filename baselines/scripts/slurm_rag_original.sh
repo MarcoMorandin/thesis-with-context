@@ -84,8 +84,7 @@ if ! find "$HF_HOME" -path '*chronos-t5-base*' -name '*.safetensors' -o -path '*
 fi
 
 # ---- upstream env (conda, NOT uv) ------------------------------------------
-source "$(conda info --base)/etc/profile.d/conda.sh"
-conda activate "$CONDA_ENV"
+source "$UV_ENVS_DIR/$VENV_NAME/bin/activate"
 
 # ---- baseline-contract preflight (offline, no model; needs the env's pandas)
 python tier4/vendor/contract_check.py --inputs "$UKPV_CSV_DIR"
