@@ -18,6 +18,20 @@ dependencies = [
 # the platforms we actually run on so the lock resolves.
 environments = ["sys_platform == 'darwin'", "sys_platform == 'linux'"]
 
+# Leonardo Booster nodes report CUDA driver 12.2 (API version 12020). The PyPI
+# default torch wheel is +cu130 (built for CUDA 13.0), whose runtime needs a
+# >=13.x driver, so torch.cuda.is_available() is False on the node and every
+# "GPU" task silently runs on CPU. Pin the linux build to the cu121 wheel,
+# whose 12.1 runtime runs on the 12.2 driver. macOS local-dev keeps the normal
+# PyPI (CPU/MPS) wheel because the source is marker-scoped to linux.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu121", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cu121"
+url = "https://download.pytorch.org/whl/cu121"
+explicit = true
+
 [dependency-groups]
 dev = [
     "pytest>=8.0",
