@@ -38,11 +38,23 @@ from tier6.uk_multimodal import UKMultimodalDataset, sites_for_split  # noqa: E4
 from common import config  # noqa: E402
 
 
-def build_arrays(ds: UKMultimodalDataset, history: int, horizon: int):
-    """Materialize (X_img (N,S,S,T), X_pv (N,T), Y (N,H), M (N,H), sites)."""
+def build_arrays(ds: UKMultimodalDataset, history: int, horizon: int,
+                 max_windows: int = 0, seed: int = 0):
+    """Materialize (X_img (N,S,S,T), X_pv (N,T), Y (N,H), M (N,H), sites).
+
+    When ``max_windows`` > 0 and the split has more windows, a random subset of
+    window *indices* is chosen up front so we never hold the entire split in
+    RAM at once. Eagerly building every window and capping afterwards OOM-killed
+    the job: the train split is hundreds of thousands of (S,S,T) frames.
+    """
+    n = len(ds)
+    if max_windows and n > max_windows:
+        idx = np.random.default_rng(seed).permutation(n)[:max_windows]
+    else:
+        idx = np.arange(n)
     X_img, X_pv, Y, M, sites = [], [], [], [], []
-    for i in range(len(ds)):
-        it = ds[i]
+    for i in idx:
+        it = ds[int(i)]
         # V (T,1,S,S) → stack frames along channels (S,S,T) as SUNSET does
         v = it["V"][:, 0, :, :]                      # (T,S,S)
         X_img.append(np.transpose(v, (1, 2, 0)))     # (S,S,T)
@@ -106,6 +118,8 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=config.SEED)
     ap.add_argument("--max_train_windows", type=int, default=60000,
                     help="cap training windows for tractability (0 = all)")
+    ap.add_argument("--max_val_windows", type=int, default=20000,
+                    help="cap validation windows (early-stop only; 0 = all)")
     args = ap.parse_args()
 
     import tensorflow as tf
@@ -123,11 +137,10 @@ def main() -> None:
         )
 
     print(">>> building train/val arrays")
-    Xi, Xp, Y, M, _ = build_arrays(make_ds("train"), T, H)
-    if args.max_train_windows and len(Xi) > args.max_train_windows:
-        sel = np.random.permutation(len(Xi))[: args.max_train_windows]
-        Xi, Xp, Y, M = Xi[sel], Xp[sel], Y[sel], M[sel]
-    Vxi, Vxp, Vy, Vm, _ = build_arrays(make_ds("val"), T, H)
+    Xi, Xp, Y, M, _ = build_arrays(make_ds("train"), T, H,
+                                   max_windows=args.max_train_windows, seed=args.seed)
+    Vxi, Vxp, Vy, Vm, _ = build_arrays(make_ds("val"), T, H,
+                                       max_windows=args.max_val_windows, seed=args.seed)
     print(f"    train windows={len(Xi)}  val windows={len(Vxi)}")
 
     model = sunset_model(args.img_size, T, T, H)
