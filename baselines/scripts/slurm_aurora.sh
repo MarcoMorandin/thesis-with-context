@@ -33,6 +33,7 @@ export UV_CACHE_DIR="${UV_CACHE_DIR:-${TEAM_SCRATCH}/uv_cache}"
 export CONDA_PKGS_DIRS="${CONDA_PKGS_DIRS:-${TEAM_SCRATCH}/conda_pkgs}"
 export CONDA_ENVS_DIRS="${CONDA_ENVS_DIRS:-${TEAM_SCRATCH}/conda_envs}"
 export PIP_CACHE_DIR="${PIP_CACHE_DIR:-${TEAM_SCRATCH}/pip_cache}"
+export UV_ENVS_DIR="${UV_ENVS_DIR:-${TEAM_SCRATCH}/uv_envs}"
 export HF_HOME="${HF_HOME:-${TEAM_SCRATCH}/hf_cache}"
 
 : "${VENV_NAME:?set VENV_NAME to the Aurora uv env (TIER5_INTEGRATION.md §1)}"
