@@ -21,3 +21,6 @@ torchtyping==0.1.4
 torchvision==0.14.1
 tqdm==4.64.1
 wandb==0.13.4
+pyarrow==14.0.1
+pandas==2.0.3
+h5py==3.8.0
