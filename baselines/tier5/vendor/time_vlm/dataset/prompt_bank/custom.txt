@@ -1,0 +1,1 @@
+This dataset records time-series observations of photovoltaic (PV) power generation capacity and solar irradiance from various solar plants, captured at regular intervals. It is used for forecasting future solar power output to assist in grid management and renewable energy optimization.
