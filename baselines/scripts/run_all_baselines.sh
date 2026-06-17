@@ -104,6 +104,14 @@ done
 for m in chronos2_ft ttm_ft cora; do
     add "$m" "uv run --group $GROUP python run_eval.py --model $m --data '$DATA' --tag s2_$m --seeds $SEEDS"
 done
+# Tier 2 deep baselines (tslib: mlp/dlinear/patchtst/itransformer/tft). These
+# auto-select GPU via tslib.trainer.resolve_device, so they belong in the GPU
+# pool — running them in the CPU Phase A pegged ~11 cores for hours and blocked
+# Phase B behind them. One GPU + 3 seeds each; unique --tag s2_$m keeps each
+# task's smart_persistence reference write off the shared s2 reference.
+for m in mlp dlinear patchtst itransformer tft; do
+    add "$m" "uv run --group $GROUP python run_eval.py --model $m --data '$DATA' --tag s2_$m --seeds $SEEDS"
+done
 # Optional goes leave-one-plant-out (heavy; §4.1)
 if [[ "$RUN_LOPO" == 1 ]]; then
     add "lopo_goes" "uv run --group $GROUP python run_eval.py --model chronos2_zs timesfm_zs tirex_zs ttm_zs chronos2_ft ttm_ft cora --data '$DATA' --lopo-dataset goes_pvdaq --tag lopo --seeds $SEEDS"
@@ -144,15 +152,17 @@ else skip "solar_vlm" "set SOLARVLM_DIR to the Solar-VLM repo"; fi
 
 echo ">>> ${#T_NAME[@]} GPU tasks queued, ${#SKIP[@]} skipped"
 
-# ---- Phase A: splits + Tier 0-2 reference (CPU, sequential, FIRST) ----------
+# ---- Phase A: splits + Tier 0-1 reference (CPU, sequential, FIRST) ----------
 # run_eval always (re)writes smart_persistence as the SS reference; doing the
-# whole reference + Tier-0/1/2 set once up front gives the canonical
-# smart_persistence_s2.json that the Tier-5/6 importers point at.
-echo ""; echo ">>> Phase A: splits + Tier 0-2 reference (CPU)"
+# reference + the cheap CPU baselines once up front gives the canonical
+# smart_persistence_s2.json that the Tier-5/6 importers point at. The deep
+# tslib models (mlp/dlinear/patchtst/itransformer/tft) are GPU-bound and run in
+# Phase B instead of here.
+echo ""; echo ">>> Phase A: splits + Tier 0-1 reference (CPU)"
 uv run --group "$GROUP" python -m common.splits --data "$DATA" || true
 ( CUDA_VISIBLE_DEVICES="" uv run --group "$GROUP" python run_eval.py \
     --model persistence smart_persistence climatology_hourly seasonal_naive \
-            lightgbm mlp dlinear patchtst itransformer tft \
+            lightgbm \
     --data "$DATA" --tag s2 --seeds $SEEDS ) > "$LOGDIR/tier0_2_cpu.log" 2>&1 &
 CPU_PID=$!
 # uk_pv CSV export the RAG originals read (single canonical copy)
