@@ -44,7 +44,8 @@ class VLMManager:
         print("VLM Learnable model parameters: {:,}".format(learnable_params))
 
     def _init_clip(self):
-        CLIP_ARCH = 'openai/clip-vit-base-patch32'
+        import os
+        CLIP_ARCH = os.environ.get('VISION_MODEL_PATH', 'openai/clip-vit-base-patch32')
         try:
             print("Trying to load from local cache...")
             self.processor = CLIPProcessor.from_pretrained(CLIP_ARCH, local_files_only=True)

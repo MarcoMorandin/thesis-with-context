@@ -42,6 +42,7 @@ DATA="${DATA:-${TEAM_SCRATCH}/data/dataset_all.parquet}"
 UKPV_DIR="${UKPV_DIR:-${TEAM_SCRATCH}/data/ukpv_rag}"
 SEQ_LEN="${SEQ_LEN:-24}"; PRED_LEN="${PRED_LEN:-12}"
 VLM_TYPE="${VLM_TYPE:-CLIP}"; EPOCHS="${EPOCHS:-10}"; MODEL_ID="${MODEL_ID:-ukpv_tvlm}"
+export VISION_MODEL_PATH="${VISION_MODEL_PATH:-${TEAM_SCRATCH}/weights/clip-vit-base-patch32}"
 
 # ---- 1. export uk_pv → Informer CSVs (reuse the tier-4 bridge) --------------
 uv run python tier4/vendor/export_ukpv.py --data "$DATA" --out "$UKPV_DIR"
