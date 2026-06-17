@@ -72,3 +72,4 @@ slurm-*.out
 *.pdf.bak
 
 # Keep reference PDFs in baselines/ and solar-related-work/ (tracked intentionally)
+results/
