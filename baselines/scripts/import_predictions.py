@@ -95,9 +95,19 @@ def main() -> None:
 
     ref_path = Path(args.reference or
                     f"{args.out}/smart_persistence_{args.tag}.json")
+    if not ref_path.exists() and not args.reference:
+        fallback_path = Path(args.out) / "smart_persistence_s2.json"
+        if fallback_path.exists():
+            ref_path = fallback_path
+
     if ref_path.exists():
         ref = json.loads(ref_path.read_text())["results"]
         results = add_skill_scores(results, ref)
+        dest_ref_path = Path(args.out) / f"smart_persistence_{args.tag}.json"
+        if not dest_ref_path.exists():
+            import shutil
+            shutil.copyfile(ref_path, dest_ref_path)
+            print(f"Copied smart persistence reference to {dest_ref_path}")
     else:
         print(f"WARN: no Smart Persistence reference at {ref_path}; SS omitted")
 
