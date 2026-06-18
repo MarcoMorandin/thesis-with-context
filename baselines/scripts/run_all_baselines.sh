@@ -59,13 +59,22 @@ ENV_UNICAST="${ENV_UNICAST:-unicast}"; ENV_AURORA="${ENV_AURORA:-aurora}"
 ENV_CROSSVIVIT="${ENV_CROSSVIVIT:-crossvivit}"; ENV_SUNSET="${ENV_SUNSET:-sunset}"
 ENV_TSRAG="${ENV_TSRAG:-tsrag}"; ENV_CROSSRAG="${ENV_CROSSRAG:-crossrag}"
 # gated backbone weights (defaults match precache_login.sh)
-MAE_CKPT="${MAE_CKPT:-}"                                   # set to the VisionTS++ .ckpt file
+# VisionTS++ MAE ckpt: precache_login.sh symlinks the resolved weights to a
+# stable name; fall back to globbing the dir if the symlink is absent.
+MAE_CKPT="${MAE_CKPT:-${WEIGHTS_DIR}/visiontspp/visiontspp.ckpt}"
+if [[ ! -f "$MAE_CKPT" ]]; then
+    _vts="$(find "${WEIGHTS_DIR}/visiontspp" -maxdepth 2 \
+              \( -name '*.ckpt' -o -name '*.pth' -o -name '*.safetensors' \) 2>/dev/null | head -1)"
+    [[ -n "$_vts" ]] && MAE_CKPT="$_vts"
+fi
 VISION_MODEL_PATH="${VISION_MODEL_PATH:-${WEIGHTS_DIR}/clip-vit-base-patch32}"
 CHRONOS_PATH="${CHRONOS_PATH:-${WEIGHTS_DIR}/chronos-bolt-base}"
-AURORA_CKPT="${AURORA_CKPT:-}"
+# Aurora: MODE=finetune builds AuroraForPrediction from the shipped AuroraConfig
+# dir and fine-tunes from scratch — model_path is that config dir (absolute).
+AURORA_CKPT="${AURORA_CKPT:-${PWD}/tier5/vendor/aurora/aurora}"
 RAG_BASE_CKPT="${RAG_BASE_CKPT:-${WEIGHTS_DIR}/chronos-bolt-base}"
-RAG_MIXER_CKPT="${RAG_MIXER_CKPT:-}"                       # released ARM/cross-attn ckpt
-SOLARVLM_DIR="${SOLARVLM_DIR:-}"
+RAG_MIXER_CKPT="${RAG_MIXER_CKPT:-${CKPT_DIR}/arm.pth}"    # released ARM/cross-attn ckpt (drop here by hand)
+SOLARVLM_DIR="${SOLARVLM_DIR:-${TEAM_SCRATCH}/Solar-VLM}"  # external repo checkout (clone here to auto-enable)
 
 # ---- GPU count -------------------------------------------------------------
 if [[ -n "${NUM_GPUS:-}" ]]; then :;

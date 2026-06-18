@@ -89,6 +89,18 @@ if [[ "$STAGE" == "all" || "$STAGE" == "weights" ]]; then
     hf_pull "openai/clip-vit-base-patch32" "${WEIGHTS_DIR}/clip-vit-base-patch32"   # Time-VLM + UniCast vision
     hf_pull "Lefei/VisionTSpp"             "${WEIGHTS_DIR}/visiontspp"              # VisionTS++ MAE ckpt
     hf_pull "amazon/chronos-bolt-base"     "${WEIGHTS_DIR}/chronos-bolt-base"       # UniCast backbone + RAG BASE_CKPT
+
+    # Resolve the VisionTS++ checkpoint to a stable path run_all_baselines.sh
+    # globs for (the repo ships the MAE weights under an arbitrary file name).
+    vts_ckpt="$(find "${WEIGHTS_DIR}/visiontspp" -maxdepth 2 \
+                  \( -name '*.ckpt' -o -name '*.pth' -o -name '*.safetensors' \) \
+                  2>/dev/null | head -1)"
+    if [[ -n "$vts_ckpt" ]]; then
+        ln -sf "$vts_ckpt" "${WEIGHTS_DIR}/visiontspp/visiontspp.ckpt"
+        info "VisionTS++ ckpt → ${WEIGHTS_DIR}/visiontspp/visiontspp.ckpt ($vts_ckpt)"
+    else
+        warn "no VisionTS++ .ckpt/.pth/.safetensors under ${WEIGHTS_DIR}/visiontspp — visionts_pp will skip"
+    fi
 fi
 
 # --- 4/6: one uv env per vendored model ----------------------------------
@@ -96,18 +108,32 @@ if [[ "$STAGE" == "all" || "$STAGE" == "envs" ]]; then
     info ">>> vendored model conda envs"
     make_env timevlm   pip install -r "$BASELINES_DIR/tier5/vendor/time_vlm/requirements.txt"
     make_env visionts  pip install -e "$BASELINES_DIR/tier5/vendor/visionts_pp"
-    [[ -f tier5/vendor/unicast/requirements.txt ]] && make_env unicast pip install -r "$BASELINES_DIR/tier5/vendor/unicast/requirements.txt"
-    [[ -f tier5/vendor/aurora/requirements.txt  ]] && make_env aurora  pip install -r "$BASELINES_DIR/tier5/vendor/aurora/requirements.txt"
+    # UniCast ships its deps under requirements/ (chronos backbone variant), not a
+    # top-level requirements.txt — install that one so the `unicast` env is built.
+    make_env unicast pip install -r "$BASELINES_DIR/tier5/vendor/unicast/requirements/chronos_requirements.txt"
+    # Aurora has no requirements file; it imports ViT/BERT/chronos-style backbones.
+    # Pin the minimal set its runner/dataset/connector actually import.
+    make_env aurora  pip install torch torchvision transformers huggingface_hub \
+                                 einops numpy pandas scikit-learn tqdm matplotlib
     make_env crossvivit pip install -r "$BASELINES_DIR/tier6/vendor/crossvivit/requirements.txt"
     make_env sunset    pip install tensorflow h5py pyarrow pandas numpy
     # RAG originals pin numpy==1.25 + chronos-forecasting + faiss-gpu (TIER4_RAG_INTEGRATION §1)
     [[ -f tier4/vendor/ts_rag/requirements.txt    ]] && make_env tsrag   pip install -r "$BASELINES_DIR/tier4/vendor/ts_rag/requirements.txt"
     [[ -f tier4/vendor/cross_rag/requirements.txt ]] && make_env crossrag pip install -r "$BASELINES_DIR/tier4/vendor/cross_rag/requirements.txt"
 
-    # Aurora checkpoint (its own downloader, runs inside the aurora env)
-    if [[ "$MAKE_ENVS" == "1" && -d "$UV_ENVS_DIR/aurora" ]]; then
-        info "Aurora checkpoint download"
-        ( cd tier5/vendor/aurora && VIRTUAL_ENV="$UV_ENVS_DIR/aurora" "$UV_ENVS_DIR/aurora/bin/python" utils/download_ckpt.py ) || warn "Aurora ckpt download failed"
+    # Aurora "checkpoint": the orchestrator runs MODE=finetune, i.e. runner.py
+    # builds AuroraForPrediction from AuroraConfig (config.json) and fine-tunes
+    # from scratch on uk_pv, then evals — so model_path only needs the config dir
+    # the repo already ships (aurora/config.json + vit_config + bert_config, all
+    # random-init/local, no external ViT/BERT weights). The vendored
+    # utils/download_ckpt.py is NOT used: it hardcodes a fake HF token, the
+    # hf-mirror endpoint and /home/Aurora, and pulls ViT/BERT weights the code
+    # never loads via from_pretrained.
+    AURORA_CFG_DIR="$BASELINES_DIR/tier5/vendor/aurora/aurora"
+    if [[ -f "$AURORA_CFG_DIR/config.json" ]]; then
+        info "Aurora config dir OK → $AURORA_CFG_DIR (use as AURORA_CKPT, MODE=finetune)"
+    else
+        warn "Aurora config.json missing under $AURORA_CFG_DIR — aurora will skip"
     fi
 fi
 
@@ -129,16 +155,20 @@ fi
 
 echo ""
 echo "=============================================================="
-echo " PRECACHE DONE. The offline GPU run reads (override-able):"
+echo " PRECACHE DONE. run_all_baselines.sh auto-resolves these defaults:"
 echo "   DATA            = $DATA"
 echo "   IMAGES_H5       = $IMAGES_H5"
 echo "   UKPV_CSV_DIR    = $UKPV_CSV_DIR"
-echo "   MAE_CKPT        = ${WEIGHTS_DIR}/visiontspp/<file>.ckpt   (set exact path)"
+echo "   MAE_CKPT        = ${WEIGHTS_DIR}/visiontspp/visiontspp.ckpt  (symlink resolved above)"
 echo "   VISION_MODEL_PATH = ${WEIGHTS_DIR}/clip-vit-base-patch32"
 echo "   CHRONOS_PATH / RAG_BASE_CKPT = ${WEIGHTS_DIR}/chronos-bolt-base"
-echo "   RAG_MIXER_CKPT  = <download ARM/cross-attn ckpt into $CKPT_DIR by hand>"
-echo "   AURORA_CKPT     = tier5/vendor/aurora/<ckpt dir>"
-echo "   SOLARVLM_DIR    = ${SOLARVLM_DIR:-<unset>}"
+echo "   AURORA_CKPT     = $BASELINES_DIR/tier5/vendor/aurora/aurora  (config dir, MODE=finetune)"
+echo ""
+echo " STILL NEED A MANUAL ARTIFACT (run_all skips these until present):"
+echo "   RAG_MIXER_CKPT  = ${CKPT_DIR}/arm.pth   ← drop the released ARM/cross-attn ckpt here"
+echo "                       (enables ts_rag + cross_rag)"
+echo "   SOLARVLM_DIR    = ${TEAM_SCRATCH}/Solar-VLM   ← git clone the Solar-VLM repo here,"
+echo "                       then re-run this precache with SOLARVLM_DIR set (runs its setup_env.sh)"
 echo ""
 echo " Then on a GPU node:  sbatch scripts/run_all_baselines.sh"
 echo "=============================================================="
