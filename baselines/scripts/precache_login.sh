@@ -111,6 +111,26 @@ if [[ "$STAGE" == "all" || "$STAGE" == "weights" ]]; then
         fi
     fi
 
+    # --- Cross-RAG native pretrain data (HF nkh/TS-RAG-Data) ----------------
+    # Cross-RAG has no released mixer (the Drive best.pth is TS-RAG's ARM), so
+    # cross_rag pretrains its cross-attention mixer at 512/64 on the 50m pretrain
+    # pairs. Stage the retrieval DB + pair chunks (~tens of GB) here; the offline
+    # GPU run trains on them. Skip with CROSSRAG_PRETRAIN=0.
+    CROSSRAG_PRETRAIN_DIR="${CROSSRAG_PRETRAIN_DIR:-${TEAM_SCRATCH}/crossrag_pretrain}"
+    if [[ "${CROSSRAG_PRETRAIN:-1}" == "1" ]]; then
+        info ">>> Cross-RAG pretrain data → $CROSSRAG_PRETRAIN_DIR (nkh/TS-RAG-Data)"
+        mkdir -p "$CROSSRAG_PRETRAIN_DIR"
+        uv run --group tier3 python - "$CROSSRAG_PRETRAIN_DIR" <<'PY' || warn "Cross-RAG pretrain-data download failed — cross_rag will skip"
+import sys
+from huggingface_hub import snapshot_download
+dest = sys.argv[1]
+p = snapshot_download("nkh/TS-RAG-Data", repo_type="dataset", local_dir=dest,
+                      allow_patterns=["retrieval_database_512.parquet",
+                                      "pretrain_pairs_ctx512/*.parquet"])
+print("cross-rag pretrain data ->", p)
+PY
+    fi
+
     # --- 3/6: Tier-5/6 backbone weights ------------------------------------
     info ">>> Tier-5/6 backbones"
     hf_pull "openai/clip-vit-base-patch32" "${WEIGHTS_DIR}/clip-vit-base-patch32"   # Time-VLM + UniCast vision

@@ -86,6 +86,9 @@ def evaluate_model(
     """
     acc = PerPlantAccumulator()
     losses: dict[str, list[np.ndarray]] = {"loss": [], "plant": [], "day": []}
+    preds_list = []
+    trues_list = []
+    plants_list = []
     for batch in dataset.iter_batches(batch_size):
         forecast: Forecast = model.predict(
             transform(batch) if transform is not None else batch
@@ -118,11 +121,33 @@ def evaluate_model(
             )
             losses["plant"].append(batch["site_id"])
             losses["day"].append(batch["timestamps"][:, t] // 86_400)
+        
+        preds_list.append(point)
+        trues_list.append(batch["y_future"])
+        plants_list.append(batch["site_id"])
+        
     results = {"overall": acc.macro(), "per_plant": acc.per_plant()}
     if collect_losses:
         results["per_sample"] = {
             k: np.concatenate(v) for k, v in losses.items()
         }
+        
+    if preds_list:
+        from pathlib import Path
+        pred_out_dir = Path("results/predictions")
+        pred_out_dir.mkdir(parents=True, exist_ok=True)
+        all_preds = np.concatenate(preds_list, axis=0)
+        all_trues = np.concatenate(trues_list, axis=0)
+        all_plants = np.concatenate(plants_list, axis=0)
+        for plant in np.unique(all_plants):
+            rows = all_plants == plant
+            plant_preds = all_preds[rows]
+            plant_trues = all_trues[rows]
+            np.savez(
+                pred_out_dir / f"{model.name}_{plant}_pred.npz",
+                pred=plant_preds.astype(np.float32),
+                true=plant_trues.astype(np.float32)
+            )
     return results
 
 

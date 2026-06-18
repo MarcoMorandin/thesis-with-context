@@ -74,10 +74,14 @@ CHRONOS_PATH="${CHRONOS_PATH:-${WEIGHTS_DIR}/chronos-bolt-base}"
 # dir and fine-tunes from scratch — model_path is that config dir (absolute).
 AURORA_CKPT="${AURORA_CKPT:-${PWD}/tier5/vendor/aurora/aurora}"
 RAG_BASE_CKPT="${RAG_BASE_CKPT:-${WEIGHTS_DIR}/chronos-bolt-base}"
-# Both RAG repos run zeroshot.py --model ChronosBoltRetrieve against the same
-# released retrieval mixer (checkpoints/chronos-bolt/best.pth in the Drive
-# release; precache symlinks/fetches it to arm.pth), so one mixer serves both.
-RAG_MIXER_CKPT="${RAG_MIXER_CKPT:-${CKPT_DIR}/arm.pth}"
+# ts_rag loads the released ARM mixer (Drive checkpoints/chronos-bolt/best.pth →
+# precache fetches it to arm.pth). cross_rag has NO released cross-attention mixer,
+# so it pretrains its own at 512/64 on the HF nkh/TS-RAG-Data 50m pairs (staged by
+# precache to crossrag_pretrain/); these point the slurm at that data.
+RAG_MIXER_CKPT="${RAG_MIXER_CKPT:-${CKPT_DIR}/arm.pth}"   # ts_rag only
+CROSSRAG_PRETRAIN_DIR="${CROSSRAG_PRETRAIN_DIR:-${TEAM_SCRATCH}/crossrag_pretrain}"
+CROSSRAG_PRETRAIN_DB="${CROSSRAG_PRETRAIN_DB:-${CROSSRAG_PRETRAIN_DIR}/retrieval_database_512.parquet}"
+CROSSRAG_PRETRAIN_PAIRS="${CROSSRAG_PRETRAIN_PAIRS:-${CROSSRAG_PRETRAIN_DIR}/pretrain_pairs_ctx512}"
 # Solar-VLM is vendored in-tree (tier6/vendor/solar_vlm); it needs its uv env +
 # the Qwen3-VL-Embedding-2B weights dir (offline vision features) + frames.
 QWEN_PATH="${QWEN_PATH:-${WEIGHTS_DIR}/qwen3-vl-embedding-2b}"
@@ -136,9 +140,9 @@ fi
 if env_has "$ENV_TSRAG" && [[ -d "$UKPV_CSV_DIR" && -d "$RAG_BASE_CKPT" && -f "$RAG_MIXER_CKPT" ]]; then
     add "ts_rag" "METHOD=ts_rag REGIME=orig VENV_NAME=$ENV_TSRAG UKPV_CSV_DIR='$UKPV_CSV_DIR' BASE_CKPT='$RAG_BASE_CKPT' MIXER_CKPT='$RAG_MIXER_CKPT' bash scripts/slurm_rag_original.sh"
 else skip "ts_rag" "needs uv env:$ENV_TSRAG + UKPV_CSV_DIR + RAG_BASE_CKPT + RAG_MIXER_CKPT"; fi
-if env_has "$ENV_CROSSRAG" && [[ -d "$UKPV_CSV_DIR" && -d "$RAG_BASE_CKPT" && -f "$RAG_MIXER_CKPT" ]]; then
-    add "cross_rag" "METHOD=cross_rag REGIME=orig VENV_NAME=$ENV_CROSSRAG UKPV_CSV_DIR='$UKPV_CSV_DIR' BASE_CKPT='$RAG_BASE_CKPT' MIXER_CKPT='$RAG_MIXER_CKPT' bash scripts/slurm_rag_original.sh"
-else skip "cross_rag" "needs uv env:$ENV_CROSSRAG + UKPV_CSV_DIR + RAG_BASE_CKPT + RAG_MIXER_CKPT"; fi
+if env_has "$ENV_CROSSRAG" && [[ -d "$UKPV_CSV_DIR" && -d "$RAG_BASE_CKPT" && -f "$CROSSRAG_PRETRAIN_DB" && -d "$CROSSRAG_PRETRAIN_PAIRS" ]]; then
+    add "cross_rag" "METHOD=cross_rag REGIME=orig VENV_NAME=$ENV_CROSSRAG UKPV_CSV_DIR='$UKPV_CSV_DIR' BASE_CKPT='$RAG_BASE_CKPT' CROSSRAG_PRETRAIN_DB='$CROSSRAG_PRETRAIN_DB' CROSSRAG_PRETRAIN_PAIRS='$CROSSRAG_PRETRAIN_PAIRS' bash scripts/slurm_rag_original.sh"
+else skip "cross_rag" "needs uv env:$ENV_CROSSRAG + UKPV_CSV_DIR + RAG_BASE_CKPT + Cross-RAG pretrain data (HF nkh/TS-RAG-Data, staged by precache)"; fi
 
 # Tier 5 (own uv env; private UKPV_DIR per task avoids export races)
 if env_has "$ENV_TIMEVLM"; then

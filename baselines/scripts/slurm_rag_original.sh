@@ -65,7 +65,10 @@ esac
 : "${BASE_CKPT:?set BASE_CKPT to the Chronos-Bolt base weights dir (§2)}"
 [[ -d "$VENDOR_DIR" ]] || { echo "ERROR: vendored code missing: $VENDOR_DIR"; exit 1; }
 [[ -d "$UKPV_CSV_DIR" ]] || { echo "ERROR: UKPV_CSV_DIR not found: $UKPV_CSV_DIR (run export_ukpv.py)"; exit 1; }
-if [[ "$REGIME" == "orig" ]]; then
+# ts_rag orig loads the released ARM mixer; cross_rag has NO released cross-attention
+# mixer (the Drive best.pth is TS-RAG's ARM) so it pretrains its own below — no
+# MIXER_CKPT required for cross_rag.
+if [[ "$REGIME" == "orig" && "$METHOD" != "cross_rag" ]]; then
     : "${MIXER_CKPT:?REGIME=orig needs the released mixer checkpoint MIXER_CKPT (§2)}"
     [[ -f "$MIXER_CKPT" ]] || { echo "ERROR: MIXER_CKPT not found: $MIXER_CKPT"; exit 1; }
 fi
@@ -108,6 +111,39 @@ echo "============================================================"
 ORIG_DIR="$PWD"
 cd "$VENDOR_DIR"
 mkdir -p results/forecast_evaluation
+
+# cross_rag orig: no released cross-attention mixer exists, so pretrain it natively
+# at 512/64 on the HF nkh/TS-RAG-Data 50m pretrain pairs (mirrors Cross-RAG-pretrain.sh),
+# then the zeroshot loop below uses it. Data staged by precache_login.sh.
+if [[ "$METHOD" == "cross_rag" && "$REGIME" == "orig" ]]; then
+    CR_DB="${CROSSRAG_PRETRAIN_DB:-${TEAM_SCRATCH}/crossrag_pretrain/retrieval_database_512.parquet}"
+    CR_PAIRS="${CROSSRAG_PRETRAIN_PAIRS:-${TEAM_SCRATCH}/crossrag_pretrain/pretrain_pairs_ctx512}"
+    CR_STEPS="${CROSSRAG_PRETRAIN_STEPS:-20000}"
+    CR_MIXER="$PWD/checkpoints/pretrain_Chronos_lb512_k${TOP_K}_CrossRAG/best.pth"
+    if [[ -f "$CR_MIXER" ]]; then
+        echo ">>> [cross_rag orig] reusing pretrained mixer: $CR_MIXER"
+    else
+        [[ -f "$CR_DB" && -d "$CR_PAIRS" ]] || {
+            echo "ERROR: Cross-RAG pretrain data missing ($CR_DB / $CR_PAIRS) — run precache_login.sh"; exit 1; }
+        echo ">>> [cross_rag orig] native pretrain (512/64, ${CR_STEPS} steps) on HF 50m pairs"
+        export RETRIEVE_SPACE=X TABPFN_DUAL_LAMBDA_INIT="${TABPFN_DUAL_LAMBDA_INIT:-0.7}"
+        python pretrain.py \
+            --model_id "pretrain_Chronos_lb512_k${TOP_K}_CrossRAG" \
+            --top_k "$TOP_K" --retrieve_lookback_length 512 --augment_mode moe \
+            --context_length 512 --prediction_length 64 \
+            --retrieval_database_path "$CR_DB" --data_path "$CR_PAIRS" \
+            --train_steps "$CR_STEPS" --evaluation_steps 10000 \
+            --optimizer adamw --learning_rate 0.00003 --weight_decay 0.01 --tmax 20 \
+            --drop_prob 0.0 --batch_size 256 --shuffle_buffer_length 10000 \
+            --freeze_chronos_bolt --model ChronosBoltRetrieve \
+            --pretrained_model_path "$BASE_CKPT" --checkpoints ./checkpoints/ --gpu_loc 0
+        # pretrain.py writes model_steps*.pth; mirror the upstream "latest → best.pth" copy
+        latest="$(ls -t "checkpoints/pretrain_Chronos_lb512_k${TOP_K}_CrossRAG"/model_steps*.pth 2>/dev/null | head -1)"
+        [[ -n "$latest" ]] && cp -f "$latest" "$CR_MIXER"
+        [[ -f "$CR_MIXER" ]] || { echo "ERROR: pretrain produced no mixer at $CR_MIXER"; exit 1; }
+    fi
+    MIXER_CKPT="$CR_MIXER"
+fi
 
 # proto regime: re-pretrain the mixer at 24/12 first (orig uses released ckpt)
 if [[ "$REGIME" == "proto" ]]; then
