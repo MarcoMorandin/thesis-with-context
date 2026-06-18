@@ -125,11 +125,15 @@ fi
 for csv in "$UKPV_CSV_DIR"/uk_pv_test_*.csv; do
     site=$(basename "$csv" .csv | sed 's/uk_pv_test_//')
     echo ">>> zeroshot ${METHOD} ${REGIME} plant=${site}"
+    # --freq 0 → zeroshot.py maps it to the 'h' pandas alias (its int default 1 is
+    # not a valid offset and crashes time_features on the first data load). Hourly
+    # time features capture PV's daily cycle; the half-hour granularity is moot.
     python zeroshot.py \
         --root_path "$UKPV_CSV_DIR" --data_path "$(basename "$csv")" \
         --data custom_retrieve --model ChronosBoltRetrieve --augment_mode moe \
         --model_id "ukpv_${site}_${REGIME}_retrieve_${PRED_LEN}" \
         --seq_len "$SEQ_LEN" --pred_len "$PRED_LEN" --label_len 0 \
+        --freq 0 \
         --lookback_length "$SEQ_LEN" --top_k "$TOP_K" \
         --pretrained_model_path "$BASE_CKPT" \
         --checkpoint_model_path "$MIXER_CKPT" \
