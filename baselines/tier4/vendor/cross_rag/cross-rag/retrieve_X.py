@@ -309,7 +309,9 @@ def do_retrieve(original_data_name, retrieval_database_dir, root_dir, metadata, 
                 sample_db_path = f'{sample_db_name}_{metadata.get("frequency", "hour")}_{metadata.get("lookback_length", context_length)}_X_space.pkl'
                 sample_db_full_path = os.path.join(retrieval_database_dir, sample_db_path)
                 if os.path.exists(sample_db_full_path):
-                    from retrieve import load_database
+                    # load_database is defined in this module (retrieve_X.py); the
+                    # `from retrieve import ...` here was a TS-RAG leftover (cross_rag
+                    # has no retrieve.py) → ModuleNotFoundError on the transfer path.
                     sample_db = load_database(sample_db_full_path)
                     if var_name not in sample_db.keys():
                         # Variable doesn't exist in knowledge base, use all variables

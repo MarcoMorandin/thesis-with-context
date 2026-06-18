@@ -59,6 +59,12 @@ def main() -> None:
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
+    # Clean stale uk_pv CSVs from a prior export (different split/dataset version)
+    # and the RAG retrieval intermediates, so the dir reflects ONLY this split's
+    # plants — otherwise the vendored loops glob leftover test plants (wrong/leaky
+    # rows, e.g. ts_rag running 19 plants when the split has 14).
+    for stale in list(out.glob("uk_pv*.csv")) + list(out.glob("uk_pv*.pkl")):
+        stale.unlink()    # .pkl = RAG retrieval indices; rebuild from fresh CSVs
     splits = load_splits()[DATASET]
     cols = [config.DATASET_COL, config.SITE_COL, config.TIME_COL,
             config.TARGET_COL, config.CAPACITY_COL]
