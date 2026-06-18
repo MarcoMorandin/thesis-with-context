@@ -424,6 +424,28 @@ def test_retrieve(model, test_data, test_loader, args, device):
     mae, mse, rmse, mape, mspe, smape, nd = metric(preds, trues)
     print('mae:{:.4f}, mse:{:.4f}, rmse:{:.4f}, smape:{:.4f}'.format(mae, mse, rmse, smape))
 
+    # Dump predictions to npz
+    p_2d = preds.squeeze(0)
+    t_2d = trues.squeeze(0)
+    if getattr(test_data, 'scale', False) and hasattr(test_data, 'inverse_transform'):
+        p_inv = test_data.inverse_transform(p_2d.reshape(-1, 1)).reshape(p_2d.shape)
+        t_inv = test_data.inverse_transform(t_2d.reshape(-1, 1)).reshape(t_2d.shape)
+    else:
+        p_inv = p_2d
+        t_inv = t_2d
+
+    if args.model_id.startswith("ukpv_"):
+        parts = args.model_id.split("_")
+        site = parts[1]
+    else:
+        site = args.model_id
+
+    out_dir = "results/forecast_evaluation"
+    os.makedirs(out_dir, exist_ok=True)
+    npz_path = os.path.join(out_dir, f"{args.model}_{site}_pred.npz")
+    np.savez(npz_path, pred=p_inv, true=t_inv)
+    print(f"Saved predictions to {npz_path}")
+
     return mse, mae
 
 def scaler_inverse_transform(scaler, data, id):
@@ -534,7 +556,7 @@ def get_borders(dataset_name, seq_len, total_length=None):
     elif 'ETTm' in dataset_name:
         border1s = [0, 12 * 30 * 24 * 4 - seq_len, 12 * 30 * 24 * 4 + 4 * 30 * 24 * 4 - seq_len]
         border2s = [12 * 30 * 24 * 4, 12 * 30 * 24 * 4 + 4 * 30 * 24 * 4, 12 * 30 * 24 * 4 + 8 * 30 * 24 * 4]
-    elif dataset_name in ['electricity', 'exchange_rate', 'weather', 'traffic']:
+    elif dataset_name in ['electricity', 'exchange_rate', 'weather', 'traffic'] or 'uk_pv' in dataset_name:
         if total_length is None:
             raise ValueError("need to provide total_length for {}".format(dataset_name))
         num_train = int(total_length * 0.7)

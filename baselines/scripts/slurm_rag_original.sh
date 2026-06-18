@@ -146,12 +146,13 @@ if (( ${#preds[@]} )); then
     for npz in "${preds[@]}"; do
         python tier4/vendor/contract_check.py --predictions "$npz" --horizon "$PRED_LEN"
     done
+    echo ">>> importing predictions to results"
+    python scripts/import_predictions.py --model "${METHOD}_${REGIME}" --tag s2_ukpv \
+        --glob "$VENDOR_DIR/results/forecast_evaluation/*_pred.npz" \
+        --reference results/smart_persistence_s2_ukpv.json
 else
-    echo "NOTE: no *_pred.npz found — apply the §6 dump patch to enable the"
-    echo "      output contract check + import into our NMAE/SS metrics."
+    echo "NOTE: no *_pred.npz found."
 fi
 
 echo ""
-echo "✓ ${METHOD}/${REGIME} done. Import predictions into our metrics per"
-echo "  docs/experiments/TIER4_RAG_INTEGRATION.md §6 (dump_predictions patch),"
-echo "  then regenerate scripts/summarize_ukpv.py."
+echo "✓ ${METHOD}/${REGIME} done."
