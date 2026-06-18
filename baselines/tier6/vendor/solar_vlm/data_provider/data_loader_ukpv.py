@@ -151,8 +151,10 @@ class Dataset_UKPV(Dataset):
 
         # per-group aligned tensors + window index (gi == position in `usable`)
         self._gx, self._gy, self._gstamp, self._gts = [], [], [], []
+        self._ggroups = []          # gi -> [site per station] (run_ukpv maps preds)
         self._index = []   # (group_idx, local_start)
         for gi, (group, common) in enumerate(usable):
+            self._ggroups.append(list(group))
             x, y, stamp, tskeys = self._build_group(df, group, common, gi)
             self._gx.append(x); self._gy.append(y)
             self._gstamp.append(stamp); self._gts.append(tskeys)
