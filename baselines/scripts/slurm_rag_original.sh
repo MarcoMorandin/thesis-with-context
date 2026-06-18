@@ -68,7 +68,7 @@ esac
 : "${UKPV_CSV_DIR:?set UKPV_CSV_DIR to the exported uk_pv data dir (§3)}"
 : "${BASE_CKPT:?set BASE_CKPT to the Chronos-Bolt base weights dir (§2)}"
 [[ -d "$VENDOR_DIR" ]] || { echo "ERROR: vendored code missing: $VENDOR_DIR"; exit 1; }
-[[ -d "$UKPV_CSV_DIR" ]] || { echo "ERROR: UKPV_CSV_DIR not found: $UKPV_CSV_DIR (run export_ukpv.py)"; exit 1; }
+mkdir -p "$UKPV_CSV_DIR"   # this method's PRIVATE export dir (populated below)
 # ts_rag orig loads the released ARM mixer; cross_rag has NO released cross-attention
 # mixer (the Drive best.pth is TS-RAG's ARM) so it pretrains its own below — no
 # MIXER_CKPT required for cross_rag.
@@ -95,6 +95,17 @@ if ! find "$HF_HOME" -path '*chronos-t5-base*' -name '*.safetensors' -o -path '*
     echo "       compute node is offline — cache it on the login node (login_node_prep.sh STAGE=rag)."
     exit 1
 fi
+
+# ---- export uk_pv into THIS method's private dir (base env, before activate) -
+# ts_rag and cross_rag write the SAME retrieve-CSV filename + their own .pkl into
+# UKPV_CSV_DIR; sharing one dir makes a parallel run's stale retrieve CSV cause the
+# other method to skip building its pkl (FileNotFoundError on uk_pv_*_512.pkl).
+# So each method gets its own dir, freshly exported (export_ukpv.py also clears any
+# stale CSVs/pkls), keeping retrieval self-consistent.
+export UV_OFFLINE="${UV_OFFLINE:-1}" UV_NO_SYNC="${UV_NO_SYNC:-1}"
+DATA="${DATA:-${TEAM_SCRATCH}/data/dataset_all.parquet}"
+echo ">>> export uk_pv → $UKPV_CSV_DIR"
+uv run python tier4/vendor/export_ukpv.py --data "$DATA" --out "$UKPV_CSV_DIR"
 
 # ---- upstream env (conda, NOT uv) ------------------------------------------
 source "$UV_ENVS_DIR/$VENV_NAME/bin/activate"

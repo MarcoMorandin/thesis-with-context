@@ -137,12 +137,14 @@ if [[ "$RUN_LOPO" == 1 ]]; then
 fi
 
 # Tier 4 RAG originals (own uv env + gated ckpts)
-if env_has "$ENV_TSRAG" && [[ -d "$UKPV_CSV_DIR" && -d "$RAG_BASE_CKPT" && -f "$RAG_MIXER_CKPT" ]]; then
-    add "ts_rag" "METHOD=ts_rag REGIME=orig VENV_NAME=$ENV_TSRAG UKPV_CSV_DIR='$UKPV_CSV_DIR' BASE_CKPT='$RAG_BASE_CKPT' MIXER_CKPT='$RAG_MIXER_CKPT' bash scripts/slurm_rag_original.sh"
-else skip "ts_rag" "needs uv env:$ENV_TSRAG + UKPV_CSV_DIR + RAG_BASE_CKPT + RAG_MIXER_CKPT"; fi
-if env_has "$ENV_CROSSRAG" && [[ -d "$UKPV_CSV_DIR" && -d "$RAG_BASE_CKPT" && -f "$CROSSRAG_PRETRAIN_DB" && -d "$CROSSRAG_PRETRAIN_PAIRS" ]]; then
-    add "cross_rag" "METHOD=cross_rag REGIME=orig VENV_NAME=$ENV_CROSSRAG UKPV_CSV_DIR='$UKPV_CSV_DIR' BASE_CKPT='$RAG_BASE_CKPT' CROSSRAG_PRETRAIN_DB='$CROSSRAG_PRETRAIN_DB' CROSSRAG_PRETRAIN_PAIRS='$CROSSRAG_PRETRAIN_PAIRS' bash scripts/slurm_rag_original.sh"
-else skip "cross_rag" "needs uv env:$ENV_CROSSRAG + UKPV_CSV_DIR + RAG_BASE_CKPT + Cross-RAG pretrain data (HF nkh/TS-RAG-Data, staged by precache)"; fi
+# Private UKPV dir per method — ts_rag and cross_rag write the same retrieve-CSV
+# names + their own .pkl, so a shared dir collides when they run in parallel.
+if env_has "$ENV_TSRAG" && [[ -d "$RAG_BASE_CKPT" && -f "$RAG_MIXER_CKPT" ]]; then
+    add "ts_rag" "METHOD=ts_rag REGIME=orig VENV_NAME=$ENV_TSRAG UKPV_CSV_DIR='${UKPV_CSV_DIR}_tsrag' DATA='$DATA' BASE_CKPT='$RAG_BASE_CKPT' MIXER_CKPT='$RAG_MIXER_CKPT' bash scripts/slurm_rag_original.sh"
+else skip "ts_rag" "needs uv env:$ENV_TSRAG + RAG_BASE_CKPT + RAG_MIXER_CKPT"; fi
+if env_has "$ENV_CROSSRAG" && [[ -d "$RAG_BASE_CKPT" && -f "$CROSSRAG_PRETRAIN_DB" && -d "$CROSSRAG_PRETRAIN_PAIRS" ]]; then
+    add "cross_rag" "METHOD=cross_rag REGIME=orig VENV_NAME=$ENV_CROSSRAG UKPV_CSV_DIR='${UKPV_CSV_DIR}_crossrag' DATA='$DATA' BASE_CKPT='$RAG_BASE_CKPT' CROSSRAG_PRETRAIN_DB='$CROSSRAG_PRETRAIN_DB' CROSSRAG_PRETRAIN_PAIRS='$CROSSRAG_PRETRAIN_PAIRS' bash scripts/slurm_rag_original.sh"
+else skip "cross_rag" "needs uv env:$ENV_CROSSRAG + RAG_BASE_CKPT + Cross-RAG pretrain data (HF nkh/TS-RAG-Data, staged by precache)"; fi
 
 # Tier 5 (own uv env; private UKPV_DIR per task avoids export races)
 if env_has "$ENV_TIMEVLM"; then
