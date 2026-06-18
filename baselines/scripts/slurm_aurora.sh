@@ -11,17 +11,16 @@
 #SBATCH --output=logs/slurm/%j_%x.out
 #SBATCH --error=logs/slurm/%j_%x.err
 
-# Tier-5 Aurora (P2) on the uk_pv track — TRAIN (fine-tune) + EVAL.
-# NOTE: Aurora's data pipeline (utils/pretrain_dataset.py::Aurora_Single_Dataset)
-# is **time-series + TEXT**, NOT images — it reads a per-series CSV (date+value)
-# plus a matching JSON weather-text list (BERT-tokenized). So uk *images* do not
-# apply to Aurora; it was blocked on the per-window TEXT, which tier5/uk_export.py
-# now generates (templated from the uk covariates) alongside the CSVs. The
-# authors' runner.py consumes that layout unchanged.
+# Tier-5 Aurora (decisionintelligence/Aurora, P2) — ZERO-SHOT on uk_pv.
+# Aurora is a multimodal TS foundation model with a zero-shot generate() API; the
+# old runner.py path was *training* (and a no-op — runner.py has no CLI). We use
+# the unimodal TS path on the released DecisionIntelligence/Aurora checkpoint:
+# feed each plant's power history, sample forecasts, average (run_ukpv.py mirrors
+# the upstream TFB wrapper). No training, no images/text — like the other Tier-3/5
+# zero-shot FMs. Dumps aurora_<site>_pred.npz → import_predictions.
 #
-#   sbatch --export=ALL,VENV_NAME=aurora,AURORA_CKPT=<dir>,\
-#          DATA=<dataset_all.parquet>,IMAGES_H5=<images_all.h5>,MODE=eval \
-#          scripts/slurm_aurora.sh                    # MODE=eval | finetune
+#   sbatch --export=ALL,VENV_NAME=aurora,AURORA_CKPT=<DecisionIntelligence/Aurora dir>,\
+#          DATA=<dataset_all.parquet> scripts/slurm_aurora.sh
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")/..}"
 [[ -f .env ]] && source .env
@@ -36,31 +35,32 @@ export PIP_CACHE_DIR="${PIP_CACHE_DIR:-${TEAM_SCRATCH}/pip_cache}"
 export UV_ENVS_DIR="${UV_ENVS_DIR:-${TEAM_SCRATCH}/uv_envs}"
 export HF_HOME="${HF_HOME:-${TEAM_SCRATCH}/hf_cache}"
 
-: "${VENV_NAME:?set VENV_NAME to the Aurora uv env (TIER5_INTEGRATION.md §1)}"
-: "${AURORA_CKPT:?set AURORA_CKPT to the Aurora checkpoint dir (utils/download_ckpt.py)}"
+: "${VENV_NAME:?set VENV_NAME to the Aurora uv env}"
+: "${AURORA_CKPT:?set AURORA_CKPT to the DecisionIntelligence/Aurora checkpoint dir}"
 [[ -d "$AURORA_CKPT" ]] || { echo "ERROR: AURORA_CKPT not a dir: $AURORA_CKPT"; exit 1; }
 DATA="${DATA:-${TEAM_SCRATCH}/data/dataset_all.parquet}"
-IMAGES_H5="${IMAGES_H5:-${TEAM_SCRATCH}/data/images_all.h5}"
-MODE="${MODE:-eval}"; PRED_LEN="${PRED_LEN:-12}"
-EXPORT="${EXPORT:-tier5/vendor/aurora/data_ukpv}"
+CTX="${CTX:-24}"; PRED_LEN="${PRED_LEN:-12}"
+UKPV_DIR="${UKPV_DIR:-${TEAM_SCRATCH}/data/ukpv_rag_aurora}"
+OUT="${OUT:-tier5/vendor/aurora/results_ukpv}"
 [[ -f "$DATA" ]] || { echo "ERROR: DATA parquet not found: $DATA"; exit 1; }
 
-# ---- 1. export uk_pv → Aurora layout (per-series CSV + weather-text JSON) ---
-# (images_all.h5 only used to share the tier6 window builder; Aurora ignores V)
-uv run python tier5/uk_export.py --model aurora \
-    --out "$EXPORT" --data "$DATA" --h5 "$IMAGES_H5" --pred_len "$PRED_LEN"
+# ---- 1. export uk_pv → per-plant test CSVs (date+OT), reuse the tier-4 bridge --
+uv run python tier4/vendor/export_ukpv.py --data "$DATA" --out "$UKPV_DIR"
 
 source "$UV_ENVS_DIR/$VENV_NAME/bin/activate"
-cd tier5/vendor/aurora
 
-if [[ "$MODE" == "finetune" ]]; then
-    echo ">>> Aurora fine-tune (uk_pv TS+text)"
-    python runner.py --mode pretrain --model_path "$AURORA_CKPT" \
-        --dataset "../../../$EXPORT" --prediction_length "$PRED_LEN"
-fi
-echo ">>> Aurora EVAL (uk_pv TS+text)"
-python runner.py --mode eval --model_path "$AURORA_CKPT" \
-    --dataset "../../../$EXPORT" --prediction_length "$PRED_LEN"
+# ---- 2. zero-shot forecast on each uk_pv test plant -------------------------
+echo ">>> Aurora ZERO-SHOT (uk_pv, ctx=$CTX pred=$PRED_LEN)"
+python tier5/vendor/aurora/run_ukpv.py \
+    --csv_dir "$UKPV_DIR" --ckpt_path "$AURORA_CKPT" \
+    --context_len "$CTX" --pred_len "$PRED_LEN" --out "$OUT"
 
-echo "✓ Aurora done. Dump predictions (runner eval output) → *_pred.npz, then"
-echo "  uv run python scripts/import_predictions.py --model aurora --tag s2_ukpv_mm ... (TIER5_INTEGRATION.md §4)."
+# ---- 3. contract-check + import → our NMAE/NRMSE/SS results JSON ------------
+shopt -s nullglob
+for npz in "$OUT"/aurora_*_pred.npz; do
+    uv run python tier4/vendor/contract_check.py --predictions "$npz" --horizon "$PRED_LEN" || true
+done
+uv run python scripts/import_predictions.py --model aurora --tag s2_ukpv \
+    --glob "$OUT/aurora_*_pred.npz" \
+    --reference results/smart_persistence_s2_ukpv.json
+echo "✓ Aurora done → results/aurora_s2_ukpv.json (make_tables / summarize_ukpv pick it up)."

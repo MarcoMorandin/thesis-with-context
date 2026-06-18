@@ -70,9 +70,9 @@ if [[ ! -f "$MAE_CKPT" ]]; then
 fi
 VISION_MODEL_PATH="${VISION_MODEL_PATH:-${WEIGHTS_DIR}/clip-vit-base-patch32}"
 CHRONOS_PATH="${CHRONOS_PATH:-${WEIGHTS_DIR}/chronos-bolt-base}"
-# Aurora: MODE=finetune builds AuroraForPrediction from the shipped AuroraConfig
-# dir and fine-tunes from scratch — model_path is that config dir (absolute).
-AURORA_CKPT="${AURORA_CKPT:-${PWD}/tier5/vendor/aurora/aurora}"
+# Aurora (decisionintelligence/Aurora) is ZERO-SHOT: AURORA_CKPT is the released
+# DecisionIntelligence/Aurora checkpoint cached by precache.
+AURORA_CKPT="${AURORA_CKPT:-${WEIGHTS_DIR}/aurora-tsfm}"
 RAG_BASE_CKPT="${RAG_BASE_CKPT:-${WEIGHTS_DIR}/chronos-bolt-base}"
 # ts_rag loads the released ARM mixer (Drive checkpoints/chronos-bolt/best.pth →
 # precache fetches it to arm.pth). cross_rag has NO released cross-attention mixer,
@@ -155,8 +155,8 @@ if env_has "$ENV_UNICAST" && [[ -d "$VISION_MODEL_PATH" && -d "$CHRONOS_PATH" &&
     add "unicast" "VENV_NAME=$ENV_UNICAST VISION_MODEL=CLIP VISION_MODEL_PATH='$VISION_MODEL_PATH' CHRONOS_PATH='$CHRONOS_PATH' DATA='$DATA' IMAGES_H5='$IMAGES_H5' bash scripts/slurm_unicast.sh"
 else skip "unicast" "needs uv env:$ENV_UNICAST + VISION_MODEL_PATH + CHRONOS_PATH + IMAGES_H5"; fi
 if env_has "$ENV_AURORA" && [[ -d "$AURORA_CKPT" ]]; then
-    add "aurora" "VENV_NAME=$ENV_AURORA AURORA_CKPT='$AURORA_CKPT' DATA='$DATA' IMAGES_H5='$IMAGES_H5' MODE=finetune bash scripts/slurm_aurora.sh"
-else skip "aurora" "needs uv env:$ENV_AURORA + AURORA_CKPT dir"; fi
+    add "aurora" "VENV_NAME=$ENV_AURORA AURORA_CKPT='$AURORA_CKPT' DATA='$DATA' bash scripts/slurm_aurora.sh"
+else skip "aurora" "needs uv env:$ENV_AURORA + AURORA_CKPT dir (DecisionIntelligence/Aurora)"; fi
 
 # Tier 6 (own uv env)
 if env_has "$ENV_CROSSVIVIT" && [[ -f "$IMAGES_H5" ]]; then

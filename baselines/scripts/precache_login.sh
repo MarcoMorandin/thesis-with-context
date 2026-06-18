@@ -136,6 +136,7 @@ PY
     hf_pull "openai/clip-vit-base-patch32" "${WEIGHTS_DIR}/clip-vit-base-patch32"   # Time-VLM + UniCast vision
     hf_pull "Lefei/VisionTSpp"             "${WEIGHTS_DIR}/visiontspp"              # VisionTS++ MAE ckpt
     hf_pull "amazon/chronos-bolt-base"     "${WEIGHTS_DIR}/chronos-bolt-base"       # UniCast backbone + RAG BASE_CKPT
+    hf_pull "DecisionIntelligence/Aurora"  "${WEIGHTS_DIR}/aurora-tsfm"             # Aurora zero-shot TS FM ckpt
 
     # Resolve the VisionTS++ checkpoint to a stable path run_all_baselines.sh
     # globs for (the repo ships the MAE weights under an arbitrary file name).
@@ -177,19 +178,14 @@ if [[ "$STAGE" == "all" || "$STAGE" == "envs" ]]; then
     [[ -f tier4/vendor/ts_rag/requirements.txt    ]] && make_env tsrag   pip install -r "$BASELINES_DIR/tier4/vendor/ts_rag/requirements.txt"
     [[ -f tier4/vendor/cross_rag/requirements.txt ]] && make_env crossrag pip install -r "$BASELINES_DIR/tier4/vendor/cross_rag/requirements.txt"
 
-    # Aurora "checkpoint": the orchestrator runs MODE=finetune, i.e. runner.py
-    # builds AuroraForPrediction from AuroraConfig (config.json) and fine-tunes
-    # from scratch on uk_pv, then evals — so model_path only needs the config dir
-    # the repo already ships (aurora/config.json + vit_config + bert_config, all
-    # random-init/local, no external ViT/BERT weights). The vendored
-    # utils/download_ckpt.py is NOT used: it hardcodes a fake HF token, the
-    # hf-mirror endpoint and /home/Aurora, and pulls ViT/BERT weights the code
-    # never loads via from_pretrained.
-    AURORA_CFG_DIR="$BASELINES_DIR/tier5/vendor/aurora/aurora"
-    if [[ -f "$AURORA_CFG_DIR/config.json" ]]; then
-        info "Aurora config dir OK → $AURORA_CFG_DIR (use as AURORA_CKPT, MODE=finetune)"
+    # Aurora is ZERO-SHOT (decisionintelligence/Aurora): run_ukpv.py loads the
+    # released DecisionIntelligence/Aurora checkpoint (cached in the weights stage
+    # → $WEIGHTS_DIR/aurora-tsfm) and calls model.generate(). No training, no
+    # config-dir / download_ckpt.py (that vendored downloader is broken & unused).
+    if [[ -d "${WEIGHTS_DIR}/aurora-tsfm" ]]; then
+        info "Aurora ckpt OK → ${WEIGHTS_DIR}/aurora-tsfm (use as AURORA_CKPT, zero-shot)"
     else
-        warn "Aurora config.json missing under $AURORA_CFG_DIR — aurora will skip"
+        warn "Aurora ckpt missing (${WEIGHTS_DIR}/aurora-tsfm) — run STAGE=weights; aurora will skip"
     fi
 fi
 
@@ -219,7 +215,7 @@ echo "   UKPV_CSV_DIR    = $UKPV_CSV_DIR"
 echo "   MAE_CKPT        = ${WEIGHTS_DIR}/visiontspp/visiontspp.ckpt  (symlink resolved above)"
 echo "   VISION_MODEL_PATH = ${WEIGHTS_DIR}/clip-vit-base-patch32"
 echo "   CHRONOS_PATH / RAG_BASE_CKPT = ${WEIGHTS_DIR}/chronos-bolt-base"
-echo "   AURORA_CKPT     = $BASELINES_DIR/tier5/vendor/aurora/aurora  (config dir, MODE=finetune)"
+echo "   AURORA_CKPT     = ${WEIGHTS_DIR}/aurora-tsfm  (DecisionIntelligence/Aurora, zero-shot)"
 echo "   QWEN_PATH       = ${WEIGHTS_DIR}/qwen3-vl-embedding-2b  (Solar-VLM vision)"
 echo "   RAG_MIXER_CKPT  = ${CKPT_DIR}/arm.pth  (best.pth via gdown → enables ts_rag + cross_rag)"
 echo ""
