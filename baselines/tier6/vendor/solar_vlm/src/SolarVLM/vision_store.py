@@ -86,8 +86,17 @@ class VisionFeatureStore:
         S = num_stations
         D = self.feat_dim if self.feat_dim is not None else 2048
 
+        # group-scoped keys "<group>__<YYYYMMDDHHMM>" (UKPV multi-group). The
+        # prefix scopes disjoint plant groups that share wall-clock timestamps;
+        # it is preserved across the multi-frame back-walk. Plain timestamp keys
+        # (SKIPPD/PV, single station set) still parse unchanged.
+        prefix, ts_part = ('', ts_key)
+        if '__' in ts_key:
+            head, ts_part = ts_key.split('__', 1)
+            prefix = head + '__'
+
         try:
-            target_dt = datetime.strptime(ts_key, fmt)
+            target_dt = datetime.strptime(ts_part, fmt)
         except ValueError:
             return torch.zeros(S, n_frames, D)
 
@@ -96,7 +105,7 @@ class VisionFeatureStore:
 
         for i in range(n_frames - 1, -1, -1):
             frame_dt = target_dt - timedelta(minutes=i * freq_minutes)
-            frame_key = frame_dt.strftime(fmt)
+            frame_key = prefix + frame_dt.strftime(fmt)
 
             feat = self._find_feature_with_tolerance(frame_key, tolerance_minutes)
 
@@ -132,16 +141,20 @@ class VisionFeatureStore:
             except Exception:
                 pass
 
-        # 2) 容差搜索
+        # 2) 容差搜索 (preserve any "<group>__" prefix across the search)
+        prefix, ts_part = ('', ts_key)
+        if '__' in ts_key:
+            head, ts_part = ts_key.split('__', 1)
+            prefix = head + '__'
         try:
-            target_dt = datetime.strptime(ts_key, fmt)
+            target_dt = datetime.strptime(ts_part, fmt)
         except ValueError:
             return None
 
         for delta in range(1, tolerance_minutes + 1):
             for sign in (-1, 1):
                 cand_dt = target_dt + timedelta(minutes=sign * delta)
-                cand_key = cand_dt.strftime(fmt)
+                cand_key = prefix + cand_dt.strftime(fmt)
                 if self.exists(cand_key):
                     try:
                         feat = self.get(cand_key)

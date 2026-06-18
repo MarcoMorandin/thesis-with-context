@@ -54,6 +54,48 @@ def _split_plants(flag: str, dataset: str = "uk_pv") -> list[str]:
     return [str(s) for s in load_splits()[dataset][part]]
 
 
+def load_split_frame_df(data_path: str, flag: str, dataset: str,
+                        cov_cols: list[str]) -> pd.DataFrame:
+    """Frame-bearing rows of one split's plants (shared by loader + precompute)."""
+    plants = set(_split_plants(flag, dataset))
+    cols = sorted({
+        cfg.DATASET_COL, cfg.SITE_COL, cfg.TIME_COL, cfg.TARGET_COL,
+        cfg.FRAME_INDEX_COL, "latitude", "longitude", *cov_cols,
+    })
+    df = pd.read_parquet(data_path, columns=cols)
+    df = df[df[cfg.DATASET_COL] == dataset].copy()
+    df[cfg.SITE_COL] = df[cfg.SITE_COL].astype(str)
+    df = df[df[cfg.SITE_COL].isin(plants)]
+    df = df[df[cfg.FRAME_INDEX_COL].notna() & (df[cfg.FRAME_INDEX_COL] >= 0)]
+    df[cfg.TIME_COL] = pd.to_datetime(df[cfg.TIME_COL], utc=True, errors="coerce")
+    df = df.dropna(subset=[cfg.TIME_COL])
+    return df
+
+
+def iter_usable_groups(df: pd.DataFrame, num_stations: int, min_len: int):
+    """Yield ``(group, common_index)`` for each usable station group.
+
+    Identical grouping/alignment for the loader and the vision precompute so the
+    enumerate() position == the ``<group_idx>`` baked into every ts_key. A group
+    is usable when its plants share at least ``min_len`` timestamps.
+    """
+    coords = {s: (float(g["latitude"].iloc[0]), float(g["longitude"].iloc[0]))
+              for s, g in df.groupby(cfg.SITE_COL)}
+    out = []
+    for group in build_station_groups(coords, num_stations):
+        members = list(dict.fromkeys(group))
+        common = None
+        for site in members:
+            idx = (df[df[cfg.SITE_COL] == site][cfg.TIME_COL]
+                   .drop_duplicates().sort_values())
+            ix = pd.DatetimeIndex(idx)
+            common = ix if common is None else common.intersection(ix)
+        if common is None or len(common) < min_len:
+            continue
+        out.append((group, common.sort_values()))
+    return out
+
+
 class Dataset_UKPV(Dataset):
     """Grouped multi-station windows over our uk_pv plants (GNN-faithful)."""
 
@@ -98,81 +140,48 @@ class Dataset_UKPV(Dataset):
 
     # ------------------------------------------------------------------
     def __read_data__(self):
-        plants = set(_split_plants(self.flag, self.dataset))
-        cols = sorted({
-            cfg.DATASET_COL, cfg.SITE_COL, cfg.TIME_COL, cfg.TARGET_COL,
-            cfg.FRAME_INDEX_COL, "latitude", "longitude", *self.cov_cols,
-        })
-        df = pd.read_parquet(self.data_path, columns=cols)
-        df = df[df[cfg.DATASET_COL] == self.dataset].copy()
-        df[cfg.SITE_COL] = df[cfg.SITE_COL].astype(str)
-        df = df[df[cfg.SITE_COL].isin(plants)]
-        # only frame-bearing rows (vision needs a satellite frame)
-        df = df[df[cfg.FRAME_INDEX_COL].notna() & (df[cfg.FRAME_INDEX_COL] >= 0)]
-        df[cfg.TIME_COL] = pd.to_datetime(df[cfg.TIME_COL], utc=True, errors="coerce")
-        df = df.dropna(subset=[cfg.TIME_COL])
+        df = load_split_frame_df(self.data_path, self.flag, self.dataset,
+                                 self.cov_cols)
         if df.empty:
             raise ValueError(f"[UKPV] no frame-bearing rows for split={self.flag}")
+        usable = iter_usable_groups(df, self.num_stations,
+                                    self.seq_len + self.pred_len)
+        print(f"[UKPV] flag={self.flag}  usable_groups={len(usable)}  "
+              f"S={self.num_stations}")
 
-        coords = {s: (float(g["latitude"].iloc[0]), float(g["longitude"].iloc[0]))
-                  for s, g in df.groupby(cfg.SITE_COL)}
-        groups = build_station_groups(coords, self.num_stations)
-        print(f"[UKPV] flag={self.flag}  plants={len(coords)}  "
-              f"groups={len(groups)}  S={self.num_stations}")
-
-        # per-group aligned tensors + window index
+        # per-group aligned tensors + window index (gi == position in `usable`)
         self._gx, self._gy, self._gstamp, self._gts = [], [], [], []
         self._index = []   # (group_idx, local_start)
-        for gi, group in enumerate(groups):
-            built = self._build_group(df, group)
-            if built is None:
-                continue
-            x, y, stamp, tskeys = built
+        for gi, (group, common) in enumerate(usable):
+            x, y, stamp, tskeys = self._build_group(df, group, common, gi)
             self._gx.append(x); self._gy.append(y)
             self._gstamp.append(stamp); self._gts.append(tskeys)
-            n = len(x) - self.seq_len - self.pred_len + 1
-            for s in range(max(0, n)):
-                self._index.append((len(self._gx) - 1, s))
+            for s in range(max(0, len(x) - self.seq_len - self.pred_len + 1)):
+                self._index.append((gi, s))
         if not self._index:
             raise ValueError(f"[UKPV] 0 windows for split={self.flag} "
                              f"(seq_len+pred_len={self.seq_len+self.pred_len})")
-        print(f"[UKPV] flag={self.flag}  usable_groups={len(self._gx)}  "
-              f"windows={len(self._index)}")
+        print(f"[UKPV] flag={self.flag}  windows={len(self._index)}")
 
-    def _build_group(self, df: pd.DataFrame, group: list[str]):
-        """Align a group's plants on their common time index → [T,S,F]."""
-        members = list(dict.fromkeys(group))   # unique, order preserved
-        per_plant = {}
-        for site in members:
-            g = (df[df[cfg.SITE_COL] == site]
-                 .drop_duplicates(cfg.TIME_COL)
-                 .set_index(cfg.TIME_COL).sort_index())
-            per_plant[site] = g
-        common = None
-        for g in per_plant.values():
-            common = g.index if common is None else common.intersection(g.index)
-        if common is None or len(common) < self.seq_len + self.pred_len:
-            return None
-        common = common.sort_values()
-
-        S = self.num_stations
-        T = len(common)
-        F = self.feature_dim
+    def _build_group(self, df, group, common, gi):
+        """Align a group's plants on the shared common index → [T,S,F]."""
+        members = list(dict.fromkeys(group))
+        per_plant = {site: (df[df[cfg.SITE_COL] == site]
+                            .drop_duplicates(cfg.TIME_COL)
+                            .set_index(cfg.TIME_COL).sort_index())
+                     for site in members}
+        S, T, F = self.num_stations, len(common), self.feature_dim
         x = np.zeros((T, S, F), dtype=np.float32)
         y = np.zeros((T, S, 1), dtype=np.float32)
         for si, site in enumerate(group):           # group may repeat (padding)
             g = per_plant[site].reindex(common)
-            cov = g[self.cov_cols].to_numpy(np.float64)
-            cov = cov / self.cov_scale[None, :]      # fixed physical scaling
+            cov = g[self.cov_cols].to_numpy(np.float64) / self.cov_scale[None, :]
             tgt = g[[cfg.TARGET_COL]].to_numpy(np.float64)
-            feats = np.concatenate([cov, tgt], axis=1)
-            feats = np.nan_to_num(feats, nan=0.0)
+            feats = np.nan_to_num(np.concatenate([cov, tgt], axis=1), nan=0.0)
             x[:, si, :] = feats.astype(np.float32)
             y[:, si, 0] = np.nan_to_num(tgt[:, 0], nan=0.0).astype(np.float32)
 
         stamp = self._time_features(common)
-        # group-scoped ts_keys (vision store strips the "<gi>__" prefix)
-        gi = len(self._gx)
         tskeys = np.array([f"{gi}__{t.strftime('%Y%m%d%H%M')}" for t in common])
         return x, y, stamp, tskeys
 
