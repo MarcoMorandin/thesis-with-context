@@ -4,10 +4,12 @@ import inspect
 
 from data_provider.data_loader_skippd     import Dataset_SKIPPD
 from data_provider.data_loader_wollongong import Dataset_WOLLONGONG
+from data_provider.data_loader_ukpv       import Dataset_UKPV
 
 data_dict = {
     'SKIPPD':     Dataset_SKIPPD,
     'WOLLONGONG': Dataset_WOLLONGONG,
+    'UKPV':       Dataset_UKPV,
 }
 
 def _make_dataset(Data, args, flag):
@@ -32,6 +34,8 @@ def _make_dataset(Data, args, flag):
         'end_time': args.end_time,
         'use_era5': getattr(args, 'use_era5', True),
         'station':  getattr(args, 'wollongong_station', 'loc1'),
+        'num_stations': getattr(args, 'num_stations', 8),
+        'dataset':  getattr(args, 'ukpv_dataset', 'uk_pv'),
     }
 
     sig = inspect.signature(Data.__init__)
