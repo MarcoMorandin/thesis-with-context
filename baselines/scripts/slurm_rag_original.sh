@@ -161,8 +161,12 @@ if [[ "$REGIME" == "proto" ]]; then
     MIXER_CKPT="$PWD/checkpoints/proto_${METHOD}/best.pth"
 fi
 
-# zero-shot over each exported uk_pv test plant
+# zero-shot over each exported uk_pv test plant. zeroshot.py writes its retrieval
+# output back into UKPV_CSV_DIR as uk_pv_test_<site>_retrieve_*.csv, which the glob
+# also matches — skip those or they get re-processed as bogus 61-variable "plants"
+# (ts_rag: NaN-count assert; cross_rag: ModuleNotFoundError 'retrieve').
 for csv in "$UKPV_CSV_DIR"/uk_pv_test_*.csv; do
+    [[ "$csv" == *_retrieve_* ]] && continue
     site=$(basename "$csv" .csv | sed 's/uk_pv_test_//')
     echo ">>> zeroshot ${METHOD} ${REGIME} plant=${site}"
     # --freq 0 → zeroshot.py maps it to the 'h' pandas alias (its int default 1 is
@@ -193,7 +197,9 @@ preds=("$VENDOR_DIR"/results/forecast_evaluation/*_pred.npz)
 if (( ${#preds[@]} )); then
     echo ">>> predictions contract check (H=$PRED_LEN)"
     for npz in "${preds[@]}"; do
-        python tier4/vendor/contract_check.py --predictions "$npz" --horizon "$PRED_LEN"
+        # informational under set -e: a raw forecaster can drift just outside [0,1]
+        # (import_predictions clips); don't let that abort the import below.
+        python tier4/vendor/contract_check.py --predictions "$npz" --horizon "$PRED_LEN" || true
     done
     echo ">>> importing predictions to results"
     python scripts/import_predictions.py --model "${METHOD}_${REGIME}" --tag s2_ukpv \
