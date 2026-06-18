@@ -84,30 +84,32 @@ if [[ "$STAGE" == "all" || "$STAGE" == "weights" ]]; then
     info ">>> Tier-3/4 + RAG via login_node_prep.sh"
     DATA="$DATA" UKPV_CSV_DIR="$UKPV_CSV_DIR" bash scripts/login_node_prep.sh || warn "login_node_prep had warnings"
 
-    # --- TS-RAG released mixer checkpoint (Google Drive) -------------------
-    # Public Drive folder {checkpoints, datasets, retrieval_database}; for our
-    # uk_pv zero-shot we only need the pretrained mixer under checkpoints/ (we
-    # retrieve over our own exported uk_pv CSVs, so the authors' datasets/ and
-    # retrieval_database/ are not used). Override TSRAG_DRIVE_ID if the link moves.
-    TSRAG_DRIVE_ID="${TSRAG_DRIVE_ID:-12wesXfVwFhdrUY5Kv8yuAWWqN9M77irw}"
-    RAG_RELEASE_DIR="${CKPT_DIR}/ts_rag_release"
-    if [[ ! -e "${CKPT_DIR}/arm.pth" ]]; then
-        info "fetching TS-RAG release (Drive ${TSRAG_DRIVE_ID}) → $RAG_RELEASE_DIR"
-        mkdir -p "$RAG_RELEASE_DIR"
-        uv run --with gdown python -m gdown --folder \
-            "https://drive.google.com/drive/folders/${TSRAG_DRIVE_ID}" \
-            -O "$RAG_RELEASE_DIR" --remaining-ok \
-            || warn "gdown TS-RAG folder failed — fetch checkpoints/ by hand into $RAG_RELEASE_DIR"
-        mixer="$(find "$RAG_RELEASE_DIR" -path '*checkpoints*' \
-                   \( -name '*.pth' -o -name '*.pt' -o -name '*.ckpt' \) 2>/dev/null | sort | head -1)"
-        if [[ -n "$mixer" ]]; then
-            ln -sf "$mixer" "${CKPT_DIR}/arm.pth"
-            info "TS-RAG mixer → ${CKPT_DIR}/arm.pth ($mixer)"
+    # --- TS-RAG / Cross-RAG released mixer checkpoint (Google Drive) -------
+    # The release lives in a PRIVATE Drive folder (checkpoints/ base + chronos-bolt,
+    # plus datasets/ + retrieval_database/ we don't use — we retrieve over our own
+    # uk_pv CSVs). Both RAG repos run zeroshot.py --model ChronosBoltRetrieve with
+    #   --pretrained_model_path <chronos-bolt-base dir>   (already cached from HF;
+    #        the Drive base/config.json is _name_or_path autogluon/chronos-bolt-base)
+    #   --checkpoint_model_path <best.pth>                (the trained retrieval mixer)
+    # so the single best.pth serves BOTH ts_rag and cross_rag. Fetch it with the
+    # authenticated gws CLI (gdown cannot read the private folder). The Drive file
+    # id is resolvable via: gws drive files list --params '{"q":"<folder> in parents"}'.
+    RAG_MIXER_DRIVE_ID="${RAG_MIXER_DRIVE_ID:-1O17Dl_x_YPSOAORsyW7PADREMHaze2w5}"  # checkpoints/chronos-bolt/best.pth
+    if [[ -s "${CKPT_DIR}/arm.pth" ]]; then
+        info "RAG mixer already present at ${CKPT_DIR}/arm.pth"
+    elif command -v gws >/dev/null 2>&1; then
+        info "fetching RAG mixer (Drive ${RAG_MIXER_DRIVE_ID}) → ${CKPT_DIR}/arm.pth"
+        if gws drive files get \
+                --params "{\"fileId\":\"${RAG_MIXER_DRIVE_ID}\",\"alt\":\"media\"}" \
+                > "${CKPT_DIR}/arm.pth" 2>"${CKPT_DIR}/arm.pth.log" \
+           && [[ "$(stat -c%s "${CKPT_DIR}/arm.pth" 2>/dev/null || stat -f%z "${CKPT_DIR}/arm.pth")" -gt 1000000 ]]; then
+            info "RAG mixer downloaded ($(du -h "${CKPT_DIR}/arm.pth" | cut -f1)) → enables ts_rag + cross_rag"
         else
-            warn "no mixer .pth under $RAG_RELEASE_DIR/checkpoints — set RAG_MIXER_CKPT by hand"
+            rm -f "${CKPT_DIR}/arm.pth"
+            warn "gws download of RAG mixer failed (see ${CKPT_DIR}/arm.pth.log) — fetch best.pth by hand"
         fi
     else
-        info "TS-RAG mixer already present at ${CKPT_DIR}/arm.pth"
+        warn "gws CLI not found — cannot fetch the private RAG mixer; install gws or stage ${CKPT_DIR}/arm.pth by hand"
     fi
 
     # --- 3/6: Tier-5/6 backbone weights ------------------------------------
@@ -200,11 +202,7 @@ echo "   VISION_MODEL_PATH = ${WEIGHTS_DIR}/clip-vit-base-patch32"
 echo "   CHRONOS_PATH / RAG_BASE_CKPT = ${WEIGHTS_DIR}/chronos-bolt-base"
 echo "   AURORA_CKPT     = $BASELINES_DIR/tier5/vendor/aurora/aurora  (config dir, MODE=finetune)"
 echo "   QWEN_PATH       = ${WEIGHTS_DIR}/qwen3-vl-embedding-2b  (Solar-VLM vision)"
-echo "   RAG_MIXER_CKPT  = ${CKPT_DIR}/arm.pth  (TS-RAG mixer, auto-fetched from Drive → enables ts_rag)"
-echo ""
-echo " NOTE: cross_rag needs its OWN mixer (seunghan96/cross-rag); the Drive"
-echo "   release above is TS-RAG only. Set RAG_MIXER_CKPT per-method, or run"
-echo "   cross_rag separately once its checkpoint is staged."
+echo "   RAG_MIXER_CKPT  = ${CKPT_DIR}/arm.pth  (best.pth via gws → enables ts_rag + cross_rag)"
 echo ""
 echo " Then on a GPU node:  sbatch scripts/run_all_baselines.sh"
 echo "=============================================================="

@@ -257,3 +257,30 @@ Rules:
 - If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
 - Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
 - After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+
+## Available Tools
+
+You have access to the GWS CLI for Google Workspace operations.
+
+### Sheets
+- Read: `gws sheets read --id <id> --range <range>`
+- Append: `gws sheets append --id <id> --range <range> --values "v1,v2,v3"`
+- Update: `gws sheets update --id <id> --range <range> --values "v1,v2,v3"`
+
+### Gmail
+- List: `gws gmail list --query <query> --limit <n>`
+- Read: `gws gmail read --id <message_id>`
+- Send: `gws gmail send --to <email> --subject <subject> --body <body>`
+
+### Docs
+- Create: `gws docs create --title <title> --content <text>`
+- Read: `gws docs read --id <doc_id>`
+- Append: `gws docs append --id <doc_id> --content <text>`
+
+### Drive
+- List: `gws drive list --folder <folder_id> --limit <n>`
+- Upload: `gws drive upload --file <path> --folder <folder_id>`
+- Download: `gws drive download --id <file_id> --output <path>`
+
+All commands output JSON unless --format plain is specified.
+Sheet IDs and Doc IDs come from the URL of the respective file.
