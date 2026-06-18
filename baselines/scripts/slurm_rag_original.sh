@@ -45,7 +45,12 @@ SEEDS="${SEEDS:-42 43 44}"
 
 case "$METHOD" in
     ts_rag)    VENDOR_DIR="tier4/vendor/ts_rag/TS-RAG";    TOP_K="${TOP_K:-10}" ;;
-    cross_rag) VENDOR_DIR="tier4/vendor/cross_rag/cross-rag"; TOP_K="${TOP_K:-15}" ;;
+    cross_rag) VENDOR_DIR="tier4/vendor/cross_rag/cross-rag"; TOP_K="${TOP_K:-15}"
+               # Cross-RAG names its retrieval DB <...>_${RETRIEVE_SPACE}_space.pkl;
+               # retrieve_X.py builds the X-space (do_retrieve_Z is disabled), but
+               # zeroshot.py reads RETRIEVE_SPACE (default "") → looks for __space.pkl.
+               # Pin it to X so the load matches the built _X_space.pkl.
+               export RETRIEVE_SPACE="${RETRIEVE_SPACE:-X}" ;;
     *) echo "unknown METHOD: $METHOD (ts_rag|cross_rag)"; exit 1 ;;
 esac
 case "$REGIME" in
