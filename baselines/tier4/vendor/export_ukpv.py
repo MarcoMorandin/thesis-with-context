@@ -88,8 +88,12 @@ def main() -> None:
     # train-plants-only, disjoint from the test CSVs.
     stacked = pd.concat([train[c] for c in train.columns], ignore_index=True)
     synth = pd.date_range("2019-01-01", periods=len(stacked), freq="30min", tz="UTC")
-    pd.DataFrame({"date": synth, "OT": stacked.to_numpy()}).to_csv(
-        out / "uk_pv_train_stacked.csv", index=False)
+    stacked_df = pd.DataFrame({"date": synth, "OT": stacked.to_numpy()})
+    stacked_df.to_csv(out / "uk_pv_train_stacked.csv", index=False)
+    # The vendored TS-RAG / Cross-RAG retrieval builders read the knowledge base
+    # as `<metadata_database_name>.csv` (= uk_pv.csv): one `date` col + the `OT`
+    # variable retrieved against the test query's `OT`. Same stacked train series.
+    stacked_df.to_csv(out / "uk_pv.csv", index=False)
 
     # capacities (W) for de-normalising predictions back to physical scale
     caps = (df.drop_duplicates(config.SITE_COL)

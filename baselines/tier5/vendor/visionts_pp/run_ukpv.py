@@ -50,7 +50,12 @@ def main() -> None:
     args = ap.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = VisionTS(arch=args.arch, ckpt_path=args.ckpt_path, load_ckpt=True).to(device)
+    # The released Lefei/VisionTSpp ckpt is a *quantile* VisionTS++ (decoder_pred
+    # + 8 decoder_pred_quantile_list heads), so build the model with quantile=True
+    # (quantile_head_num defaults to 9 = 1 mean + 8 quantiles) or the extra keys
+    # fail the strict state_dict load. Inference takes the mean/point head only.
+    model = VisionTS(arch=args.arch, ckpt_path=args.ckpt_path, load_ckpt=True,
+                     quantile=True).to(device)
     model.update_config(context_len=args.context_len, pred_len=args.pred_len,
                         periodicity=args.periodicity)
     model.eval()
@@ -67,6 +72,8 @@ def main() -> None:
             for i in range(0, len(x), args.batch_size):
                 xb = torch.from_numpy(x[i : i + args.batch_size]).unsqueeze(-1).to(device)
                 out = model(xb)                       # [b, pred_len, 1]
+                if isinstance(out, (list, tuple)):    # quantile mode → [mean, quantiles]
+                    out = out[0]
                 preds.append(out.squeeze(-1).cpu().numpy())
         pred = np.clip(np.concatenate(preds), 0.0, 1.0).astype(np.float32)
         np.savez(os.path.join(args.out, f"visionts_pp_{site}_pred.npz"),

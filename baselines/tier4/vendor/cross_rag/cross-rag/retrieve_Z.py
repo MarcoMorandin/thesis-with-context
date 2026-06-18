@@ -13,7 +13,8 @@ from chronos import ChronosPipeline
 from utils.tools import get_borders
 
 frequency_dict = {'ETTh1': 'hour', 'ETTh2': 'hour', 'ETTm1': 'minute', 'ETTm2': 'minute',
-                    'electricity': 'hour', 'weather': '10minutes', 'traffic': 'hour', 'exchange_rate': 'hour', 'illness': 'hour'}
+                    'electricity': 'hour', 'weather': '10minutes', 'traffic': 'hour', 'exchange_rate': 'hour', 'illness': 'hour',
+                    'uk_pv': 'half_hourly'}
 subdir_name_dict = {'ETTh1': 'ETT-small', 'ETTh2': 'ETT-small', 'ETTm1': 'ETT-small', 'ETTm2': 'ETT-small', 
                     'electricity': 'electricity', 'weather': 'weather', 'traffic': 'traffic'}
 
