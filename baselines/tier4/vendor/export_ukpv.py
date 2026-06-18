@@ -107,6 +107,7 @@ def main() -> None:
         "n_test_plants": len(splits["test"]),
         "train_csv": "uk_pv_train.csv",
         "train_stacked_csv": "uk_pv_train_stacked.csv",
+        "rag_knowledge_base_csv": "uk_pv.csv",
         "test_csvs": test_paths,
         "rows_train": int(len(train)),
         "rows_train_stacked": int(len(stacked)),
@@ -114,7 +115,8 @@ def main() -> None:
         "target": "norm_power (capacity-normalised)",
     }
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2))
-    print(f"wrote {1 + len(test_paths) + 2} files to {out}")
+    assert (out / "uk_pv.csv").exists(), "uk_pv.csv (RAG knowledge base) not written"
+    print(f"wrote {1 + len(test_paths) + 3} files to {out} (incl. uk_pv.csv)")
     print(json.dumps(manifest, indent=2))
 
 
