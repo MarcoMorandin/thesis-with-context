@@ -169,7 +169,10 @@ if [[ "$STAGE" == "all" || "$STAGE" == "envs" ]]; then
     # but its modeling code uses the pre-5.0 tied-weights API (_tied_weights_keys);
     # transformers 5.x's from_pretrained calls all_tied_weights_keys and crashes,
     # so cap it <5. Plus the deps its generate()/model actually import.
-    make_env aurora  pip install torch torchvision 'transformers>=4.50,<5' \
+    # torch 2.4.1 is the cu121 build (CUDA 12.1) — Leonardo's driver is 12.2, so
+    # the default latest torch (cu124, needs driver 12.4+) silently falls back to
+    # CPU. Pin cu121 so Aurora's generate() runs on GPU. (Aurora needs torch>=2.4.)
+    make_env aurora  pip install torch==2.4.1 torchvision==0.19.1 'transformers>=4.50,<5' \
                                  huggingface_hub einops numpy pandas scikit-learn tqdm matplotlib
     make_env crossvivit pip install -r "$BASELINES_DIR/tier6/vendor/crossvivit/requirements.txt"
     make_env sunset    pip install tensorflow h5py pyarrow pandas numpy
