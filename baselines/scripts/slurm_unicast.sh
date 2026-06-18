@@ -54,7 +54,7 @@ RES="${RES:-tier5/vendor/unicast/results_ukpv}"
 [[ -f "$DATA" && -f "$IMAGES_H5" ]] || { echo "ERROR: DATA/IMAGES_H5 not found"; exit 1; }
 
 # ---- 1. export uk_pv multimodal → UniCast layout (reuses tier6 bridge) ------
-uv run --with h5py --with pillow python tier5/uk_export.py --model unicast \
+uv run python tier5/uk_export.py --model unicast \
     --out "$EXPORT" --data "$DATA" --h5 "$IMAGES_H5" --pred_len "$PRED_LEN"
 DATASET_TEXT="$(cat "$EXPORT/dataset_text.txt")"
 

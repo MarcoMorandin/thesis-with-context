@@ -47,7 +47,7 @@ EXPORT="${EXPORT:-tier5/vendor/aurora/data_ukpv}"
 
 # ---- 1. export uk_pv → Aurora layout (per-series CSV + weather-text JSON) ---
 # (images_all.h5 only used to share the tier6 window builder; Aurora ignores V)
-uv run --with h5py --with pillow python tier5/uk_export.py --model aurora \
+uv run python tier5/uk_export.py --model aurora \
     --out "$EXPORT" --data "$DATA" --h5 "$IMAGES_H5" --pred_len "$PRED_LEN"
 
 source "$UV_ENVS_DIR/$VENV_NAME/bin/activate"
