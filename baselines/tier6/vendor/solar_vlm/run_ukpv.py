@@ -59,6 +59,7 @@ def build_args() -> argparse.Namespace:
 
     # Fill the full arg surface the unchanged Experiment/model expect.
     defaults = dict(
+        is_training=1,   # exp_basic.py branches on args.is_training
         task_name="long_term_forecast", model="SolarVLM", model_id="ukpv",
         features="MS", target="power", freq="t", embed="timeF",
         enc_in=F_DIM, dec_in=F_DIM, c_out=a.num_stations,

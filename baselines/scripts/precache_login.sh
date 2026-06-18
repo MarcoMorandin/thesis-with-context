@@ -165,10 +165,12 @@ if [[ "$STAGE" == "all" || "$STAGE" == "envs" ]]; then
     # UniCast ships its deps under requirements/ (chronos backbone variant), not a
     # top-level requirements.txt — install that one so the `unicast` env is built.
     make_env unicast pip install -r "$BASELINES_DIR/tier5/vendor/unicast/requirements/chronos_requirements.txt"
-    # Aurora has no requirements file; it imports ViT/BERT/chronos-style backbones.
-    # Pin the minimal set its runner/dataset/connector actually import.
-    make_env aurora  pip install torch torchvision transformers huggingface_hub \
-                                 einops numpy pandas scikit-learn tqdm matplotlib
+    # Aurora (decisionintelligence/Aurora) zero-shot: it needs transformers>=4.50
+    # but its modeling code uses the pre-5.0 tied-weights API (_tied_weights_keys);
+    # transformers 5.x's from_pretrained calls all_tied_weights_keys and crashes,
+    # so cap it <5. Plus the deps its generate()/model actually import.
+    make_env aurora  pip install torch torchvision 'transformers>=4.50,<5' \
+                                 huggingface_hub einops numpy pandas scikit-learn tqdm matplotlib
     make_env crossvivit pip install -r "$BASELINES_DIR/tier6/vendor/crossvivit/requirements.txt"
     make_env sunset    pip install tensorflow h5py pyarrow pandas numpy
     # Solar-VLM (in-tree, Tier-6): its own requirements + h5py/pyarrow for the
