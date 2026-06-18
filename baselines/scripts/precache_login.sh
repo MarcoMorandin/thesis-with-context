@@ -152,7 +152,7 @@ if [[ "$STAGE" == "all" || "$STAGE" == "envs" ]]; then
     make_env sunset    pip install tensorflow h5py pyarrow pandas numpy
     # Solar-VLM (in-tree, Tier-6): its own requirements + h5py/pyarrow for the
     # uk_pv loader and the Qwen3-VL vision precompute.
-    make_env solar_vlm pip install -r "$BASELINES_DIR/tier6/vendor/solar_vlm/requirements.txt" h5py pyarrow
+    make_env solar_vlm pip install --index-strategy unsafe-best-match -r "$BASELINES_DIR/tier6/vendor/solar_vlm/requirements.txt" h5py pyarrow
     # RAG originals pin numpy==1.25 + chronos-forecasting + faiss-gpu (TIER4_RAG_INTEGRATION §1)
     [[ -f tier4/vendor/ts_rag/requirements.txt    ]] && make_env tsrag   pip install -r "$BASELINES_DIR/tier4/vendor/ts_rag/requirements.txt"
     [[ -f tier4/vendor/cross_rag/requirements.txt ]] && make_env crossrag pip install -r "$BASELINES_DIR/tier4/vendor/cross_rag/requirements.txt"
