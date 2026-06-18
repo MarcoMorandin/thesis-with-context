@@ -58,6 +58,7 @@ ENV_TIMEVLM="${ENV_TIMEVLM:-timevlm}"; ENV_VISIONTS="${ENV_VISIONTS:-visionts}"
 ENV_UNICAST="${ENV_UNICAST:-unicast}"; ENV_AURORA="${ENV_AURORA:-aurora}"
 ENV_CROSSVIVIT="${ENV_CROSSVIVIT:-crossvivit}"; ENV_SUNSET="${ENV_SUNSET:-sunset}"
 ENV_TSRAG="${ENV_TSRAG:-tsrag}"; ENV_CROSSRAG="${ENV_CROSSRAG:-crossrag}"
+ENV_SOLARVLM="${ENV_SOLARVLM:-solar_vlm}"
 # gated backbone weights (defaults match precache_login.sh)
 # VisionTS++ MAE ckpt: precache_login.sh symlinks the resolved weights to a
 # stable name; fall back to globbing the dir if the symlink is absent.
@@ -74,7 +75,9 @@ CHRONOS_PATH="${CHRONOS_PATH:-${WEIGHTS_DIR}/chronos-bolt-base}"
 AURORA_CKPT="${AURORA_CKPT:-${PWD}/tier5/vendor/aurora/aurora}"
 RAG_BASE_CKPT="${RAG_BASE_CKPT:-${WEIGHTS_DIR}/chronos-bolt-base}"
 RAG_MIXER_CKPT="${RAG_MIXER_CKPT:-${CKPT_DIR}/arm.pth}"    # released ARM/cross-attn ckpt (drop here by hand)
-SOLARVLM_DIR="${SOLARVLM_DIR:-${TEAM_SCRATCH}/Solar-VLM}"  # external repo checkout (clone here to auto-enable)
+# Solar-VLM is vendored in-tree (tier6/vendor/solar_vlm); it needs its uv env +
+# the Qwen3-VL-Embedding-2B weights dir (offline vision features) + frames.
+QWEN_PATH="${QWEN_PATH:-${WEIGHTS_DIR}/qwen3-vl-embedding-2b}"
 
 # ---- GPU count -------------------------------------------------------------
 if [[ -n "${NUM_GPUS:-}" ]]; then :;
@@ -155,9 +158,9 @@ else skip "crossvivit" "needs uv env:$ENV_CROSSVIVIT + IMAGES_H5"; fi
 if env_has "$ENV_SUNSET" && [[ -f "$IMAGES_H5" ]]; then
     add "sunset" "VENV_NAME=$ENV_SUNSET DATA='$DATA' IMAGES_H5='$IMAGES_H5' bash scripts/slurm_sunset.sh"
 else skip "sunset" "needs uv env:$ENV_SUNSET + IMAGES_H5"; fi
-if [[ -n "$SOLARVLM_DIR" && -d "$SOLARVLM_DIR" ]]; then
-    add "solar_vlm" "SOLARVLM_DIR='$SOLARVLM_DIR' bash scripts/slurm_solar_vlm.sh"
-else skip "solar_vlm" "set SOLARVLM_DIR to the Solar-VLM repo"; fi
+if env_has "$ENV_SOLARVLM" && [[ -d "$QWEN_PATH" && -f "$IMAGES_H5" ]]; then
+    add "solar_vlm" "VENV_NAME=$ENV_SOLARVLM QWEN_PATH='$QWEN_PATH' DATA='$DATA' IMAGES_H5='$IMAGES_H5' bash scripts/slurm_solar_vlm.sh"
+else skip "solar_vlm" "needs uv env:$ENV_SOLARVLM + QWEN_PATH + IMAGES_H5"; fi
 
 echo ">>> ${#T_NAME[@]} GPU tasks queued, ${#SKIP[@]} skipped"
 

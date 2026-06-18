@@ -101,6 +101,12 @@ if [[ "$STAGE" == "all" || "$STAGE" == "weights" ]]; then
     else
         warn "no VisionTS++ .ckpt/.pth/.safetensors under ${WEIGHTS_DIR}/visiontspp — visionts_pp will skip"
     fi
+
+    # Solar-VLM offline vision backbone (Qwen3-VL-Embedding-2B). Override
+    # QWEN_REPO if the exact HF id differs in your account.
+    QWEN_REPO="${QWEN_REPO:-Qwen/Qwen3-VL-Embedding-2B}"
+    hf_pull "$QWEN_REPO" "${WEIGHTS_DIR}/qwen3-vl-embedding-2b" \
+        || warn "Qwen3-VL pull failed ($QWEN_REPO) — set QWEN_REPO/QWEN_PATH; solar_vlm will skip"
 fi
 
 # --- 4/6: one uv env per vendored model ----------------------------------
@@ -117,6 +123,9 @@ if [[ "$STAGE" == "all" || "$STAGE" == "envs" ]]; then
                                  einops numpy pandas scikit-learn tqdm matplotlib
     make_env crossvivit pip install -r "$BASELINES_DIR/tier6/vendor/crossvivit/requirements.txt"
     make_env sunset    pip install tensorflow h5py pyarrow pandas numpy
+    # Solar-VLM (in-tree, Tier-6): its own requirements + h5py/pyarrow for the
+    # uk_pv loader and the Qwen3-VL vision precompute.
+    make_env solar_vlm pip install -r "$BASELINES_DIR/tier6/vendor/solar_vlm/requirements.txt" h5py pyarrow
     # RAG originals pin numpy==1.25 + chronos-forecasting + faiss-gpu (TIER4_RAG_INTEGRATION §1)
     [[ -f tier4/vendor/ts_rag/requirements.txt    ]] && make_env tsrag   pip install -r "$BASELINES_DIR/tier4/vendor/ts_rag/requirements.txt"
     [[ -f tier4/vendor/cross_rag/requirements.txt ]] && make_env crossrag pip install -r "$BASELINES_DIR/tier4/vendor/cross_rag/requirements.txt"
@@ -137,10 +146,11 @@ if [[ "$STAGE" == "all" || "$STAGE" == "envs" ]]; then
     fi
 fi
 
-# --- 5/6: Solar-VLM repo (optional, its own setup) --------------------------
-if [[ -n "$SOLARVLM_DIR" && -d "$SOLARVLM_DIR" ]]; then
-    info ">>> Solar-VLM setup_env.sh"
-    ( cd "$SOLARVLM_DIR" && bash setup_env.sh ) || warn "Solar-VLM setup_env had warnings"
+# --- 5/6: Solar-VLM (in-tree at tier6/vendor/solar_vlm) ----------------------
+# No external repo / setup_env.sh anymore — its uv env is built in the 4/6 block
+# (make_env solar_vlm) and the Qwen3-VL backbone is cached in the 3/6 block.
+if [[ -d "$UV_ENVS_DIR/solar_vlm" && -d "${WEIGHTS_DIR}/qwen3-vl-embedding-2b" ]]; then
+    info "Solar-VLM ready (uv env + Qwen3-VL weights). QWEN_PATH=${WEIGHTS_DIR}/qwen3-vl-embedding-2b"
 fi
 
 # --- 6/6: data-staging checks -----------------------------------------------
@@ -163,12 +173,11 @@ echo "   MAE_CKPT        = ${WEIGHTS_DIR}/visiontspp/visiontspp.ckpt  (symlink r
 echo "   VISION_MODEL_PATH = ${WEIGHTS_DIR}/clip-vit-base-patch32"
 echo "   CHRONOS_PATH / RAG_BASE_CKPT = ${WEIGHTS_DIR}/chronos-bolt-base"
 echo "   AURORA_CKPT     = $BASELINES_DIR/tier5/vendor/aurora/aurora  (config dir, MODE=finetune)"
+echo "   QWEN_PATH       = ${WEIGHTS_DIR}/qwen3-vl-embedding-2b  (Solar-VLM vision)"
 echo ""
 echo " STILL NEED A MANUAL ARTIFACT (run_all skips these until present):"
 echo "   RAG_MIXER_CKPT  = ${CKPT_DIR}/arm.pth   ← drop the released ARM/cross-attn ckpt here"
 echo "                       (enables ts_rag + cross_rag)"
-echo "   SOLARVLM_DIR    = ${TEAM_SCRATCH}/Solar-VLM   ← git clone the Solar-VLM repo here,"
-echo "                       then re-run this precache with SOLARVLM_DIR set (runs its setup_env.sh)"
 echo ""
 echo " Then on a GPU node:  sbatch scripts/run_all_baselines.sh"
 echo "=============================================================="

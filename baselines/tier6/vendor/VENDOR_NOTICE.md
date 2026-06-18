@@ -17,10 +17,14 @@ code** via per-model `run_ukpv.py` adapters — see "Adaptations".
 |---|---|---|---|---|
 | `crossvivit/` | https://github.com/gitbooo/CrossViVit | `ce345ff97b11b65cb7a46782695af2140272c1e3` | **MIT** (`LICENSE`, © 2023 Ghait Boukachab) | satellite `V` + irradiance `Y` cross-attention — **multimodal track** |
 | `sunset/` | https://github.com/yuhao-nie/Stanford-solar-forecasting-dataset | `c4c3d0acf953d32f06c9748ab9fdee083c65593c` | **MIT** (`LICENSE`, © 2022 Yuhao Nie, Xiatong Li) | sky-image `V` + PV history `Y` CNN — **multimodal track (SKIPP'D-native)** |
+| `solar_vlm/` | Solar-VLM (Hebei multi-station PV VLM, author release) | — | see repo `LICENSE` | Qwen3-VL vision + NWP/LMD `Y`, **multi-station GNN** — **multimodal track** |
 
-Third Tier-6 P0 model, **Solar-VLM**, is already ported under `baselines/solar_vlm/`
-(not re-vendored here). SPIRIT (P1), PV-VLM / M3S-Net / MDCTL-MCI (P2) are
-cite-only for now — add here if reviewers demand (BASELINE_COMPARISON.md §1 Tier 6).
+Solar-VLM is the third Tier-6 P0 model, now vendored in-tree (moved from
+`baselines/solar_vlm/`). Unlike crossvivit/sunset it forecasts a *fixed set* of
+co-located stations jointly (GNN + cross-station attention), so it does **not**
+use `tier6/uk_multimodal.py`; it has its own grouped multi-station data adapter
+(see "Adaptations"). SPIRIT (P1), PV-VLM / M3S-Net / MDCTL-MCI (P2) are cite-only
+for now — add here if reviewers demand (BASELINE_COMPARISON.md §1 Tier 6).
 
 ## What each model is
 
@@ -77,11 +81,35 @@ the original model and feeds it the uk_pv multimodal windows — plus the shared
   protocol forecasts H), masked MSE over `mask_future`. Dumps
   `sunset_<site>_pred.npz`.
 
-Both runners dump `<model>_<site>_pred.npz` (`pred`,`true` (N,H)) for
-`scripts/import_predictions.py`; the per-model SLURM scripts
+- `solar_vlm/` (multi-station, GNN-faithful) — the upstream model/`Experiment`
+  run **unchanged**; the additions are a data adapter + one minimal store edit:
+  - `data_provider/grouping.py` + `data_provider/data_loader_ukpv.py` (added) —
+    cluster our uk_pv plants into co-located groups of `num_stations` and feed
+    Solar-VLM's `[T,S,F]` interface; grouping is done *within* a split partition
+    so the disjoint cross-plant split holds at the group level (train groups =
+    train plants, test groups = unseen test plants). Covariates use the suite's
+    fixed `COV_SCALES`; the `norm_power` target is already capacity-normalized,
+    so there is **no fitted scaler and no cross-plant leakage** (`inverse` is the
+    identity). Registered as `UKPV` in `data_factory.py`.
+  - `tools/precompute_vision_feats_ukpv.py` (added) — encodes each plant's
+    per-plant satellite frame (`images_all.h5`) with Qwen3-VL-Embedding-2B into
+    group-scoped `[S,D]` `.npy` (our frames are already per-plant, so no ROI
+    crop from a shared sky image as in the original precompute).
+  - `run_ukpv.py` (added) — trains on train-split groups, evaluates on unseen
+    test-split groups, dumps `solar_vlm_<site>_pred.npz`.
+  - **One upstream edit** (not pristine): `src/SolarVLM/vision_store.py` strips a
+    `"<group>__"` prefix from `ts_keys` so one feature store serves disjoint
+    plant groups that share wall-clock timestamps. Backward-compatible (plain
+    timestamp keys parse unchanged), so SKIPP'D/PV paths are unaffected.
+
+The crossvivit/sunset runners dump `<model>_<site>_pred.npz` (`pred`,`true`
+(N,H)) for `scripts/import_predictions.py`; their SLURM scripts
 (`scripts/slurm_{crossvivit,sunset}.sh`) wire export-free → train → eval →
-contract-check → import end-to-end on uk_pv. Verified to run end-to-end on the
-real data (CPU smoke test, tiny windows) before the cluster sweep.
+contract-check → import end-to-end on uk_pv (CPU smoke-tested on real data).
+`scripts/slurm_solar_vlm.sh` does the same with a Qwen3-VL vision-precompute
+step first. The Solar-VLM data layer + vision-store keying are unit-tested on
+synthetic data; the full model path (Qwen3-VL + GNN training) needs cluster
+validation against the real dataset.
 
 ## Off-repo artifacts (NOT in git — see `.gitignore`)
 
