@@ -34,7 +34,12 @@ def check_inputs(csv_dir: Path) -> list[str]:
     manifest = csv_dir / "manifest.json"
     if not manifest.is_file():
         errs.append(f"missing manifest.json in {csv_dir}")
-    csvs = sorted(csv_dir.glob("uk_pv_*.csv"))
+    # Only the EXPORT inputs (export_ukpv.py) — NOT the retrieval intermediates
+    # the RAG run writes back into this dir. Those `*_retrieve_*.csv` carry
+    # structural NaN in their first `lookback_length` rows (np.nan-initialised
+    # retrieval index columns the upstream model slices off), so contract-checking
+    # them as inputs is a false positive on re-runs.
+    csvs = sorted(p for p in csv_dir.glob("uk_pv_*.csv") if "_retrieve_" not in p.name)
     if not csvs:
         errs.append(f"no uk_pv_*.csv found in {csv_dir}")
     for path in csvs:
