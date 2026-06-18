@@ -62,6 +62,10 @@ def get_custom_period_channel(data_path):
         # 1week
         pc["period"] = 24
         pc["channel"] = 8
+    if 'uk_pv' in data_path:
+        # half-hourly; daily seasonality = 48 samples/day; univariate OT
+        pc["period"] = 48
+        pc["channel"] = 1
     return pc
 
 def decompose( 
