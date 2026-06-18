@@ -78,7 +78,11 @@ def build_args() -> argparse.Namespace:
         checkpoints=os.path.join(a.out, "checkpoints"),
         results_dir=os.path.join(a.out, "results"),
         test_results_dir=os.path.join(a.out, "test_results"),
-        root_path=a.data_path, start_time="", end_time="",
+        # model.py parses start_time with strptime — must be a valid datetime, not
+        # empty. It is only a reference epoch; our loader emits real ts_keys for the
+        # vision lookup, so the exact value does not affect the uk_pv windows.
+        root_path=a.data_path,
+        start_time="2018-01-01 00:00", end_time="2020-01-01 00:00",
         # fixed-size station set: only the COUNT matters to the model
         station_list=[f"plant{i}" for i in range(a.num_stations)],
         use_gpu=torch.cuda.is_available(), use_multi_gpu=False, gpu=0,

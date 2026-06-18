@@ -60,6 +60,10 @@ DATASET_TEXT="$(cat "$EXPORT/dataset_text.txt")"
 
 source "$UV_ENVS_DIR/$VENV_NAME/bin/activate"
 cd tier5/vendor/unicast
+# models/MultiModalChronos.py imports `from CLIP.modeling_clipPT import ...`, i.e.
+# it expects models/ on the path so CLIP is a top-level package. Put it there
+# (absolute, so the test/ subshells that cd back in still resolve it).
+export PYTHONPATH="$PWD/models:${PYTHONPATH:-}"
 
 # ---- 2. TRAIN (train/ + val/ under the export root) ------------------------
 echo ">>> TRAIN UniCast ($VISION_MODEL, uk_pv multimodal)"
