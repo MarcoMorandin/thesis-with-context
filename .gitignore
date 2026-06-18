@@ -73,3 +73,4 @@ slurm-*.out
 
 # Keep reference PDFs in baselines/ and solar-related-work/ (tracked intentionally)
 results/
+*results_ukpv/
