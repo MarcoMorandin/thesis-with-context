@@ -167,12 +167,39 @@ else skip "solar_vlm" "needs uv env:$ENV_SOLARVLM + QWEN_PATH + IMAGES_H5"; fi
 
 echo ">>> ${#T_NAME[@]} GPU tasks queued, ${#SKIP[@]} skipped"
 
+# ---- ONLY filter: run just the named tasks (resume without re-running all) --
+# e.g. ONLY="visionts_pp unicast aurora ts_rag cross_rag solar_vlm" — only those
+# (that pass their gates) are launched in Phase B; everything else is dropped.
+# Comma or space separated. Phase A (CPU reference) auto-skips in ONLY mode since
+# a prior full run already wrote results/smart_persistence_s2*.json.
+ONLY="${ONLY:-}"
+if [[ -n "$ONLY" ]]; then
+    declare -a _N=() _C=()
+    for req in ${ONLY//,/ }; do
+        hit=0
+        for i in "${!T_NAME[@]}"; do
+            [[ "${T_NAME[$i]}" == "$req" ]] && { _N+=("$req"); _C+=("${T_CMD[$i]}"); hit=1; break; }
+        done
+        (( hit )) || echo "  ONLY: '$req' is not runnable — gated/skipped (see SKIP above) or unknown name"
+    done
+    T_NAME=("${_N[@]+"${_N[@]}"}"); T_CMD=("${_C[@]+"${_C[@]}"}")
+    (( ${#T_NAME[@]} )) || { echo "ONLY matched no runnable task; nothing to do."; exit 0; }
+    echo ">>> ONLY → ${#T_NAME[@]} task(s): ${T_NAME[*]}"
+fi
+
+# Phase A runs the CPU reference; skip it in ONLY mode (auto) unless forced.
+RUN_PHASE_A="${RUN_PHASE_A:-auto}"
+if [[ "$RUN_PHASE_A" == auto ]]; then
+    [[ -n "$ONLY" ]] && RUN_PHASE_A=0 || RUN_PHASE_A=1
+fi
+
 # ---- Phase A: splits + Tier 0-1 reference (CPU, sequential, FIRST) ----------
 # run_eval always (re)writes smart_persistence as the SS reference; doing the
 # reference + the cheap CPU baselines once up front gives the canonical
 # smart_persistence_s2.json that the Tier-5/6 importers point at. The deep
 # tslib models (mlp/dlinear/patchtst/itransformer/tft) are GPU-bound and run in
 # Phase B instead of here.
+if [[ "$RUN_PHASE_A" == 1 ]]; then
 echo ""; echo ">>> Phase A: splits + Tier 0-1 reference (CPU)"
 uv run --group "$GROUP" python -m common.splits --data "$DATA" || true
 ( CUDA_VISIBLE_DEVICES="" uv run --group "$GROUP" python run_eval.py \
@@ -187,6 +214,14 @@ wait "$CPU_PID" && STATUS["tier0_2_cpu"]=0 || STATUS["tier0_2_cpu"]=$?
 # Tier-5/6 importers hard-reference results/smart_persistence_s2_ukpv.json
 [[ -f results/smart_persistence_s2.json ]] && cp -f results/smart_persistence_s2.json results/smart_persistence_s2_ukpv.json
 echo "    Phase A done (rc=${STATUS[tier0_2_cpu]})"
+else
+echo ""; echo ">>> Phase A skipped (RUN_PHASE_A=0 / ONLY mode) — reusing existing reference"
+[[ -f results/smart_persistence_s2_ukpv.json ]] \
+    || echo "  WARN: results/smart_persistence_s2_ukpv.json missing — SS will be omitted." \
+       "Run a full pass once, or set RUN_PHASE_A=1."
+[[ -d "$UKPV_CSV_DIR" ]] \
+    || echo "  WARN: UKPV_CSV_DIR ($UKPV_CSV_DIR) missing — ts_rag/cross_rag need it (precache exports it)."
+fi
 
 # ---- Phase B: GPU pool ------------------------------------------------------
 echo ""; echo ">>> Phase B: GPU pool ($NUM_GPUS slots)"
@@ -238,7 +273,9 @@ uv run --group "$GROUP" python scripts/make_tables.py --results results --out re
 echo ""; echo "=============================================================="
 echo " RUN SUMMARY"
 ok=0; fail=0
-for n in "tier0_2_cpu" "${T_NAME[@]}"; do
+summary_names=("${T_NAME[@]+"${T_NAME[@]}"}")
+[[ "$RUN_PHASE_A" == 1 ]] && summary_names=("tier0_2_cpu" "${summary_names[@]+"${summary_names[@]}"}")
+for n in "${summary_names[@]+"${summary_names[@]}"}"; do
     rc="${STATUS[$n]:-?}"; [[ "$rc" == 0 ]] && { ok=$((ok+1)); tag=OK; } || { fail=$((fail+1)); tag="FAIL(rc=$rc)"; }
     printf "   %-14s %s\n" "$n" "$tag"
 done
