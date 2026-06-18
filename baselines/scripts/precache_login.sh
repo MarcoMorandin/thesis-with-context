@@ -85,31 +85,30 @@ if [[ "$STAGE" == "all" || "$STAGE" == "weights" ]]; then
     DATA="$DATA" UKPV_CSV_DIR="$UKPV_CSV_DIR" bash scripts/login_node_prep.sh || warn "login_node_prep had warnings"
 
     # --- TS-RAG / Cross-RAG released mixer checkpoint (Google Drive) -------
-    # The release lives in a PRIVATE Drive folder (checkpoints/ base + chronos-bolt,
-    # plus datasets/ + retrieval_database/ we don't use — we retrieve over our own
-    # uk_pv CSVs). Both RAG repos run zeroshot.py --model ChronosBoltRetrieve with
+    # Release folder holds checkpoints/{base, chronos-bolt/best.pth} (+ datasets/
+    # & retrieval_database/ we don't use — we retrieve over our own uk_pv CSVs).
+    # Both RAG repos run zeroshot.py --model ChronosBoltRetrieve with
     #   --pretrained_model_path <chronos-bolt-base dir>   (already cached from HF;
     #        the Drive base/config.json is _name_or_path autogluon/chronos-bolt-base)
     #   --checkpoint_model_path <best.pth>                (the trained retrieval mixer)
-    # so the single best.pth serves BOTH ts_rag and cross_rag. Fetch it with the
-    # authenticated gws CLI (gdown cannot read the private folder). The Drive file
-    # id is resolvable via: gws drive files list --params '{"q":"<folder> in parents"}'.
+    # so the single best.pth serves BOTH ts_rag and cross_rag. The file is shared
+    # anyone-with-link, so gdown fetches it (handling the >100 MB virus-scan confirm
+    # token) with NO gws / Google account on the compute side — only `uv`. Override
+    # RAG_MIXER_DRIVE_ID if the release moves.
     RAG_MIXER_DRIVE_ID="${RAG_MIXER_DRIVE_ID:-1O17Dl_x_YPSOAORsyW7PADREMHaze2w5}"  # checkpoints/chronos-bolt/best.pth
     if [[ -s "${CKPT_DIR}/arm.pth" ]]; then
         info "RAG mixer already present at ${CKPT_DIR}/arm.pth"
-    elif command -v gws >/dev/null 2>&1; then
+    else
         info "fetching RAG mixer (Drive ${RAG_MIXER_DRIVE_ID}) → ${CKPT_DIR}/arm.pth"
-        if gws drive files get \
-                --params "{\"fileId\":\"${RAG_MIXER_DRIVE_ID}\",\"alt\":\"media\"}" \
-                > "${CKPT_DIR}/arm.pth" 2>"${CKPT_DIR}/arm.pth.log" \
-           && [[ "$(stat -c%s "${CKPT_DIR}/arm.pth" 2>/dev/null || stat -f%z "${CKPT_DIR}/arm.pth")" -gt 1000000 ]]; then
-            info "RAG mixer downloaded ($(du -h "${CKPT_DIR}/arm.pth" | cut -f1)) → enables ts_rag + cross_rag"
+        uv run --with gdown python -m gdown "$RAG_MIXER_DRIVE_ID" \
+            -O "${CKPT_DIR}/arm.pth" || warn "gdown RAG mixer download failed"
+        sz="$(stat -c%s "${CKPT_DIR}/arm.pth" 2>/dev/null || stat -f%z "${CKPT_DIR}/arm.pth" 2>/dev/null || echo 0)"
+        if [[ "$sz" -gt 1000000 ]]; then
+            info "RAG mixer ($(du -h "${CKPT_DIR}/arm.pth" | cut -f1)) → enables ts_rag + cross_rag"
         else
             rm -f "${CKPT_DIR}/arm.pth"
-            warn "gws download of RAG mixer failed (see ${CKPT_DIR}/arm.pth.log) — fetch best.pth by hand"
+            warn "RAG mixer download invalid/too small — stage ${CKPT_DIR}/arm.pth by hand"
         fi
-    else
-        warn "gws CLI not found — cannot fetch the private RAG mixer; install gws or stage ${CKPT_DIR}/arm.pth by hand"
     fi
 
     # --- 3/6: Tier-5/6 backbone weights ------------------------------------
@@ -202,7 +201,7 @@ echo "   VISION_MODEL_PATH = ${WEIGHTS_DIR}/clip-vit-base-patch32"
 echo "   CHRONOS_PATH / RAG_BASE_CKPT = ${WEIGHTS_DIR}/chronos-bolt-base"
 echo "   AURORA_CKPT     = $BASELINES_DIR/tier5/vendor/aurora/aurora  (config dir, MODE=finetune)"
 echo "   QWEN_PATH       = ${WEIGHTS_DIR}/qwen3-vl-embedding-2b  (Solar-VLM vision)"
-echo "   RAG_MIXER_CKPT  = ${CKPT_DIR}/arm.pth  (best.pth via gws → enables ts_rag + cross_rag)"
+echo "   RAG_MIXER_CKPT  = ${CKPT_DIR}/arm.pth  (best.pth via gdown → enables ts_rag + cross_rag)"
 echo ""
 echo " Then on a GPU node:  sbatch scripts/run_all_baselines.sh"
 echo "=============================================================="
