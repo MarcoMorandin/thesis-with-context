@@ -93,19 +93,20 @@ config = AutoConfig.from_pretrained(args.pretrained_model_path)
 
 if args.model == 'ChronosBoltRetrieve':
     model = ChronosBoltModelForForecastingWithRetrieval.from_pretrained(args.pretrained_model_path, config=config, augment=args.augment_mode)
-    checkpoint_path = './checkpoints/base/autogluon_model.pth'
-    checkpoint = torch.load(checkpoint_path)
-    result = model.load_state_dict(checkpoint, strict=False)
-    print(f"\n=== Checkpoint Loading Results for {args.model} ===")
-    print(f"Checkpoint path: {checkpoint_path}")
-    print(f"Missing keys (not found in checkpoint, newly initialized): {len(result.missing_keys)} keys")
-    for key in result.missing_keys:
-        print(f"  - {key}")
-    print(f"Unexpected keys (in checkpoint but not in model): {len(result.unexpected_keys)} keys")
-    for key in result.unexpected_keys:
-        print(f"  - {key}")
-    print(f"Successfully loaded keys: {len(checkpoint) - len(result.unexpected_keys)} keys")
-    print("=" * 60)
+    # Base Chronos weights: prefer autogluon_model.pth alongside the base dir; if it
+    # is absent (HF chronos-bolt-base ships only model.safetensors, which the
+    # from_pretrained above already loaded), skip rather than crash on a hardcoded
+    # ./checkpoints/base path. The retrieval/cross-attention layers stay newly
+    # initialized either way and are what pretraining trains.
+    checkpoint_path = os.path.join(args.pretrained_model_path, 'autogluon_model.pth')
+    if os.path.exists(checkpoint_path):
+        checkpoint = torch.load(checkpoint_path)
+        result = model.load_state_dict(checkpoint, strict=False)
+        print(f"[pretrain] base from {checkpoint_path}: "
+              f"{len(result.missing_keys)} missing / {len(result.unexpected_keys)} unexpected keys")
+    else:
+        print(f"[pretrain] no autogluon_model.pth at {checkpoint_path}; "
+              f"using from_pretrained base weights ({args.pretrained_model_path})")
     if 'moe' in args.augment_mode:
         moe_layers = [getattr(model, name) for name in ['encode_mlp', 
                                                         'encode_mlp_x', 'encode_mlp_y', 

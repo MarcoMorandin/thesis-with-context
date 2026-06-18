@@ -50,7 +50,11 @@ case "$METHOD" in
                # retrieve_X.py builds the X-space (do_retrieve_Z is disabled), but
                # zeroshot.py reads RETRIEVE_SPACE (default "") → looks for __space.pkl.
                # Pin it to X so the load matches the built _X_space.pkl.
-               export RETRIEVE_SPACE="${RETRIEVE_SPACE:-X}" ;;
+               export RETRIEVE_SPACE="${RETRIEVE_SPACE:-X}"
+               # pretrain.py/zeroshot.py select the CrossRAG model class via the
+               # MODEL env var (MODEL.lower()=='crossrag'); without it the import
+               # is skipped → NameError. Mirrors Cross-RAG-{pretrain,zeroshot}.sh.
+               export MODEL="${MODEL:-CrossRAG}" ;;
     *) echo "unknown METHOD: $METHOD (ts_rag|cross_rag)"; exit 1 ;;
 esac
 case "$REGIME" in
