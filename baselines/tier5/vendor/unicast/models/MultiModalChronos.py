@@ -223,7 +223,11 @@ class MultiModalChronosModel(PreTrainedModel):
             vision_embedding = vision_embedding.pooler_output
             vision_embedding = self.vision_interaction_layer(vision_embedding)
 
-        if self.config.text_model_name is None and all(x is None for x in texts):
+        # No text encoder configured (we run vision+TS only, no --text_model_name)
+        # → no text embedding, regardless of whether the export shipped texts.
+        # The original `and` fell through to self.tokenizer (never created) when
+        # texts were present but text_model_name is None.
+        if self.config.text_model_name is None or all(x is None for x in texts):
             text_embedding = None
         else:
             tokenized_texts = self.tokenizer(texts, return_tensors="pt").to("cuda")
