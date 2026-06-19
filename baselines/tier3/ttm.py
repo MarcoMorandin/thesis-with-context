@@ -67,18 +67,29 @@ class TTMR3ZS(Baseline):
         B, T, C = y_hist.shape
         expected_len = self._model.config.context_length
 
+        # History (T=24) is far shorter than TTM's context (512). Zero-padding
+        # injects a 0→signal step that corrupts TTM's internal instance-norm
+        # (mean/std over a ~95%-zero window). Instead edge-pad with the earliest
+        # real value and mark padded steps as unobserved, so the model's scaler
+        # computes statistics over the real history only.
         if T < expected_len:
             pad_len = expected_len - T
-            padding = torch.zeros(B, pad_len, C, dtype=y_hist.dtype)
-            past_values = torch.cat([padding, y_hist], dim=1)
+            pad_val = y_hist[:, :1, :].expand(B, pad_len, C)
+            past_values = torch.cat([pad_val, y_hist], dim=1)
+            observed = torch.cat(
+                [torch.zeros(B, pad_len, C, dtype=y_hist.dtype),
+                 torch.ones(B, T, C, dtype=y_hist.dtype)], dim=1)
         else:
             past_values = y_hist[:, -expected_len:]
+            observed = torch.ones(B, expected_len, C, dtype=y_hist.dtype)
 
         if self.model_id != "dummy":
             past_values = past_values.to(self._device)
+            observed = observed.to(self._device)
 
         with torch.no_grad():
-            outputs = self._model(past_values=past_values)
+            outputs = self._model(past_values=past_values,
+                                  past_observed_mask=observed)
             pred = outputs.prediction_outputs
 
         pred_np = pred[:, :horizon, 0].cpu().numpy()
