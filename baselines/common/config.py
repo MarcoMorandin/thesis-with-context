@@ -9,9 +9,18 @@ from __future__ import annotations
 
 SEED = 42
 
-# Temporal configuration (BASELINE_PROTOCOL.md §3)
-HISTORY_STEPS = 24          # T
-HORIZON_STEPS = 12          # H (primary); long-horizon variants below
+# Temporal configuration (BASELINE_PROTOCOL.md §3).
+# Windows are now defined in PHYSICAL TIME (deployment-realistic, cadence-fair):
+# context = HISTORY_DAYS, horizon = HORIZON_HOURS. WindowDataset converts these
+# to per-dataset step counts via each series' steps_per_day (uk_pv 30-min → 48/day,
+# goes_pvdaq 15-min → 96/day). The *_STEPS constants below remain the step-based
+# fallback (explicit --history/--horizon override) and the synthetic-test default.
+HISTORY_DAYS = 14.0         # context: ≥14 diurnal cycles; matches "≥2 weeks for a new plant"
+HORIZON_HOURS = 6.0         # primary horizon (vision-dominant lead time)
+DECAY_HORIZONS_HOURS = (1.0, 6.0, 24.0)   # S4 skill-decay points (1h / 6h / day-ahead)
+
+HISTORY_STEPS = 24          # T (step-based fallback / synthetic default)
+HORIZON_STEPS = 12          # H (step-based fallback)
 LONG_HORIZONS = (12, 24, 48)
 
 # Probabilistic evaluation (BASELINE_COMPARISON.md §4.3)

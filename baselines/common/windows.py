@@ -93,6 +93,8 @@ class WindowDataset:
         series: list[SiteSeries],
         history: int = config.HISTORY_STEPS,
         horizon: int = config.HORIZON_STEPS,
+        history_days: float | None = None,
+        horizon_hours: float | None = None,
         stride: int = 1,
         min_future_valid: int = 1,
         min_hist_valid: int = 1,
@@ -101,6 +103,22 @@ class WindowDataset:
         if future_cov not in ("deterministic", "all"):
             raise ValueError(f"unknown future_cov mode: {future_cov!r}")
         self.series = series
+        # Physical-time spec (history_days / horizon_hours) overrides the step
+        # spec, converting to per-dataset step counts via steps_per_day. All
+        # series in one WindowDataset must share a cadence (fail loud, not in a
+        # rebuttal) so windows stack into a single-shape batch.
+        if (history_days is not None or horizon_hours is not None) and series:
+            cadences = {s.steps_per_day for s in series}
+            if len(cadences) > 1:
+                raise ValueError(
+                    "physical-time windows require a uniform cadence; got "
+                    f"steps_per_day={sorted(cadences)} — split by dataset first"
+                )
+            spd = series[0].steps_per_day
+            if history_days is not None:
+                history = int(round(history_days * spd))
+            if horizon_hours is not None:
+                horizon = int(round(horizon_hours / 24.0 * spd))
         self.history = history
         self.horizon = horizon
         self.future_cov = future_cov

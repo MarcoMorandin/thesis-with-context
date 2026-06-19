@@ -5,7 +5,7 @@ import pytest
 
 from common import config
 from common.splits import assert_disjoint, make_plant_splits
-from common.windows import WindowDataset, build_site_series
+from common.windows import SiteSeries, WindowDataset, build_site_series
 
 from .conftest import STEPS_PER_DAY, make_frame, windows_for
 
@@ -88,3 +88,37 @@ def test_native_cadences_preserved():
     series = build_site_series(df30)
     assert series[0].steps_per_day == STEPS_PER_DAY
     assert (np.diff(series[0].timestamps) == 30 * 60).all()
+
+
+def _synthetic_series(steps_per_day: int, days: int = 40, sid: str = "p",
+                      dataset: str = "uk_pv") -> SiteSeries:
+    n = steps_per_day * days
+    t = np.arange(n, dtype=np.int64) * (86400 // steps_per_day)
+    y = np.sin(np.arange(n) * 2 * np.pi / steps_per_day).clip(0).astype(np.float32)
+    cov = np.zeros((n, len(config.COV_COLS)), np.float32)
+    return SiteSeries(sid, dataset, 1.0, t, y, cov, (y * 1000).astype(np.float32),
+                      steps_per_day)
+
+
+def test_physical_time_resolves_per_dataset_steps():
+    """history_days/horizon_hours → per-cadence step counts (BASELINE_PROTOCOL §3)."""
+    uk = WindowDataset([_synthetic_series(48)], history_days=14, horizon_hours=6)
+    go = WindowDataset([_synthetic_series(96, dataset="goes_pvdaq")],
+                       history_days=14, horizon_hours=6)
+    assert (uk.history, uk.horizon) == (672, 12)    # 30-min: 14d / 6h
+    assert (go.history, go.horizon) == (1344, 24)   # 15-min: 14d / 6h
+    assert uk.batch([0, 1])["y_hist"].shape == (2, 672)
+
+
+def test_physical_time_requires_uniform_cadence():
+    with pytest.raises(ValueError, match="uniform cadence"):
+        WindowDataset(
+            [_synthetic_series(48, sid="a"),
+             _synthetic_series(96, sid="b", dataset="goes_pvdaq")],
+            history_days=14, horizon_hours=6,
+        )
+
+
+def test_step_spec_overrides_physical():
+    ds = WindowDataset([_synthetic_series(48)], history=24, horizon=12)
+    assert (ds.history, ds.horizon) == (24, 12)

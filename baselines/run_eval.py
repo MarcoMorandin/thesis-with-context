@@ -50,8 +50,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model", nargs="+", required=True)
     parser.add_argument("--data", default=config.DEFAULT_DATA_PATH)
     parser.add_argument("--split", default="test", choices=["val", "test"])
-    parser.add_argument("--history", type=int, default=config.HISTORY_STEPS)
-    parser.add_argument("--horizon", type=int, default=config.HORIZON_STEPS)
+    # Windows default to PHYSICAL TIME (per-dataset, cadence-fair). Pass the
+    # step-based --history/--horizon to override (e.g. S4 long-horizon --horizon 48).
+    parser.add_argument("--history", type=int, default=None,
+                        help="history in STEPS (overrides --history-days)")
+    parser.add_argument("--horizon", type=int, default=None,
+                        help="horizon in STEPS (overrides --horizon-hours)")
+    parser.add_argument("--history-days", type=float, default=config.HISTORY_DAYS,
+                        help="context in days (default physical-time spec)")
+    parser.add_argument("--horizon-hours", type=float, default=config.HORIZON_HOURS,
+                        help="horizon in hours (default physical-time spec)")
     parser.add_argument("--eval-stride", type=int, default=config.HORIZON_STEPS,
                         help="window stride on the eval split (H = non-overlapping)")
     parser.add_argument("--train-stride", type=int, default=1)
@@ -138,7 +146,16 @@ def evaluate_suite(
 
     Returns {model_name: seed-mean overall metrics} for fold aggregation.
     """
-    window_kwargs = dict(history=args.history, horizon=args.horizon)
+    # step args override physical-time spec when explicitly provided
+    window_kwargs: dict = {}
+    if args.history is not None:
+        window_kwargs["history"] = args.history
+    else:
+        window_kwargs["history_days"] = args.history_days
+    if args.horizon is not None:
+        window_kwargs["horizon"] = args.horizon
+    else:
+        window_kwargs["horizon_hours"] = args.horizon_hours
     train_df = _filter_datasets(df, args.train_datasets)
     eval_df = _filter_datasets(df, args.eval_datasets)
 
