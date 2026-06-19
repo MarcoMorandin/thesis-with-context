@@ -41,7 +41,7 @@ export HF_HOME="${HF_HOME:-${TEAM_SCRATCH}/hf_cache}"
 [[ -f "$MAE_CKPT" ]] || { echo "ERROR: MAE_CKPT not found: $MAE_CKPT"; exit 1; }
 DATA="${DATA:-${TEAM_SCRATCH}/data/dataset_all.parquet}"
 UKPV_DIR="${UKPV_DIR:-${TEAM_SCRATCH}/data/ukpv_rag}"
-SEQ_LEN="${SEQ_LEN:-24}"; PRED_LEN="${PRED_LEN:-12}"; PERIODICITY="${PERIODICITY:-48}"
+SEQ_LEN="${SEQ_LEN:-672}"; PRED_LEN="${PRED_LEN:-12}"; PERIODICITY="${PERIODICITY:-48}"   # 14-day ctx (14 periods) / 6h horizon
 
 # ---- 1. export uk_pv → CSVs (reuse the tier-4 bridge) ----------------------
 uv run python tier4/vendor/export_ukpv.py --data "$DATA" --out "$UKPV_DIR"

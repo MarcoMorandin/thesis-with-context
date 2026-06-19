@@ -47,6 +47,7 @@ export HF_HOME="${HF_HOME:-${TEAM_SCRATCH}/hf_cache}"
 DATA="${DATA:-${TEAM_SCRATCH}/data/dataset_all.parquet}"
 IMAGES_H5="${IMAGES_H5:-${TEAM_SCRATCH}/data/images_all.h5}"
 NUM_STATIONS="${NUM_STATIONS:-8}"; PRED_LEN="${PRED_LEN:-12}"; EPOCHS="${EPOCHS:-50}"
+SEQ_LEN="${SEQ_LEN:-672}"   # 14-day TS context (vision stays --num_frames=8, decoupled)
 VFEAT_DIR="${VFEAT_DIR:-tier6/vendor/solar_vlm/vision_feats_ukpv}"
 OUT="${OUT:-tier6/vendor/solar_vlm/results_ukpv}"
 [[ -f "$DATA" && -f "$IMAGES_H5" ]] || { echo "ERROR: DATA/IMAGES_H5 not found"; exit 1; }
@@ -65,6 +66,7 @@ echo ">>> TRAIN+EVAL Solar-VLM (uk_pv multimodal, cross-plant)"
 python run_ukpv.py \
   --data_path "$DATA" --vision_feat_dir "$BASELINES_DIR/$VFEAT_DIR" \
   --qwen3_vl_model_path "$QWEN_PATH" --num_stations "$NUM_STATIONS" \
+  --seq_len "$SEQ_LEN" \
   --pred_len "$PRED_LEN" --train_epochs "$EPOCHS" --out "$BASELINES_DIR/$OUT"
 
 # ---- 3. contract-check + import → our NMAE/NRMSE/SS results JSON ------------
