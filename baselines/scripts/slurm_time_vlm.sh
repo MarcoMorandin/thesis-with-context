@@ -53,7 +53,7 @@ cd tier5/vendor/time_vlm
 
 common_args=(--task_name long_term_forecast --model TimeVLM --vlm_type "$VLM_TYPE"
   --data custom --features S --target OT --root_path "$UKPV_DIR"
-  --enc_in 1 --dec_in 1 --c_out 1
+  --enc_in 1 --dec_in 1 --c_out 1 --inverse
   --seq_len "$SEQ_LEN" --label_len 0 --pred_len "$PRED_LEN"
   --model_id "$MODEL_ID" --des Exp --itr 1 --gpu 0)
 
