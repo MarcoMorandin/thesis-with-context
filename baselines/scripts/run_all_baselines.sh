@@ -239,8 +239,9 @@ launch() {  # launch <name> <cmd>
     FREE=("${FREE[@]:1}")
     ( export CUDA_VISIBLE_DEVICES="$gpu"
       echo "[$(date +%T)] START $name on GPU $gpu"
-      eval "$cmd"
-      echo "[$(date +%T)] END $name rc=$?" ) > "$LOGDIR/${name}.log" 2>&1 &
+      eval "$cmd"; rc=$?
+      echo "[$(date +%T)] END $name rc=$rc"
+      exit $rc ) > "$LOGDIR/${name}.log" 2>&1 &
     local pid=$!; PID2GPU[$pid]="$gpu"; PID2NAME[$pid]="$name"
     echo "  launch $name → GPU $gpu (pid $pid)"
 }
