@@ -73,6 +73,7 @@ def evaluate_model(
     ramp_thresholds: dict[str, float] | None = None,
     collect_losses: bool = False,
     transform=None,
+    out_dir: str | "Path" = "results",
 ) -> dict:
     """Evaluate on daylight, valid future steps; macro-average over plants.
 
@@ -133,8 +134,7 @@ def evaluate_model(
         }
         
     if preds_list:
-        from pathlib import Path
-        pred_out_dir = Path("results/predictions")
+        pred_out_dir = Path(out_dir) / "predictions"
         pred_out_dir.mkdir(parents=True, exist_ok=True)
         all_preds = np.concatenate(preds_list, axis=0)
         all_trues = np.concatenate(trues_list, axis=0)

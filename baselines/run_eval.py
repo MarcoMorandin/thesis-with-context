@@ -177,6 +177,7 @@ def evaluate_suite(
             model, eval_ds, args.batch_size,
             ramp_thresholds=ramp_thresholds,
             collect_losses=True, transform=transform,
+            out_dir=args.out,
         )
 
     # Smart Persistence always runs first: it is the Skill-Score denominator.

@@ -21,18 +21,27 @@ class TTMR3ZS(Baseline):
 
     def __init__(
         self,
-        model_id: str = "ibm-research/ttm-r3",
+        model_id: str = "ibm-granite/granite-timeseries-ttm-r2",
         device: str | None = None,
     ):
+        # TTM-R2, not R3: the r3 HF checkpoint is a trend+residual *decomposition*
+        # model (468 tensors, residual_/trend_forecaster.* keys) that tsfm_public
+        # 0.3.2's single-forecaster TinyTimeMixerForPrediction cannot load — every
+        # weight ends up randomly initialized. R2 loads real pretrained weights.
         self.model_id = model_id
         self.device_name = device
         self._model = None
         self._device = None
+        self._loaded_key = None   # (context_steps, horizon) the model was built for
 
     def predict(self, batch: dict) -> Forecast:
         import torch
 
-        if self._model is None:
+        horizon = batch["y_future"].shape[1]
+        y_hist = torch.from_numpy(batch["y_hist"]).float().unsqueeze(-1)  # (B, T, 1)
+        B, T, C = y_hist.shape
+
+        if self._model is None or self._loaded_key != (T, horizon):
             self._device = torch.device(
                 self.device_name if self.device_name else ("cuda" if torch.cuda.is_available() else "cpu")
             )
@@ -40,7 +49,7 @@ class TTMR3ZS(Baseline):
                 class DummyConfig:
                     context_length = 64
                     prediction_length = 96
-                
+
                 class DummyTTM(torch.nn.Module):
                     def __init__(self) -> None:
                         super().__init__()
@@ -53,18 +62,15 @@ class TTMR3ZS(Baseline):
 
                 self._model = DummyTTM()
             else:
-                try:
-                    from tsfm_public.models.tinytimemixer import TinyTimeMixerForPrediction
-                except ImportError:
-                    from transformers import TinyTimeMixerForPrediction
+                # get_model selects the TTM variant with context_length ≤ T and
+                # prediction_length ≥ horizon (+prediction_filter_length), loading
+                # real pretrained weights. Raw from_pretrained does not.
+                from tsfm_public.toolkit.get_model import get_model
+                self._model = get_model(
+                    self.model_id, context_length=T, prediction_length=horizon
+                ).to(self._device).eval()
+            self._loaded_key = (T, horizon)
 
-                self._model = TinyTimeMixerForPrediction.from_pretrained(self.model_id)
-                self._model = self._model.to(self._device)
-                self._model.eval()
-
-        horizon = batch["y_future"].shape[1]
-        y_hist = torch.from_numpy(batch["y_hist"]).float().unsqueeze(-1)  # (B, T, 1)
-        B, T, C = y_hist.shape
         expected_len = self._model.config.context_length
 
         # History (T=24) is far shorter than TTM's context (512). Zero-padding
@@ -107,7 +113,7 @@ class TTMR3FT(Baseline):
 
     def __init__(
         self,
-        model_id: str = "ibm-research/ttm-r3",
+        model_id: str = "ibm-granite/granite-timeseries-ttm-r2",  # see TTMR3ZS note
         epochs: int = 10,
         batch_size: int = 64,
         lr: float = 1e-4,
@@ -160,12 +166,13 @@ class TTMR3FT(Baseline):
 
             self._model = DummyTTM()
         else:
-            try:
-                from tsfm_public.models.tinytimemixer import TinyTimeMixerForPrediction
-            except ImportError:
-                from transformers import TinyTimeMixerForPrediction
-
-            self._model = TinyTimeMixerForPrediction.from_pretrained(self.model_id)
+            # get_model loads real pretrained weights for the variant matching
+            # the training context/horizon (raw from_pretrained does not).
+            from tsfm_public.toolkit.get_model import get_model
+            self._model = get_model(
+                self.model_id, context_length=train.history,
+                prediction_length=train.horizon,
+            )
 
         self._model.to(self._device)
 
