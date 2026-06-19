@@ -45,7 +45,7 @@ if __name__ == "__main__":
     model.load_state_dict(state_dict, strict=False)
 
     training_args = TrainingArguments(
-        output_dir="/home/ssh_adnlp/TSF/Vision_TSFM/ckpt/temp",
+        output_dir=os.path.join(os.environ.get("TMPDIR", "/tmp"), "unicast_hf_tmp"),
         disable_tqdm=True,
         report_to="none",
     )
