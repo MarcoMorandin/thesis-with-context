@@ -70,7 +70,14 @@ class MultiModalChronosModel(PreTrainedModel):
         elif config.vision_model_name == 'CLIP':
             vision_model_config = CLIPVisionConfig.from_pretrained(os.path.join(config.vision_model_path, 'config.json'))
             self.vision_model = CLIPVisionTransformer(vision_model_config, config.vision_model_prompt_len)
-            state_dict = load_file(os.path.join(config.vision_model_path, 'model.safetensors'))
+            _sf = os.path.join(config.vision_model_path, 'model.safetensors')
+            if os.path.exists(_sf):
+                state_dict = load_file(_sf)
+            else:  # openai/clip-vit-base-patch32 ships pytorch_model.bin (same keys)
+                import torch as _torch
+                state_dict = _torch.load(
+                    os.path.join(config.vision_model_path, 'pytorch_model.bin'),
+                    map_location='cpu')
             self.vision_model.load_state_dict(state_dict, strict=False)
             for name, param in self.vision_model.named_parameters(): # Freeze layers other than prompts
                 if "encoder.prompts" in name:

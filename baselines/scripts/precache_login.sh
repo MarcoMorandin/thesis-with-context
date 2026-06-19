@@ -165,6 +165,11 @@ if [[ "$STAGE" == "all" || "$STAGE" == "envs" ]]; then
     # UniCast ships its deps under requirements/ (chronos backbone variant), not a
     # top-level requirements.txt — install that one so the `unicast` env is built.
     make_env unicast pip install -r "$BASELINES_DIR/tier5/vendor/unicast/requirements/chronos_requirements.txt"
+    # chronos_requirements pins torch 2.6 (cu124, needs driver 12.4+); Leonardo's
+    # driver is 12.2 → CPU fallback. Override with the cu121 build (works on 12.2).
+    [[ "$MAKE_ENVS" == "1" && -d "$UV_ENVS_DIR/unicast" ]] && \
+        VIRTUAL_ENV="$UV_ENVS_DIR/unicast" uv pip install torch==2.4.1 torchvision==0.19.1 \
+        || true
     # Aurora (decisionintelligence/Aurora) zero-shot: it needs transformers>=4.50
     # but its modeling code uses the pre-5.0 tied-weights API (_tied_weights_keys);
     # transformers 5.x's from_pretrained calls all_tied_weights_keys and crashes,
