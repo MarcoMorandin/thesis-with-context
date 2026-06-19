@@ -62,6 +62,11 @@ def main() -> None:
         raise SystemExit(f"no npz matched: {args.glob}")
 
     acc = PerPlantAccumulator()
+    # Centralize every model's raw pred/true under results/predictions/ (same
+    # naming as the in-repo runner) so metrics can be recomputed/corrected later
+    # without re-running the model.
+    pred_dir = Path(args.out) / "predictions"
+    pred_dir.mkdir(parents=True, exist_ok=True)
     for f in files:
         data = np.load(f, allow_pickle=False)
         pred, true = _2d(data["pred"]), _2d(data["true"])
@@ -84,6 +89,10 @@ def main() -> None:
                     true = true * std + mean
             else:
                 print(f"WARN: CSV file not found: {csv_path}. Skipping inverse scaling for site {site}.")
+
+        # raw (post-inverse, pre-clip) pred/true for later re-scoring
+        np.savez(pred_dir / f"{args.model}_{site}_pred.npz",
+                 pred=pred.astype(np.float32), true=true.astype(np.float32))
 
         mask = (true > 0).astype(np.float64)            # daylight proxy
         q = _2d(data["quantiles"]) if "quantiles" in data else None

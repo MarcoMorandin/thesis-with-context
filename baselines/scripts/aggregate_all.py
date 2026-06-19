@@ -60,6 +60,20 @@ def fmt(v, d: int = 4) -> str:
     return "—" if v is None else f"{v:.{d}f}"
 
 
+def scenario_of(tag: str) -> tuple[str | None, str]:
+    """Split a tag into (intra|extra|None, dataset-suffix) for transferability.
+
+    S1 (same plants, held-out time) → intra-site; S2 (disjoint plants) → extra-
+    site. Pairing the two for one model measures how much accuracy *transfers*
+    across the plant shift (BASELINE_COMPARISON §4.1, transferability metric).
+    """
+    if tag.startswith("s1"):
+        return "intra", tag[2:].lstrip("_") or "—"
+    if tag.startswith("s2"):
+        return "extra", tag[2:].lstrip("_") or "—"
+    return None, tag
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--results", default="results")
@@ -158,6 +172,32 @@ def main() -> None:
                 f"| {m} | {fmt(win_rate(by_model[m], ref), 3)} "
                 f"| {fmt(geometric_mean_skill(by_model[m], ref), 3)} "
                 f"| {fmt(ranks[m], 2)} |")
+
+    # Transferability: pair each model's intra-site (S1) and extra-site (S2)
+    # rows on the same dataset-suffix → generalization gap + retention ratio.
+    transfer: dict[tuple[str, str], dict[str, dict]] = {}
+    for r in rows:
+        scen, suffix = scenario_of(r["tag"])
+        if scen is None:
+            continue
+        transfer.setdefault((r["model"], suffix), {})[scen] = r
+    pairs = {k: v for k, v in transfer.items() if "intra" in v and "extra" in v}
+    if pairs:
+        lines += ["", "## Transferability — intra-site (S1) → extra-site (S2)", "",
+                  "_Gap Δ = NRMSE(extra) − NRMSE(intra), lower = more transferable. "
+                  "Retention R = SS(extra) / SS(intra), →1 = accuracy transfers._", "",
+                  "| Model | Suffix | NRMSE intra | NRMSE extra | Gap Δ ↓ "
+                  "| SS intra | SS extra | Retention R ↑ |",
+                  "|---|---|---|---|---|---|---|---|"]
+        for (model, suffix) in sorted(pairs, key=lambda k: (TIER_RANK[MODEL_TIER[k[0]]], k[0])):
+            intra, extra = pairs[(model, suffix)]["intra"], pairs[(model, suffix)]["extra"]
+            gap = (None if intra["nrmse"] is None or extra["nrmse"] is None
+                   else extra["nrmse"] - intra["nrmse"])
+            ss_i, ss_e = intra["skill_score"], extra["skill_score"]
+            ret = (ss_e / ss_i if ss_i not in (None, 0) and ss_e is not None else None)
+            lines.append(
+                f"| {model} | {suffix} | {fmt(intra['nrmse'])} | {fmt(extra['nrmse'])} "
+                f"| {fmt(gap)} | {fmt(ss_i, 3)} | {fmt(ss_e, 3)} | {fmt(ret, 3)} |")
 
     Path(args.md).write_text("\n".join(lines) + "\n")
     Path(args.json).write_text(json.dumps(
