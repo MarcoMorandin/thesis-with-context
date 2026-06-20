@@ -260,26 +260,23 @@ def main() -> None:
     val_sites = sites_for(splits, "val")
 
     if args.lopo_dataset:
-        # Leave-one-plant-out rotation (§4.1): each plant of the dataset is
-        # the test fold once, the next plant in rotation provides early-stop
-        # validation, all remaining plants train. Other datasets keep their
-        # committed split roles. Reported as mean ± std over folds.
+        # Leave-one-plant-out rotation (§4.1): each plant of the dataset is the
+        # test fold once, the next plant in rotation provides early-stop
+        # validation, all remaining plants train. LOPO is WITHIN-dataset: pooling
+        # another dataset's plants into train/val would put two cadences in one
+        # WindowDataset (uk_pv 48/day + goes_pvdaq 96/day → "steps_per_day=[48,
+        # 96]"), which §4.1.1 forbids ("never pool raw step-horizon metrics across
+        # cadences"). Scope df + every fold to the lopo dataset so windows share a
+        # single cadence. Reported as mean ± std over folds.
         if args.lopo_dataset not in splits:
             raise SystemExit(f"unknown dataset {args.lopo_dataset!r}; "
                              f"known: {sorted(splits)}")
         if args.in_domain:
             raise SystemExit("--lopo-dataset and --in-domain are exclusive")
+        args.train_datasets = args.eval_datasets = [args.lopo_dataset]
         plants = sorted({
             s for part in splits[args.lopo_dataset].values() for s in part
         })
-        other_train = {
-            s for ds, parts in splits.items()
-            if ds != args.lopo_dataset for s in parts["train"]
-        } & train_sites
-        other_val = {
-            s for ds, parts in splits.items()
-            if ds != args.lopo_dataset for s in parts["val"]
-        }
         per_fold: dict[str, list[dict]] = {}
         for i, plant in enumerate(plants):
             val_plant = plants[(i + 1) % len(plants)]
@@ -287,8 +284,8 @@ def main() -> None:
                        f"lopo_{args.lopo_dataset}_fold{i:02d}"
             overalls = evaluate_suite(
                 args, df,
-                train_sites=other_train | (set(plants) - {plant, val_plant}),
-                val_sites=other_val | {val_plant},
+                train_sites=set(plants) - {plant, val_plant},
+                val_sites={val_plant},
                 eval_sites={plant},
                 train_range=None, eval_range=None,
                 tag=fold_tag, model_kwargs=model_kwargs,
