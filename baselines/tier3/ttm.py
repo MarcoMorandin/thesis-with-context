@@ -1,6 +1,7 @@
-"""TTM-R3 baseline wrappers (Tier 3, P2).
+"""TTM (TinyTimeMixer) baseline wrappers (Tier 3, P2).
 
-Provides zero-shot and fine-tuned configurations wrapping IBM's TinyTimeMixer-R3 model.
+Zero-shot and fine-tuned configs over IBM's TTM-R2 (granite-timeseries-ttm-r2),
+loaded via tsfm_public.get_model — see TTMR3ZS for why not the r3 checkpoint.
 """
 
 from __future__ import annotations
@@ -10,6 +11,23 @@ import numpy as np
 from common import config
 from common.base import Baseline, Forecast, register
 from common.windows import WindowDataset
+
+
+def _ttm_forward(model, past_values, past_observed_mask=None):
+    """Forward a TTM model, supplying freq_token for frequency-prefix-tuned
+    variants (get_model selects FT variants at context_length ≤ 512, whose
+    forward raises 'Expecting freq_token' otherwise). Token 0 = generic/default
+    resolution. Plain variants and the dummy model ignore the extra kwargs."""
+    import torch
+
+    kw = {"past_values": past_values}
+    if past_observed_mask is not None:
+        kw["past_observed_mask"] = past_observed_mask
+    if getattr(model.config, "resolution_prefix_tuning", False):
+        kw["freq_token"] = torch.zeros(
+            past_values.shape[0], dtype=torch.long, device=past_values.device
+        )
+    return model(**kw)
 
 
 @register
@@ -94,8 +112,7 @@ class TTMR3ZS(Baseline):
             observed = observed.to(self._device)
 
         with torch.no_grad():
-            outputs = self._model(past_values=past_values,
-                                  past_observed_mask=observed)
+            outputs = _ttm_forward(self._model, past_values, observed)
             pred = outputs.prediction_outputs
 
         pred_np = pred[:, :horizon, 0].cpu().numpy()
@@ -207,7 +224,7 @@ class TTMR3FT(Baseline):
                 mask = (batch["mask_future"] * batch["daylight_future"]).to(self._device)
 
                 optimizer.zero_grad()
-                outputs = self._model(past_values=past_values)
+                outputs = _ttm_forward(self._model, past_values)
                 pred = outputs.prediction_outputs[:, :y_future.shape[1], 0]
 
                 loss = point_loss(pred, y_future, mask)
@@ -232,7 +249,7 @@ class TTMR3FT(Baseline):
                     y_future = batch["y_future"].to(self._device)
                     mask = (batch["mask_future"] * batch["daylight_future"]).to(self._device)
 
-                    outputs = self._model(past_values=past_values)
+                    outputs = _ttm_forward(self._model, past_values)
                     pred = outputs.prediction_outputs[:, :y_future.shape[1], 0]
 
                     loss = point_loss(pred, y_future, mask)
@@ -274,7 +291,7 @@ class TTMR3FT(Baseline):
         past_values = past_values.to(self._device)
 
         with torch.no_grad():
-            outputs = self._model(past_values=past_values)
+            outputs = _ttm_forward(self._model, past_values)
             pred = outputs.prediction_outputs[:, :horizon, 0].cpu().numpy()
 
         point = np.clip(pred, 0.0, 1.0)
