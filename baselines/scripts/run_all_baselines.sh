@@ -52,6 +52,11 @@ CKPT_DIR="${CKPT_DIR:-${TEAM_SCRATCH}/checkpoints}"
 SEEDS="${SEEDS:-42 43 44}"
 GROUP="${GROUP:-tier3}"
 RUN_LOPO="${RUN_LOPO:-0}"
+# S2 protocol is single-dataset (uk_pv). dataset_all.parquet mixes uk_pv (48
+# steps/day) + goes_pvdaq (96); a combined WindowDataset rejects the non-uniform
+# cadence ("steps_per_day=[48, 96]"). Scope every run_eval call to one dataset.
+DS="${DS:-uk_pv}"
+DSFLAGS="--train-datasets $DS --eval-datasets $DS"
 
 # vendored-model uv envs
 ENV_TIMEVLM="${ENV_TIMEVLM:-timevlm}"; ENV_VISIONTS="${ENV_VISIONTS:-visionts}"
@@ -117,11 +122,11 @@ echo ">>> planning tasks"
 
 # Tier 3 zero-shot (uv venv, 1 GPU each, unique tag avoids reference races)
 for m in chronos2_zs timesfm_zs tirex_zs ttm_zs; do
-    add "$m" "uv run --group $GROUP python run_eval.py --model $m --data '$DATA' --tag s2_$m"
+    add "$m" "uv run --group $GROUP python run_eval.py --model $m --data '$DATA' --tag s2_$m $DSFLAGS"
 done
 # Tier 3/4 trained (3 seeds inside one invocation)
 for m in chronos2_ft ttm_ft cora; do
-    add "$m" "uv run --group $GROUP python run_eval.py --model $m --data '$DATA' --tag s2_$m --seeds $SEEDS"
+    add "$m" "uv run --group $GROUP python run_eval.py --model $m --data '$DATA' --tag s2_$m --seeds $SEEDS $DSFLAGS"
 done
 # Tier 2 deep baselines (tslib: mlp/dlinear/patchtst/itransformer/tft). These
 # auto-select GPU via tslib.trainer.resolve_device, so they belong in the GPU
@@ -129,7 +134,7 @@ done
 # Phase B behind them. One GPU + 3 seeds each; unique --tag s2_$m keeps each
 # task's smart_persistence reference write off the shared s2 reference.
 for m in mlp dlinear patchtst itransformer tft; do
-    add "$m" "uv run --group $GROUP python run_eval.py --model $m --data '$DATA' --tag s2_$m --seeds $SEEDS"
+    add "$m" "uv run --group $GROUP python run_eval.py --model $m --data '$DATA' --tag s2_$m --seeds $SEEDS $DSFLAGS"
 done
 # Optional goes leave-one-plant-out (heavy; §4.1)
 if [[ "$RUN_LOPO" == 1 ]]; then
@@ -211,7 +216,7 @@ uv run --group "$GROUP" python -m common.splits --data "$DATA" || true
 ( CUDA_VISIBLE_DEVICES="" uv run --group "$GROUP" python run_eval.py \
     --model persistence smart_persistence climatology_hourly seasonal_naive \
             lightgbm \
-    --data "$DATA" --tag s2 --seeds $SEEDS ) > "$LOGDIR/tier0_2_cpu.log" 2>&1 &
+    --data "$DATA" --tag s2 --seeds $SEEDS $DSFLAGS ) > "$LOGDIR/tier0_2_cpu.log" 2>&1 &
 CPU_PID=$!
 # uk_pv CSV export the RAG originals read (single canonical copy)
 uv run python tier4/vendor/export_ukpv.py --data "$DATA" --out "$UKPV_CSV_DIR" \
