@@ -17,9 +17,11 @@ baseline-contract gate (`tier4/vendor/contract_check.py`) and skips the heavy ru
 Per the agreed plan we report **two rows per method**:
 - **`*_orig` (faithful)** — Chronos-Bolt backbone, the authors' native **ctx-512 / pred-64**
   regime, their **pretrained** ARM / cross-attention checkpoints.
-- **`*_proto` (protocol-conformant)** — same code re-run at **T=24 / H=12** (our protocol),
-  mixers **re-pretrained** on uk_pv train plants (the released checkpoints are 512/64 and
-  do not transfer to 24/12).
+- **`*_proto` (protocol-conformant)** — same code re-run at our protocol horizon (H=12, 6 h),
+  mixers **re-pretrained** on uk_pv train plants. ⚠️ The protocol context is now **14 days
+  (672 steps on uk_pv)**, not the legacy T=24 — `slurm_rag_original.sh` still sets the proto
+  regime to `SEQ_LEN=24`; bump it to 672 for strict input-parity with the rest of the suite.
+  (The `*_orig` ctx-512 regime is already ≈10.7 days, close to the protocol context.)
 
 > **This is cluster-only work.** It will not run on the MacBook (needs CUDA, `faiss-gpu`,
 > multi-GB checkpoints) and **cannot share the `baselines/` virtualenv** — the upstream
@@ -115,23 +117,24 @@ python zeroshot.py \
 Cross-RAG: `script/Cross-RAG-zeroshot.sh` with `RETRIEVE_SPACE=X`, `top_k=15`, same backbone.
 Loop over the 14 test plants; ≥3 seeds where the data order is stochastic.
 
-> Caveat for the table: 512/64 is **not** input-parity with the other tiers (T=24/H=12).
-> Mark the `*_orig` rows as "native-regime, Chronos-Bolt backbone"; they answer
-> "does the published method, as published, beat us?" not the parity question.
+> Caveat for the table: 512/64 is close on context (≈10.7 days) but not horizon-parity
+> with the other tiers (H=12, 6 h). Mark the `*_orig` rows as "native-regime, Chronos-Bolt
+> backbone"; they answer "does the published method, as published, beat us?" not the parity
+> question.
 
-## 5. Protocol-conformant rows (`*_proto`) — T=24 / H=12
+## 5. Protocol-conformant rows (`*_proto`) — 14-day context / H=12
 
 The released ARM/cross-attn checkpoints are 512/64 and will not transfer. Re-pretrain at
-our regime (`pretrain.py`), then zero-shot at 24/12:
+our regime (`pretrain.py`), then zero-shot at the protocol context/horizon (uk_pv 672/12):
 
 ```bash
 # pretrain the mixer on uk_pv train plants, frozen Chronos-Bolt
-python pretrain.py --context_length 24 --prediction_length 12 \
-  --retrieve_lookback_length 24 --top_k 10 --augment_mode moe \
+python pretrain.py --context_length 672 --prediction_length 12 \
+  --retrieve_lookback_length 672 --top_k 10 --augment_mode moe \
   --retrieval_database_path <ukpv_train_pairs>.parquet \
   --data_path <ukpv_pretrain_pairs_dir> --freeze_chronos_bolt \
   --train_steps 10000 --batch_size 256 --learning_rate 3e-5
-# then zeroshot.py as in §4 but --seq_len 24 --pred_len 12 --lookback_length 24
+# then zeroshot.py as in §4 but --seq_len 672 --pred_len 12 --lookback_length 672
 #   --checkpoint_model_path <the_new_24_12_checkpoint>
 ```
 

@@ -23,7 +23,7 @@
 | **Model**                                                | **Author**   | **Date Published** | **Architecture & Key Features**                                                                                                        |
 | -------------------------------------------------------- | ------------ | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------- |
 | **[Chronos-2](https://arxiv.org/abs/2510.15821)**        | Amazon       | Oct 2025           | A pretrained transformer capable of handling univariate, multivariate, and covariate-informed forecasting tasks in a zero-shot manner. |
-| **[TTM-R3](https://huggingface.co/ibm-research/ttm-r3)** | IBM Research | Feb 2025           | A fast MoE-based zero/few-shot TS foundation model using linear gating-based attention and trend-residual decomposition.               |
+| **[TTM](https://huggingface.co/ibm-granite/granite-timeseries-ttm-r2)** | IBM Research | 2024–2025           | A fast lightweight (≈1–5M param) MLP-Mixer zero/few-shot TS foundation model with gated mixing and (r3) trend–residual decomposition. **Repo uses TTM-R2** (`granite-timeseries-ttm-r2`) via `tsfm_public.get_model`; the r3 decomposition checkpoint is incompatible with tsfm_public 0.3.2 (weights load random). |
 
 ### Time Series Only
 

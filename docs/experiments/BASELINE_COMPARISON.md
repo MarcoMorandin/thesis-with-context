@@ -49,7 +49,7 @@ All Tier-2 models come essentially free via the [Time-Series-Library](https://gi
 | Chronos-2 (ZS + FT) | `Y` (+`X_cov` group attention) | Our own backbone; ZS = H0 anchor | ✅ `baselines/tier3/` (A00; runs pending) |
 | **TimesFM 2.5** (ZS) | `Y` | Independent TSFM family — shows H3 results are not Chronos-specific | ✅ **P0** `baselines/tier3/` |
 | **TiRex** (ZS) | `Y` | xLSTM family, top GIFT-Eval ZS performer; third architecture family | ✅ P1 `baselines/tier3/` |
-| TTM-R3 (ZS/FT) | `Y, X_cov` | Tiny-model counterpoint (does scale matter?) | ✅ P2 `baselines/tier3/` (no missing-value mask: short histories zero-padded) |
+| TTM (ZS/FT) | `Y, X_cov` | Tiny-model counterpoint (does scale matter?) | ✅ P2 `baselines/tier3/` — **TTM-R2** (`ibm-granite/granite-timeseries-ttm-r2`) via `tsfm_public.get_model`. *Not R3*: the r3 HF checkpoint is a trend+residual decomposition model whose keys don't load into tsfm_public 0.3.2 (all weights end up random). Short history is edge-padded + `past_observed_mask` (not zero-padded); FT variants get `freq_token`. |
 | Toto-2 / Moirai-2 (ZS) | `Y` | Optional breadth; only if leaderboard framing needed | ➕ P2 |
 
 > **Top-tier rule of thumb**: ≥3 distinct TSFM families evaluated zero-shot on the same protocol. With Chronos-2 + TimesFM 2.5 + TiRex this box is checked.
@@ -68,8 +68,8 @@ All Tier-2 models come essentially free via the [Time-Series-Library](https://gi
 | Model | Real images? | Why | Status |
 |---|---|---|---|
 | **Time-VLM** | ❌ (renders TS as image) | Must show that *real* satellite frames beat TS-rendered pseudo-images | ✅ **P0** vendored `tier5/vendor/time_vlm` — numerical track (uk_pv), runnable (TIER5_INTEGRATION.md) |
-| **UniCast** ([arXiv:2508.11954](https://arxiv.org/abs/2508.11954)) | ✅ soft-prompt vision+text into TSFM | Frozen-FM multimodal prompting — same design space as ours, weaker fusion. Ideal contrast for H2 (deep fusion > prompting). | ✅ P1 vendored `tier5/vendor/unicast` — multimodal track (blocked on image+text data) |
-| **Aurora** ([arXiv:2509.22295](https://arxiv.org/abs/2509.22295)) | ✅ multimodal TSFM, ZS probabilistic | Generative multimodal TSFM; covers the "why not just use a multimodal TSFM" question | ✅ P2 vendored `tier5/vendor/aurora` — multimodal track (blocked) |
+| **UniCast** ([arXiv:2508.11954](https://arxiv.org/abs/2508.11954)) | ✅ soft-prompt vision+text into TSFM | Frozen-FM multimodal prompting — same design space as ours, weaker fusion. Ideal contrast for H2 (deep fusion > prompting). | ✅ P1 vendored `tier5/vendor/unicast` — runs on the uk_pv multimodal track (CLIP vision; text path skipped when no text encoder). |
+| **Aurora** ([arXiv:2509.22295](https://arxiv.org/abs/2509.22295)) | ✅ multimodal TSFM, ZS probabilistic | Generative multimodal TSFM; covers the "why not just use a multimodal TSFM" question | ✅ P2 vendored `tier5/vendor/aurora` — runs zero-shot on uk_pv. |
 | VisionTS++ | ❌ (TS→image) | Cite + position; run only if reviewers demand | ✅ P2 vendored `tier5/vendor/visionts_pp` — numerical track (uk_pv) |
 
 ### Tier 6 — PV-specialized multimodal (domain SOTA)
@@ -149,7 +149,7 @@ Every model consumes only the canonical dict from [DATASET_CONTRACT.md](../conte
 | PVTSFM (ours) | ✅ | ✅ | ✅ | optional (H4) | — |
 
 Rules (inherited from BASELINE_PROTOCOL.md, restated as hard constraints):
-- Same `T`(=24), `H`(=12 primary, 48 long-horizon), `T_v`(=8), cadence, and normalization for everyone.
+- Same context (`T` = 14 days physical → 672 steps `uk_pv` / 1344 `goes_pvdaq`), `H` (6 h primary, plus the {1,6,24} h decay set), `T_v`(=8 over a short recent window), cadence, and normalization for everyone (BASELINE_PROTOCOL §3). Context length is itself a fairness variable — never compare models at different `T`.
 - Disjoint train/val/test **plants**; no per-test-plant statistics anywhere (including normalizers — use train-plant or capacity normalization only).
 - No clear-sky-index physics inside models (Smart Persistence exempt, it *is* the physics reference).
 - Multimodal models that natively want text (Solar-VLM) may generate weather text only from covariates available to all — no external weather APIs.
@@ -185,7 +185,7 @@ PVTSFM, vision controls A09-A14):
 | `uk_pv` | 100 plants, 30-min | `(N,128,128)` gray | all tiers |
 | `goes_pvdaq` | 10 plants, 15-min | `(N,256,256,3)` RGB | all tiers |
 
-Window sizes are defined in **steps**, so the physical lead time differs by cadence: at H=12, `uk_pv` forecasts 6 h ahead and `goes_pvdaq` 3 h ahead (T=24 history = 12 h vs 6 h). Consequences (hard rules):
+Windows are defined in **physical time** (context 14 days, horizon 6 h) and resolved to steps per cadence, so the *step* count differs: context 672 (`uk_pv`) vs 1344 (`goes_pvdaq`), horizon 12 vs 24. The physical horizon is identical (6 h) across datasets; the physical context is identical (14 days). Consequences (hard rules):
 1. Report the **physical lead time next to every per-dataset table**; never present mixed-cadence step-horizons as the same forecasting task.
 2. Cross-dataset comparisons aggregate only via the scale-free §4.4 statistics (win rate, geometric-mean skill, average rank) — never pooled raw metrics. This also covers the cadence mismatch.
 3. S3 transfer between `uk_pv` and `goes_pvdaq` involves a cadence shift as well as a domain shift; state both. As a robustness check (P1), repeat S3 with `goes_pvdaq` resampled to 30 min so the step-horizon and physical horizon coincide.
@@ -321,7 +321,7 @@ Mandatory assertions:
 5. **TS-RAG, then CoRA** (both wrap frozen Chronos-2; reuse harness from step 3).
 6. **SUNSET, CrossViVit ports** (public code; CrossViVit is the heaviest port).
 7. **Solar-VLM runs** (port exists; SLURM).
-8. P1/P2 stragglers (SPIRIT, UniCast, TTM-R3, Aurora) only if time or reviewers demand.
+8. P1/P2 stragglers (SPIRIT, UniCast, TTM, Aurora) only if time or reviewers demand.
 
 Register every run in [ABLATION_REGISTRY.md](ABLATION_REGISTRY.md) before launch; new IDs A09–A15 defined in §1 Tier 7.
 
@@ -334,7 +334,7 @@ Register every run in [ABLATION_REGISTRY.md](ABLATION_REGISTRY.md) before launch
 | Chronos-2 | https://arxiv.org/abs/2510.15821 |
 | TimesFM 2.5 | https://huggingface.co/google/timesfm-2.5-200m-pytorch |
 | TiRex | https://arxiv.org/abs/2505.23719 |
-| TTM-R3 | https://huggingface.co/ibm-research/ttm-r3 |
+| TTM-R2 (used; r3 incompatible with tsfm_public 0.3.2) | https://huggingface.co/ibm-granite/granite-timeseries-ttm-r2 |
 | CoRA | https://arxiv.org/abs/2510.12681 |
 | TS-RAG | https://arxiv.org/abs/2503.07649 |
 | Cross-RAG | https://arxiv.org/abs/2603.14709 |

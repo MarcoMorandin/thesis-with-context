@@ -56,10 +56,10 @@ During evaluation on a test plant:
 Unless overridden by a specific dataset-level configuration, the default temporal configurations are:
 
 * **Granularity**: Intra-hour, native per dataset — no resampling. Numerical track: `uk_pv` 30-minute, `goes_pvdaq` 15-minute steps.
-* **History Window (\(T\))**: 24 steps (12 h on `uk_pv`, 6 h on `goes_pvdaq`).
-* **Forecasting Horizon (\(H\))**: 12 steps (6 h on `uk_pv`, 3 h on `goes_pvdaq`) up to a long horizon of 48 steps to verify long-term decay.
-* **Visual Frame Cadence (\(T_v\))**: 8 frames, sampled at a decoupled resolution matching the physical satellite/sky cam intervals.
-* **Cadence rule**: windows are defined in *steps*, so the physical lead time differs across datasets. Report the physical lead time next to every per-dataset table and aggregate across datasets only with scale-free statistics (win rate / geometric-mean skill / rank — BASELINE_COMPARISON §4.4); never pool raw step-horizon metrics across cadences. See BASELINE_COMPARISON §4.1.1.
+* **History Window (\(T\))**: **14 days, defined in physical time** and resolved per dataset via each series' cadence — `uk_pv` **672 steps** (30-min), `goes_pvdaq` **1344 steps** (15-min). This is deployment-realistic (≥2 weeks of history is available for a new plant) and gives every model multiple diurnal cycles, which sub-daily contexts denied the foundation models. `common/config.py` holds `HISTORY_DAYS = 14`; `common/windows.py` converts it to steps via `steps_per_day`. The step-based `--history` flag overrides it (low-history robustness sweep, §5 of BASELINE_COMPARISON). Foundation models with a fixed maximum context (e.g. TimesFM 1024) consume their most-recent supported window.
+* **Forecasting Horizon (\(H\))**: **6 h** (`uk_pv` 12 steps, `goes_pvdaq` 24 steps); `common/config.py` holds `HORIZON_HOURS = 6`. Report the skill-decay curve at `DECAY_HORIZONS_HOURS = (1, 6, 24)` h (day-ahead included). Step-based `--horizon` overrides for the long-horizon scenario (S4).
+* **Visual Frame Cadence (\(T_v\))**: 8 frames over a short recent window (3–6 h), decoupled from the TS history (long TS context + short visual window). Vision carries signal only over the cloud-advection horizon, so widening it past a few hours adds cost, not signal.
+* **Cadence rule**: physical-time windows make the *step* count differ across datasets (672 vs 1344 at 14 days). Report the physical lead time next to every per-dataset table and aggregate across datasets only with scale-free statistics (win rate / geometric-mean skill / rank — BASELINE_COMPARISON §4.4); never pool raw step-horizon metrics across cadences. See BASELINE_COMPARISON §4.1.1.
 
 ---
 

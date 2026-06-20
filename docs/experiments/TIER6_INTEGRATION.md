@@ -89,7 +89,13 @@ sbatch --export=ALL,CONDA_ENV=sunset,DATA=<dataset_all.parquet>,\
        IMAGES_H5=<images_all.h5> scripts/slurm_sunset.sh
 ```
 
-Both default to seq_len=24 / pred_len=12 (our protocol), img_size=64, stride 3.
+Both default to `pred_len=12` (6 h), img_size=64, stride 3, and a **short history window**
+(`--history 24`). Unlike the rest of the suite (14-day context), CrossViViT and SUNSET
+intentionally stay short: their visual tensor is materialized per history step
+(`V = (history, C, S, S)`), so a 14-day history would mean 672 frames/window (OOM), and
+both models only consume a short window anyway (CrossViViT reads `V[-H:]`; SUNSET stacks
+all frames as conv channels). This is a documented, architecture-driven deviation from the
+14-day protocol (BASELINE_PROTOCOL §3) — report their physical context next to the rows.
 
 ### How each runner uses the original model
 

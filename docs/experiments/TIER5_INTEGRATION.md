@@ -10,17 +10,16 @@ contract/dataset, not reimplemented. **Cluster-only** (heavy VLM/MAE/Chronos sta
 |---|---|---|---|---|
 | **Time-VLM** | numerical (uk_pv) | `Y` → pseudo-image (+auto text) | ✅ yes | P0 |
 | **VisionTS++** | numerical (uk_pv) | `Y` → image (MAE) | ✅ yes | P2 |
-| **UniCast** | uk_pv multimodal (images) | `Y` + real CLIP/BLIP frames + text | ✅ via `tier5/uk_export.py` | P1 |
-| **Aurora** | uk_pv (TS + **text**) | `Y` + BERT text (**no image branch**) | ✅ via `tier5/uk_export.py` | P2 |
+| **UniCast** | uk_pv multimodal (images) | `Y` + real CLIP frames | ✅ via `tier5/uk_export.py` + `slurm_unicast.sh` | P1 |
+| **Aurora** | uk_pv (zero-shot) | `Y` (generative MTSFM) | ✅ via `run_ukpv.py` + `slurm_aurora.sh` | P2 |
 
 Time-VLM / VisionTS++ render the series itself as an image and need **no satellite
 frames** → they run on the numerical uk_pv track and match our `Y → ŷ` contract.
-UniCast needs **real frames** — available in `images_all.h5` (pointer `image_h5_index`). Aurora is
-**TS + text** (its `Aurora_Single_Dataset` reads a CSV + JSON text, no image input), so
-uk images do not apply; it was blocked on the per-window text. `tier5/uk_export.py`
-emits each model's native on-disk format from the shared `tier6.uk_multimodal` bridge,
-so both now run on uk_pv (gated only on their backbone weights — CLIP/BLIP + Chronos-Bolt
-for UniCast, the Aurora checkpoint).
+UniCast needs **real frames** — available in `images_all.h5` (pointer `image_h5_index`);
+`tier5/uk_export.py --model unicast` emits its native layout from the shared
+`tier6.uk_multimodal` bridge and `slurm_unicast.sh` trains+evaluates (gated only on the
+CLIP + Chronos-Bolt weights). Aurora runs **zero-shot** on the uk_pv `Y` series via its
+`run_ukpv.py` (`slurm_aurora.sh`), gated only on the Aurora checkpoint.
 
 ---
 
@@ -43,10 +42,9 @@ Capacity de-normalisation + the baseline-contract check on outputs reuse
 
 > **Dataset of record** (DATASET_CONTRACT.md §1.0): `thesis-dataset/dataset_all.parquet`
 > + `images_all.h5`, canonical frame pointer `image_h5_index` (both `uk_pv` 128px
-> gray and `goes_pvdaq` 256px RGB). **Code repoint needed:** the shared
-> `tier6.uk_multimodal` bridge (`DEFAULT_H5`, `FRAME_IDX_COL`) still hardcodes the
-> **now-removed** files — point it at `images_all.h5` / `image_h5_index` to run on
-> the dataset of record and to add a `goes_pvdaq` multimodal run.
+> gray and `goes_pvdaq` 256px RGB). The shared `tier6.uk_multimodal` bridge reads
+> `images_all.h5` / `image_h5_index` (verified: UniCast exported and trained on the
+> real frames). A `goes_pvdaq` multimodal run reuses the same bridge.
 
 ## 1. Environments (one per model; never share the `baselines/` venv)
 
@@ -89,13 +87,16 @@ contract-check end-to-end. Submit from `baselines/`; everything is set up in the
 | Aurora | `scripts/slurm_aurora.sh` | fine-tune (gated) | multimodal (gated) |
 
 ```bash
-sbatch --export=ALL,CONDA_ENV=timevlm,DATA=<parquet> scripts/slurm_time_vlm.sh
-sbatch --export=ALL,CONDA_ENV=visionts,MAE_CKPT=<ckpt>,DATA=<parquet> scripts/slurm_visionts_pp.sh
-# UniCast / Aurora fail loud until the multimodal dataset (frames+text) exists:
-sbatch --export=ALL,CONDA_ENV=unicast,MM_TRAIN=…,MM_TEST=…,MM_TEXT=…,CHRONOS_PATH=…,VISION_MODEL=…,TEXT_MODEL=… scripts/slurm_unicast.sh
-sbatch --export=ALL,CONDA_ENV=aurora,AURORA_CKPT=…,MM_DATASET=… scripts/slurm_aurora.sh
+sbatch --export=ALL,VENV_NAME=timevlm,DATA=<parquet> scripts/slurm_time_vlm.sh
+sbatch --export=ALL,VENV_NAME=visionts,MAE_CKPT=<ckpt>,DATA=<parquet> scripts/slurm_visionts_pp.sh
+# UniCast: real CLIP frames from images_all.h5 (gated on CLIP + Chronos-Bolt weights)
+sbatch --export=ALL,VENV_NAME=unicast,VISION_MODEL=CLIP,VISION_MODEL_PATH=…,CHRONOS_PATH=…,IMAGES_H5=… scripts/slurm_unicast.sh
+# Aurora: zero-shot on uk_pv (gated on the Aurora checkpoint)
+sbatch --export=ALL,VENV_NAME=aurora,AURORA_CKPT=… scripts/slurm_aurora.sh
 ```
-Time-VLM / VisionTS++ run at seq_len=24/pred_len=12 (our protocol) on uk_pv now.
+All four also run via the master orchestrator (`scripts/run_all_baselines.sh`), which
+sets each model's env and skips any whose weights/uv-env are missing.
+Time-VLM / VisionTS++ run at the protocol context on uk_pv: `seq_len=672` (14 days @ 30-min) / `pred_len=12` (6 h). Aurora uses `CTX=672`; solar_vlm `seq_len=672` with vision decoupled (`num_frames=8`). These are the slurm-script defaults — override via `SEQ_LEN`/`CTX`.
 
 ## 4. Metrics back into our pipeline (wired)
 
@@ -131,13 +132,14 @@ the table (they also apply to the Tier-4 RAG originals):
 - [x] Metric import wired: `scripts/import_predictions.py` (npz → results JSON) called by
       each SLURM script; `summarize_ukpv.py` + `make_tables.py` carry the Tier-5 rows.
 - [x] UniCast on uk_pv: `tier5/uk_export.py --model unicast` builds its image layout
-      from `images_all.h5`; `slurm_unicast.sh` exports → trains → per-plant test
-      (`--dump_npz`, added) → import (tag `s2_ukpv_mm`). Export verified on real data;
-      model run gated only on the CLIP/BLIP + Chronos-Bolt weights.
-- [x] Aurora on uk_pv: it is **TS + text** (no image branch); `tier5/uk_export.py
-      --model aurora` emits per-series CSV + weather text; `slurm_aurora.sh` consumes it.
-      Export verified; eval-output → npz dump is the remaining cluster step.
-- [ ] First **cluster validation** run (none of this is laptop-runnable — verify on Leonardo).
+      from `images_all.h5`; `slurm_unicast.sh` exports → trains (CLIP) → per-plant test
+      (`--dump_npz`) → import (tag `s2_ukpv_mm`). **Ran end-to-end on Leonardo** (15 test
+      plants); the vendored test script's hardcoded `output_dir` was fixed to `$TMPDIR`.
+- [x] Aurora on uk_pv: **zero-shot** via `run_ukpv.py` (`slurm_aurora.sh`), dumps
+      `aurora_*_pred.npz` → import.
+- [x] First **cluster validation**: UniCast/Time-VLM/VisionTS++/Aurora have run on
+      Leonardo (results in `results/*_s2_ukpv*.json`). Re-run pending after the
+      14-day-context + Time-VLM `--inverse` fixes.
 
 Tier-5 is **not** an in-process registry baseline (unlike Tiers 0-4): the upstream stacks
 are too heavy and conflict with our venv, so they run from their own code/env like the
