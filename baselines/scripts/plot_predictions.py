@@ -1,408 +1,336 @@
 #!/usr/bin/env python3
-"""Plot predictions from ALL baseline models on the same ground-truth windows.
+"""Plot prediction results clustered by model architecture.
 
-Reads `*_pred.npz` files in `baselines/results/predictions/`, automatically
-aligns forecast windows across models (which may have different strides and
-even different target scales such as Z-scored targets from time_vlm), and
-produces per-site comparison plots.
+Groups models into:
+1. classical_naive
+2. deep_ts
+3. ts_foundation
+4. multimodal_vision
 
-Usage (from project root):
-    uv run --with matplotlib --with numpy python baselines/scripts/plot_predictions.py
-    uv run --with matplotlib --with numpy python baselines/scripts/plot_predictions.py --site 10793 --num_plots 10
+Generates 5 plots per cluster inside a dedicated subfolder, and a final
+comparison plot in a 'comparison' folder showing the best model per cluster
+plus smart_persistence.
 """
 
 from __future__ import annotations
 
 import argparse
-import re
+import json
+import os
+import random
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 
-# ── Known multi-word model prefixes (order matters: longest first) ──────────
-# These are model names that contain digits or underscores that could confuse
-# the generic parser.  The filename convention is <model>_<site>_pred.npz.
-KNOWN_PREFIXES = [
-    "uk_pv_test",          # time_vlm's naming on Leonardo
-    "climatology_hourly",
-    "smart_persistence",
-    "seasonal_naive",
-    "visionts_pp",
-]
-
-# Display-name overrides
-DISPLAY_NAMES: dict[str, str] = {
-    "uk_pv_test": "Time-VLM",
-    "climatology_hourly": "Climatology (Hourly)",
-    "smart_persistence": "Smart Persistence",
-    "seasonal_naive": "Seasonal Naïve",
-    "visionts_pp": "VisionTS++",
-    "crossvivit": "CrossViViT",
-    "sunset": "SunSet",
-    "persistence": "Persistence",
-    "lightgbm": "LightGBM",
-    "dlinear": "DLinear",
-    "mlp": "MLP",
-    "patchtst": "PatchTST",
-    "itransformer": "iTransformer",
-    "tft": "TFT",
-    "timesfm_zs": "TimesFM (ZS)",
-    "ttm_zs": "TTM (ZS)",
-    "ttm_ft": "TTM (FT)",
-    "chronos2_zs": "Chronos-2 (ZS)",
-    "chronos2_ft": "Chronos-2 (FT)",
-    "cora": "CORA",
-    "tirex_zs": "TiRex (ZS)",
-    "aurora": "Aurora",
-    "solar_vlm": "Solar-VLM",
-    "ts_rag": "TS-RAG",
-    "cross_rag": "Cross-RAG",
-}
-
-# Tier ordering for legend: lower = plotted/listed first
-TIER_ORDER: dict[str, int] = {
-    "persistence": 0, "climatology_hourly": 0, "seasonal_naive": 0,
-    "smart_persistence": 0,
-    "lightgbm": 1,
-    "dlinear": 2, "mlp": 2, "patchtst": 2, "itransformer": 2, "tft": 2,
-    "timesfm_zs": 3, "ttm_zs": 3, "chronos2_zs": 3, "ttm_ft": 3,
-    "chronos2_ft": 3, "cora": 3, "tirex_zs": 3,
-    "ts_rag": 4, "cross_rag": 4,
-    "crossvivit": 5, "sunset": 5, "uk_pv_test": 5,
-    "visionts_pp": 6, "aurora": 6, "solar_vlm": 6,
-}
-
-# Color palette: distinct per tier
-TIER_COLORS: dict[int, list[str]] = {
-    0: ["#9e9e9e", "#bdbdbd", "#757575", "#616161"],    # greys for reference
-    1: ["#8d6e63"],                                       # brown
-    2: ["#42a5f5", "#1e88e5", "#1565c0", "#0d47a1", "#5c6bc0"],  # blues
-    3: ["#66bb6a", "#43a047", "#2e7d32", "#1b5e20", "#00897b", "#00695c"],  # greens
-    4: ["#ffa726", "#fb8c00"],                            # oranges
-    5: ["#ef5350", "#e53935", "#c62828"],                  # reds
-    6: ["#ab47bc", "#8e24aa", "#6a1b9a"],                  # purples
+# Define architectural clusters
+CLUSTERS = {
+    "classical_naive": [
+        "persistence",
+        "smart_persistence",
+        "climatology_hourly",
+        "seasonal_naive",
+        "lightgbm",
+    ],
+    "deep_ts": [
+        "mlp",
+        "dlinear",
+        "patchtst",
+        "itransformer",
+        "tft",
+    ],
+    "ts_foundation": [
+        "timesfm_zs",
+        "ttm_zs",
+        "ttm_ft",
+        "ts_rag_orig",
+        "cross_rag_orig",
+    ],
+    "multimodal_vision": [
+        "aurora",
+        "unicast",
+        "sunset",
+        "solar_vlm",
+    ],
 }
 
 
-def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description=__doc__,
-                                formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--predictions_dir", default="baselines/results/predictions",
-                    help="Directory containing *_pred.npz files")
-    p.add_argument("--output_dir", default="baselines/results/plots",
-                    help="Directory to save plots")
-    p.add_argument("--site", default=None,
-                    help="Site ID to plot (default: auto-select most-covered site)")
-    p.add_argument("--num_plots", type=int, default=10,
-                    help="Number of forecast windows to plot")
-    p.add_argument("--seed", type=int, default=42)
-    return p.parse_args()
+def parse_args():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--predictions-dir",
+        default="results/predictions",
+        help="Path to predictions directory containing *_pred.npz files",
+    )
+    parser.add_argument(
+        "--results-dir",
+        default="results",
+        help="Path to results directory containing performance JSON files",
+    )
+    parser.add_argument(
+        "--site",
+        default="10793",
+        help="Site ID to plot (e.g. 10793)",
+    )
+    parser.add_argument(
+        "--window",
+        type=int,
+        default=None,
+        help="Window index of the reference model to plot. If omitted, a random window is chosen.",
+    )
+    parser.add_argument(
+        "--num-plots",
+        type=int,
+        default=5,
+        help="Number of random plots to generate if --window is omitted.",
+    )
+    parser.add_argument(
+        "--out-dir",
+        default="plots",
+        help="Base output directory to save plots",
+    )
+    return parser.parse_args()
 
 
-# ── Filename → (model, site) parsing ───────────────────────────────────────
-
-def _parse_filename(stem: str) -> tuple[str, str] | None:
-    """Extract (model_key, site_id) from a filename stem like 'dlinear_10793_pred'."""
-    if not stem.endswith("_pred"):
-        return None
-    body = stem[: -len("_pred")]  # remove '_pred' suffix
-
-    # Try known multi-word prefixes first
-    for prefix in KNOWN_PREFIXES:
-        if body.startswith(prefix + "_"):
-            site = body[len(prefix) + 1:]
-            if site.isdigit():
-                return prefix, site
-
-    # Generic: last purely-numeric segment is the site id
-    m = re.match(r"^(.+?)_(\d+)$", body)
-    if m:
-        return m.group(1), m.group(2)
-    return None
-
-
-# ── Target-scale alignment (handles Z-score targets from time_vlm) ─────────
-
-def _needs_rescale(true_arr: np.ndarray) -> bool:
-    """Heuristic: if targets go outside [−0.1, 1.2] they are Z-scored."""
-    return float(true_arr.min()) < -0.2 or float(true_arr.max()) > 1.5
+def load_metrics(results_dir: Path, site: str) -> dict[str, float]:
+    """Load NMAE for each model at a specific site from results JSON files."""
+    metrics = {}
+    for f in results_dir.glob("*.json"):
+        if "predictions" in f.parts or f.name.endswith("_losses.npz"):
+            continue
+        try:
+            with open(f) as fh:
+                d = json.load(fh)
+            if "results" in d and "per_plant" in d["results"]:
+                per_plant = d["results"]["per_plant"]
+                if str(site) in per_plant:
+                    model_name = d.get("manifest", {}).get("model")
+                    if not model_name:
+                        # Fallback to parsing filename
+                        model_name = f.name.split("_s2_")[0].split("_orig_")[0]
+                    nmae = per_plant[str(site)].get("nmae")
+                    if nmae is not None:
+                        metrics[model_name] = min(metrics.get(model_name, float("inf")), nmae)
+        except Exception:
+            pass
+    return metrics
 
 
-def _rescale_to_norm(true_z: np.ndarray, pred_z: np.ndarray,
-                     ref_true: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Map Z-scored (true, pred) back to [0,1] norm_power space using a
-    reference model's true values for the same windows.
+def find_best_models(datasets: dict, nmaes: dict[str, float]) -> dict[str, str]:
+    """Find the best available model in each cluster based on NMAE."""
+    best_models = {}
+    for cluster_name, model_list in CLUSTERS.items():
+        available = [m for m in model_list if m in datasets]
+        if not available:
+            continue
+        
+        # Select available model with lowest NMAE
+        best_model = None
+        best_score = float("inf")
+        for m in available:
+            score = nmaes.get(m, float("inf"))
+            if score < best_score:
+                best_score = score
+                best_model = m
+                
+        # Fallback if no NMAE metric found
+        if best_model is None:
+            best_model = available[0]
+            
+        best_models[cluster_name] = best_model
+        print(f"  Best model for cluster '{cluster_name}': {best_model} (NMAE: {best_score:.4f})")
+    return best_models
 
-    Uses per-window linear regression: y_norm = slope * z + intercept.
-    Falls back to global stats if per-window fit is unstable.
-    """
-    # Global affine mapping from z → norm
-    z_flat, y_flat = true_z.ravel(), ref_true.ravel()
-    mask = np.isfinite(z_flat) & np.isfinite(y_flat) & (np.abs(z_flat) < 100)
-    if mask.sum() < 10:
-        return true_z, pred_z  # can't map
-    slope, intercept = np.polyfit(z_flat[mask], y_flat[mask], 1)
-    return true_z * slope + intercept, pred_z * slope + intercept
+
+def plot_window(
+    w_idx: int,
+    datasets: dict,
+    model_list: list[str],
+    ref_true: np.ndarray,
+    context_y: np.ndarray,
+    nmaes: dict[str, float],
+    title: str,
+    save_path: Path,
+):
+    """Plot context, ground truth, and a specific list of models for a window."""
+    plt.figure(figsize=(10, 6))
+    
+    # 1. Plot ground truth (Context + Future)
+    context_len = len(context_y)
+    context_x = np.arange(-context_len, 0)
+    plt.plot(context_x, context_y, color="black", linestyle="--", linewidth=2.0, label="True Context")
+    
+    future_x = np.arange(12)
+    plt.plot(future_x, ref_true, color="black", linestyle="-", linewidth=2.5, label="True Future")
+
+    # 2. Plot model predictions
+    for model_name in model_list:
+        if model_name not in datasets:
+            continue
+            
+        d = datasets[model_name]
+        m_true = d["true"]
+        m_pred = d["pred"]
+        
+        # Align by finding index j that minimizes MSE with ref_true
+        diff = m_true[:, :12] - ref_true
+        mse = np.mean(diff ** 2, axis=1)
+        best_j = np.argmin(mse)
+        
+        if mse[best_j] > 1e-2:  # Threshold allows slight scaling differences
+            continue
+            
+        pred_y = m_pred[best_j, :12]
+        
+        # Connect prediction to the last context point at x = -1
+        plot_x = np.arange(-1, 12)
+        plot_y = np.concatenate([[context_y[-1]], pred_y])
+        
+        # Legend label with metric if available
+        label = model_name
+        if model_name in nmaes:
+            label += f" (NMAE: {nmaes[model_name]:.4f})"
+        elif model_name.split("_")[0] in nmaes:
+            label += f" (NMAE: {nmaes[model_name.split('_')[0]]:.4f})"
+            
+        plt.plot(plot_x, plot_y, linewidth=1.5, alpha=0.85, label=label)
+
+    plt.title(title, fontsize=12, fontweight="bold")
+    plt.xlabel("Time Step (Relative to forecast start)", fontsize=10)
+    plt.ylabel("Normalized PV Power", fontsize=10)
+    plt.grid(True, linestyle=":", alpha=0.6)
+    plt.axvline(x=0, color="gray", linestyle=":", linewidth=1.2)
+    
+    plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left", borderaxespad=0.)
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=150)
+    plt.close()
 
 
-# ── Main ────────────────────────────────────────────────────────────────────
-
-def main() -> None:
+def main():
     args = parse_args()
-    rng = np.random.default_rng(args.seed)
-
     pred_dir = Path(args.predictions_dir)
-    out_dir = Path(args.output_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    results_dir = Path(args.results_dir)
+    base_out_dir = Path(args.out_dir)
 
     if not pred_dir.exists():
-        print(f"Error: '{pred_dir}' does not exist.")
+        print(f"Error: Predictions directory '{pred_dir}' does not exist.")
         return
 
-    # ── 1. Discover & group files by (model, site) ──────────────────────
-    npz_files = sorted(pred_dir.glob("*_pred.npz"))
-    if not npz_files:
-        print(f"Error: no *_pred.npz files in '{pred_dir}'.")
+    # Find all prediction files for this site
+    pattern = f"*_{args.site}_pred.npz"
+    pred_files = list(pred_dir.glob(pattern))
+    if not pred_files:
+        print(f"Error: No prediction files found matching '{pattern}' in '{pred_dir}'.")
         return
 
-    # site → {model_key: path}
-    site_models: dict[str, dict[str, Path]] = {}
-    for f in npz_files:
-        parsed = _parse_filename(f.stem)
-        if parsed is None:
-            print(f"  ⚠ skipping unrecognised file: {f.name}")
-            continue
-        model_key, site = parsed
-        site_models.setdefault(site, {})[model_key] = f
-
-    if not site_models:
-        print("Error: no parseable prediction files found.")
-        return
-
-    # ── 2. Pick site (most models, or user-specified) ────────────────────
-    if args.site:
-        if args.site not in site_models:
-            print(f"Error: site '{args.site}' not found. "
-                  f"Available: {sorted(site_models)}")
-            return
-        selected_site = args.site
-    else:
-        selected_site = max(site_models, key=lambda s: len(site_models[s]))
-
-    models_for_site = site_models[selected_site]
-    print(f"\nSite {selected_site}: {len(models_for_site)} models available")
-
-    # ── 3. Load all model predictions for this site ──────────────────────
-    models_data: dict[str, dict[str, np.ndarray]] = {}
-    for model_key, fpath in sorted(models_for_site.items()):
+    # Load all npz datasets
+    datasets = {}
+    for f in pred_files:
+        name_part = f.name[:-len(f"_pred.npz")]
+        model_name = "_".join(name_part.split("_")[:-1])
         try:
-            data = np.load(fpath)
-            pred = np.asarray(data["pred"], dtype=np.float64)
-            true = np.asarray(data["true"], dtype=np.float64)
-            # Squeeze trailing singleton dims (time_vlm stores (N,12,1))
-            if pred.ndim == 3 and pred.shape[-1] == 1:
-                pred = pred[..., 0]
-            if true.ndim == 3 and true.shape[-1] == 1:
-                true = true[..., 0]
-            models_data[model_key] = {"pred": pred, "true": true}
-            disp = DISPLAY_NAMES.get(model_key, model_key)
-            print(f"  ✓ {disp:25s}  windows={pred.shape[0]:6d}  "
-                  f"H={pred.shape[1]}  "
-                  f"true∈[{true.min():.3f}, {true.max():.3f}]")
+            data = np.load(f)
+            datasets[model_name] = {
+                "pred": data["pred"],
+                "true": data["true"]
+            }
         except Exception as e:
-            print(f"  ✗ {model_key}: {e}")
+            print(f"Warning: Failed to load {f.name}: {e}")
 
-    if not models_data:
-        print("No data loaded.")
+    if not datasets:
+        print("Error: Failed to load any datasets.")
         return
 
-    # ── 4. Rescale Z-scored models ───────────────────────────────────────
-    # Find a reference model in [0,1] scale to calibrate against
-    ref_key = None
-    for candidate in ["smart_persistence", "persistence", "visionts_pp",
-                       "sunset", "crossvivit"]:
-        if candidate in models_data and not _needs_rescale(
-                models_data[candidate]["true"]):
-            ref_key = candidate
-            break
-    if ref_key is None:
-        for k, v in models_data.items():
-            if not _needs_rescale(v["true"]):
-                ref_key = k
-                break
+    # Pick reference model
+    ref_candidates = [
+        m for m, d in datasets.items()
+        if d["true"].ndim == 2 and d["true"].shape[1] == 12
+    ]
+    if not ref_candidates:
+        print("Error: Could not find reference model with horizon 12.")
+        return
 
-    for model_key in list(models_data):
-        if _needs_rescale(models_data[model_key]["true"]):
-            if ref_key is None:
-                print(f"  ⚠ {model_key} appears Z-scored but no reference "
-                      "model available; skipping rescale")
-                continue
-            print(f"  → Rescaling {DISPLAY_NAMES.get(model_key, model_key)} "
-                  f"from Z-score to [0,1] using {ref_key}")
-            ref_true = models_data[ref_key]["true"]
-            zt = models_data[model_key]["true"]
-            zp = models_data[model_key]["pred"]
-            # Match windows between Z-scored and reference using correlation
-            # to build the affine mapping
-            nt, nz = ref_true.shape[0], zt.shape[0]
-            # Use random subset for speed
-            sample_ref = rng.choice(nt, min(500, nt), replace=False)
-            sample_z = rng.choice(nz, min(500, nz), replace=False)
-            ref_sub = ref_true[sample_ref]
-            z_sub = zt[sample_z]
-            # Normalise rows to unit variance for correlation
-            ref_std = ref_sub.std(axis=1, keepdims=True)
-            z_std = z_sub.std(axis=1, keepdims=True)
-            ref_std[ref_std == 0] = 1.0
-            z_std[z_std == 0] = 1.0
-            ref_norm = (ref_sub - ref_sub.mean(axis=1, keepdims=True)) / ref_std
-            z_norm = (z_sub - z_sub.mean(axis=1, keepdims=True)) / z_std
-            corr = ref_norm @ z_norm.T / ref_sub.shape[1]
-            # Find high-correlation pairs for affine fit
-            pairs = np.argwhere(corr > 0.999)
-            if len(pairs) > 5:
-                ref_vals = ref_true[sample_ref[pairs[:, 0]]].ravel()
-                z_vals = zt[sample_z[pairs[:, 1]]].ravel()
-                mask = np.isfinite(ref_vals) & np.isfinite(z_vals)
-                if mask.sum() > 20:
-                    slope, intercept = np.polyfit(z_vals[mask],
-                                                  ref_vals[mask], 1)
-                    models_data[model_key]["true"] = zt * slope + intercept
-                    models_data[model_key]["pred"] = zp * slope + intercept
-                    print(f"    slope={slope:.4f}  intercept={intercept:.4f}")
+    ref_model = next((n for n in ["smart_persistence", "dlinear", "mlp"] if n in ref_candidates), ref_candidates[0])
+    ref_data = datasets[ref_model]
+    n_windows = ref_data["true"].shape[0]
+    global_true = ref_data["true"].flatten()
 
-    # ── 5. Choose reference model for window indexing ────────────────────
-    # Pick the model with the fewest windows (highest stride) as reference
-    # so every reference window has a match in wider-strided models
-    ref_for_windows = min(models_data, key=lambda k: models_data[k]["true"].shape[0])
-    ref_true = models_data[ref_for_windows]["true"]
-    n_ref = ref_true.shape[0]
-    H = ref_true.shape[1]
-    print(f"\nReference model for windowing: "
-          f"{DISPLAY_NAMES.get(ref_for_windows, ref_for_windows)} "
-          f"({n_ref} windows, H={H})")
+    # Load metrics
+    nmaes = load_metrics(results_dir, args.site)
+    print("Loaded performance metrics.")
 
-    # ── 6. Build window-match index ──────────────────────────────────────
-    # For each reference window, find the corresponding window in each model
-    # via exact target match (tolerance 1e-3 for [0,1]-scale models).
-    # For Z-score-rescaled models use correlation instead.
-    print("Building cross-model window index...")
+    # Find best model in each cluster
+    print("Finding best model for each cluster...")
+    best_models = find_best_models(datasets, nmaes)
 
-    # Filter to daylight windows (max true > 0.1)
-    daylight = [i for i in range(n_ref)
-                if np.nanmax(ref_true[i]) > 0.1]
-    if len(daylight) == 0:
-        daylight = list(range(n_ref))
-    print(f"  {len(daylight)} daylight windows")
-
-    # For speed, pre-compute match indices for all models
-    match_index: dict[str, dict[int, int]] = {}  # model → {ref_idx: model_idx}
-    for model_key, data in models_data.items():
-        if model_key == ref_for_windows:
-            match_index[model_key] = {i: i for i in range(n_ref)}
-            continue
-        m_true = data["true"]
-        matches: dict[int, int] = {}
-        # Try exact match first (fast)
-        for ri in daylight:
-            diffs = np.abs(m_true - ref_true[ri][None, :])
-            exact = np.where(np.all(diffs < 1e-3, axis=1))[0]
-            if len(exact) > 0:
-                matches[ri] = int(exact[0])
-        if len(matches) < min(10, len(daylight)):
-            # Fall back to correlation-based match
-            ref_sub = ref_true[daylight]
-            r_std = ref_sub.std(axis=1, keepdims=True)
-            r_std[r_std == 0] = 1.0
-            r_norm = (ref_sub - ref_sub.mean(axis=1, keepdims=True)) / r_std
-            m_std = m_true.std(axis=1, keepdims=True)
-            m_std[m_std == 0] = 1.0
-            m_norm = (m_true - m_true.mean(axis=1, keepdims=True)) / m_std
-            corr = r_norm @ m_norm.T / H
-            for j, ri in enumerate(daylight):
-                best = int(np.argmax(corr[j]))
-                if corr[j, best] > 0.999:
-                    matches[ri] = best
-        match_index[model_key] = matches
-        disp = DISPLAY_NAMES.get(model_key, model_key)
-        print(f"  {disp:25s}: {len(matches)}/{len(daylight)} windows matched")
-
-    # ── 7. Pick windows that maximise model coverage ─────────────────────
-    window_coverage = []
-    for ri in daylight:
-        n_matched = sum(1 for mi in match_index.values() if ri in mi)
-        window_coverage.append((ri, n_matched))
-    window_coverage.sort(key=lambda x: -x[1])
-
-    # Among the top-coverage windows, pick a diverse random subset
-    top_coverage = window_coverage[: max(len(window_coverage) // 4, args.num_plots * 3)]
-    if len(top_coverage) > args.num_plots:
-        chosen_indices = rng.choice(len(top_coverage), args.num_plots, replace=False)
-        chosen = [top_coverage[i] for i in sorted(chosen_indices)]
+    # Determine which windows to plot
+    if args.window is not None:
+        windows_to_plot = [args.window]
     else:
-        chosen = top_coverage[: args.num_plots]
+        # Seed for reproducible windows across runs
+        random.seed(42)
+        windows_to_plot = sorted(random.sample(range(1, n_windows), min(args.num_plots, n_windows - 1)))
 
-    print(f"\nPlotting {len(chosen)} windows "
-          f"(coverage range: {chosen[-1][1]}–{chosen[0][1]} models)")
+    # Process each window
+    for w_idx in windows_to_plot:
+        if w_idx < 0 or w_idx >= n_windows:
+            continue
 
-    # ── 8. Assign colours ────────────────────────────────────────────────
-    tier_counts: dict[int, int] = {}
-    model_colors: dict[str, str] = {}
-    sorted_models = sorted(models_data.keys(),
-                           key=lambda k: (TIER_ORDER.get(k, 99), k))
-    for mk in sorted_models:
-        tier = TIER_ORDER.get(mk, 99)
-        idx = tier_counts.get(tier, 0)
-        palette = TIER_COLORS.get(tier, ["#000000"])
-        model_colors[mk] = palette[idx % len(palette)]
-        tier_counts[tier] = idx + 1
+        ref_true = ref_data["true"][w_idx]
+        s_idx = 12 * w_idx
+        
+        # Context extraction
+        context_len = 5
+        if s_idx >= context_len:
+            context_y = global_true[s_idx - context_len : s_idx]
+        else:
+            context_y = np.pad(global_true[:s_idx], (context_len - s_idx, 0), constant_values=np.nan)
 
-    # ── 9. Plot ──────────────────────────────────────────────────────────
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
+        # 1. Plot per-cluster directories
+        for cluster_name, model_list in CLUSTERS.items():
+            cluster_dir = base_out_dir / cluster_name
+            cluster_dir.mkdir(parents=True, exist_ok=True)
+            
+            title = f"{cluster_name.replace('_', ' ').title()} Group — Site {args.site}, Window {w_idx}"
+            save_path = cluster_dir / f"plot_site_{args.site}_w{w_idx}.png"
+            
+            # Plot only models belonging to this cluster
+            plot_window(
+                w_idx=w_idx,
+                datasets=datasets,
+                model_list=model_list,
+                ref_true=ref_true,
+                context_y=context_y,
+                nmaes=nmaes,
+                title=title,
+                save_path=save_path,
+            )
+            print(f"  Saved {cluster_name} plot for window {w_idx}")
 
-    for plot_num, (ref_idx, coverage) in enumerate(chosen):
-        target = ref_true[ref_idx]
-        steps = np.arange(1, H + 1)
-
-        fig, ax = plt.subplots(figsize=(12, 6))
-
-        # Ground truth
-        ax.plot(steps, target, "k--", label="Ground Truth",
-                linewidth=2.5, zorder=10)
-
-        # Model predictions in tier order
-        plotted = []
-        for mk in sorted_models:
-            mi = match_index.get(mk, {})
-            if ref_idx not in mi:
-                continue
-            m_idx = mi[ref_idx]
-            pred = models_data[mk]["pred"][m_idx]
-            disp = DISPLAY_NAMES.get(mk, mk)
-            ax.plot(steps, pred, label=disp,
-                    color=model_colors[mk], linewidth=1.6, alpha=0.85)
-            plotted.append(mk)
-
-        ax.set_title(f"Forecast Comparison — Site {selected_site}, "
-                     f"Window {ref_idx}  ({len(plotted)} models)",
-                     fontsize=13, fontweight="bold")
-        ax.set_xlabel("Forecast Step (half-hourly)")
-        ax.set_ylabel("Normalised Power")
-        ax.set_xlim(0.5, H + 0.5)
-        ax.set_ylim(-0.05, 1.05)
-        ax.grid(True, linestyle=":", alpha=0.5)
-        ax.legend(loc="upper left", fontsize=7, ncol=2,
-                  framealpha=0.9)
-
-        plot_path = out_dir / f"site_{selected_site}_window_{ref_idx}.png"
-        fig.savefig(plot_path, dpi=150, bbox_inches="tight")
-        plt.close(fig)
-        print(f"  ✓ [{plot_num+1}/{len(chosen)}] "
-              f"{plot_path.name}  ({len(plotted)} models)")
-
-    print(f"\n✓ Done — {len(chosen)} plots saved to {out_dir}/")
+        # 2. Plot overall best comparison
+        comparison_dir = base_out_dir / "comparison"
+        comparison_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Models to plot: best of each cluster + smart_persistence as base reference
+        comparison_models = list(best_models.values())
+        if "smart_persistence" not in comparison_models and "smart_persistence" in datasets:
+            comparison_models.append("smart_persistence")
+            
+        title = f"Architecture Comparison (Best of Clusters) — Site {args.site}, Window {w_idx}"
+        save_path = comparison_dir / f"plot_site_{args.site}_w{w_idx}.png"
+        
+        plot_window(
+            w_idx=w_idx,
+            datasets=datasets,
+            model_list=comparison_models,
+            ref_true=ref_true,
+            context_y=context_y,
+            nmaes=nmaes,
+            title=title,
+            save_path=save_path,
+        )
+        print(f"  Saved comparison plot for window {w_idx}")
 
 
 if __name__ == "__main__":

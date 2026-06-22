@@ -23,6 +23,7 @@ artifacts/
 # Dataset exploration specific excludes
 dataset_exploration/plots/
 dataset-exploration/plots/
+baselines/plots/
 dataset_exploration/uv.lock
 dataset-exploration/uv.lock
 
