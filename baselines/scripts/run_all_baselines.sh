@@ -128,6 +128,9 @@ done
 # known into the future via --future-cov all. NOT a deployable forecaster — an
 # upper bound only. Zero-shot, so no --seeds.
 add "chronos2_oracle" "uv run --group $GROUP python run_eval.py --model chronos2_oracle --future-cov all --data '$DATA' --tag s2_chronos2_oracle $DSFLAGS"
+# fine-tuned counterpart of the oracle ceiling (ceiling for chronos2_ft);
+# trained, so 3 seeds like the other --seeds tasks.
+add "chronos2_oracle_ft" "uv run --group $GROUP python run_eval.py --model chronos2_oracle_ft --future-cov all --data '$DATA' --tag s2_chronos2_oracle_ft --seeds $SEEDS $DSFLAGS"
 # Tier 3/4 trained (3 seeds inside one invocation)
 for m in chronos2_ft ttm_ft cora; do
     add "$m" "uv run --group $GROUP python run_eval.py --model $m --data '$DATA' --tag s2_$m --seeds $SEEDS $DSFLAGS"

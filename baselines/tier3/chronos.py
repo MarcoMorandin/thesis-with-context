@@ -195,3 +195,17 @@ class Chronos2FT(Baseline):
         if self._pipeline is None:
             raise RuntimeError(f"{self.name}: fit() must be called before predict()")
         return _forecast(self._pipeline, batch, self._future_cov_idx)
+
+
+@register
+class Chronos2OracleFT(Chronos2FT):
+    """Fine-tuned perfect-foresight ceiling: all covariates known into the future.
+
+    The fine-tuned counterpart to ``chronos2_oracle`` (and the ceiling for
+    ``chronos2_ft``). Fine-tunes on, and forecasts with, every covariate known
+    over the horizon (incl. true future weather). Not a deployable forecaster —
+    an upper bound only. Run on windows built with ``future_cov="all"``.
+    """
+
+    name = "chronos2_oracle_ft"
+    _future_cov_idx = _ALL_IDX

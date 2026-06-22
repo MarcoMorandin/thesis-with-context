@@ -33,6 +33,7 @@ SMALL_KWARGS: dict[str, dict] = {
     "chronos2_zs": dict(model_id="dummy"),
     "chronos2_oracle": dict(model_id="dummy"),
     "chronos2_ft": dict(model_id="dummy", num_steps=2, batch_size=16),
+    "chronos2_oracle_ft": dict(model_id="dummy", num_steps=2, batch_size=16),
     "timesfm_zs": dict(model_id="dummy"),
     "tirex_zs": dict(model_id="dummy"),
     "ttm_zs": dict(model_id="dummy"),
@@ -106,6 +107,6 @@ def test_registry_covers_tiers_0_to_4():
             "seasonal_naive"} <= names                        # tier 0
     assert "lightgbm" in names                                # tier 1
     assert {"mlp", "dlinear", "patchtst", "itransformer", "tft"} <= names  # tier 2
-    assert {"chronos2_zs", "chronos2_oracle", "chronos2_ft", "timesfm_zs",
-            "tirex_zs", "ttm_zs", "ttm_ft"} <= names  # tier 3
+    assert {"chronos2_zs", "chronos2_oracle", "chronos2_ft", "chronos2_oracle_ft",
+            "timesfm_zs", "tirex_zs", "ttm_zs", "ttm_ft"} <= names  # tier 3
     assert "cora" in names                                    # tier 4 (ts_rag/cross_rag are cluster-only vendored code)
