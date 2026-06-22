@@ -6,7 +6,7 @@
 #SBATCH --gres=gpu:4
 #SBATCH --partition=boost_usr_prod
 #SBATCH --qos=boost_qos_lprod
-#SBATCH --time=4-00:00:00
+#SBATCH --time=10:00:00
 #SBATCH --account=IscrC_MTSFM
 #SBATCH --output=logs/slurm/%j_%x.out
 #SBATCH --error=logs/slurm/%j_%x.err
