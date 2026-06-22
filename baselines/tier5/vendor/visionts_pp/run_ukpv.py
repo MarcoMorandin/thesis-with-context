@@ -41,7 +41,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--csv_dir", required=True)
     ap.add_argument("--ckpt_path", required=True, help="VisionTS++ MAE checkpoint")
-    ap.add_argument("--arch", default="mae_base")
+    ap.add_argument("--arch", default="mae_large")  # released VisionTS++ ckpt is ViT-Large (dim 1024, 24 blocks)
     ap.add_argument("--context_len", type=int, default=24)
     ap.add_argument("--pred_len", type=int, default=12)
     ap.add_argument("--periodicity", type=int, default=48)  # 30-min daily
