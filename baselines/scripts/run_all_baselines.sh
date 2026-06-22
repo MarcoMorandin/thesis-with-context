@@ -124,6 +124,10 @@ echo ">>> planning tasks"
 for m in chronos2_zs timesfm_zs tirex_zs ttm_zs; do
     add "$m" "uv run --group $GROUP python run_eval.py --model $m --data '$DATA' --tag s2_$m $DSFLAGS"
 done
+# chronos2 perfect-foresight CEILING: all covariates (incl. true future weather)
+# known into the future via --future-cov all. NOT a deployable forecaster — an
+# upper bound only. Zero-shot, so no --seeds.
+add "chronos2_oracle" "uv run --group $GROUP python run_eval.py --model chronos2_oracle --future-cov all --data '$DATA' --tag s2_chronos2_oracle $DSFLAGS"
 # Tier 3/4 trained (3 seeds inside one invocation)
 for m in chronos2_ft ttm_ft cora; do
     add "$m" "uv run --group $GROUP python run_eval.py --model $m --data '$DATA' --tag s2_$m --seeds $SEEDS $DSFLAGS"
