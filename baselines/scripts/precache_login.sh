@@ -139,10 +139,15 @@ PY
     hf_pull "DecisionIntelligence/Aurora"  "${WEIGHTS_DIR}/aurora-tsfm"             # Aurora zero-shot TS FM ckpt
 
     # Resolve the VisionTS++ checkpoint to a stable path run_all_baselines.sh
-    # globs for (the repo ships the MAE weights under an arbitrary file name).
-    vts_ckpt="$(find "${WEIGHTS_DIR}/visiontspp" -maxdepth 2 \
+    # globs for (the repo ships the MAE weights under several file names).
+    # -type f skips the visiontspp.ckpt symlink we create below, so a re-run
+    # cannot resolve to (and then re-link) the symlink onto itself. Prefer the
+    # leakage-safe large ckpt; fall back to the first real checkpoint otherwise.
+    _vts_all="$(find "${WEIGHTS_DIR}/visiontspp" -maxdepth 2 -type f \
                   \( -name '*.ckpt' -o -name '*.pth' -o -name '*.safetensors' \) \
-                  2>/dev/null | head -1)"
+                  2>/dev/null | sort)"
+    vts_ckpt="$(printf '%s\n' "$_vts_all" | grep -m1 'visiontspp_large_gifteval_no_leakage' || true)"
+    [[ -z "$vts_ckpt" ]] && vts_ckpt="$(printf '%s\n' "$_vts_all" | head -1)"
     if [[ -n "$vts_ckpt" ]]; then
         ln -sf "$vts_ckpt" "${WEIGHTS_DIR}/visiontspp/visiontspp.ckpt"
         info "VisionTS++ ckpt → ${WEIGHTS_DIR}/visiontspp/visiontspp.ckpt ($vts_ckpt)"
