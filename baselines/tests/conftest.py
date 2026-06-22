@@ -23,6 +23,7 @@ OPTIONAL_BASELINE_DEPS: dict[str, tuple[str, ...]] = {
     "chronos2_zs": ("chronos",),
     "chronos2_ft": ("chronos",),
     "chronos2_oracle": ("chronos",),
+    "chronos2_oracle_ft": ("chronos",),
 }
 
 
