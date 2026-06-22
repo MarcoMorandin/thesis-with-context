@@ -81,6 +81,14 @@ echo "=============================================================="
 if [[ "$STAGE" == "all" || "$STAGE" == "weights" ]]; then
     info "uv sync (base + tier3)"
     uv sync --group tier3 || warn "uv sync failed"
+    # Standalone Chronos-2 baselines (chronos2_zs / chronos2_ft / chronos2_oracle)
+    # use the official chronos-forecasting package — a CORE dep, so the uv sync
+    # above installs it — plus the amazon/chronos-2 snapshot cached by
+    # login_node_prep.sh below. Verify the import now, while the login node has
+    # internet, so a broken install fails loud here instead of silently offline.
+    uv run python -c "from chronos import Chronos2Pipeline" \
+        && info "chronos-forecasting OK → chronos2_zs/ft/oracle ready" \
+        || warn "official 'chronos' import failed — chronos2 baselines will not run (check chronos-forecasting in baselines/pyproject.toml)"
     info ">>> Tier-3/4 + RAG via login_node_prep.sh"
     DATA="$DATA" UKPV_CSV_DIR="$UKPV_CSV_DIR" bash scripts/login_node_prep.sh || warn "login_node_prep had warnings"
 
