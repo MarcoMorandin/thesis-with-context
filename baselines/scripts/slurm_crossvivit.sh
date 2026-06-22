@@ -31,6 +31,10 @@ cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")/..}"
 
 export TRANSFORMERS_OFFLINE=1 HF_HUB_OFFLINE=1 HF_DATASETS_OFFLINE=1
 export TOKENIZERS_PARALLELISM=false WANDB_MODE=offline
+# CrossViViT's env is torch 1.13 (cu117), which predates the expandable_segments
+# CachingAllocator option the master orchestrator exports. Clear it here so the
+# old allocator does not crash on an unrecognized option.
+unset PYTORCH_CUDA_ALLOC_CONF
 TEAM_SCRATCH="${TEAM_SCRATCH:-/leonardo_scratch/fast/IscrC_MTSFM}"
 export UV_CACHE_DIR="${UV_CACHE_DIR:-${TEAM_SCRATCH}/uv_cache}"
 export CONDA_PKGS_DIRS="${CONDA_PKGS_DIRS:-${TEAM_SCRATCH}/conda_pkgs}"

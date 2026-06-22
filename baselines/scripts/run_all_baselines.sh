@@ -69,8 +69,8 @@ ENV_SOLARVLM="${ENV_SOLARVLM:-solar_vlm}"
 # stable name; fall back to globbing the dir if the symlink is absent.
 MAE_CKPT="${MAE_CKPT:-${WEIGHTS_DIR}/visiontspp/visiontspp.ckpt}"
 if [[ ! -f "$MAE_CKPT" ]]; then
-    _vts="$(find "${WEIGHTS_DIR}/visiontspp" -maxdepth 2 \
-              \( -name '*.ckpt' -o -name '*.pth' -o -name '*.safetensors' \) 2>/dev/null | head -1)"
+    _vts="$(find "${WEIGHTS_DIR}/visiontspp" -maxdepth 2 -type f \
+              \( -name '*.ckpt' -o -name '*.pth' -o -name '*.safetensors' \) 2>/dev/null | sort | head -1)"
     [[ -n "$_vts" ]] && MAE_CKPT="$_vts"
 fi
 VISION_MODEL_PATH="${VISION_MODEL_PATH:-${WEIGHTS_DIR}/clip-vit-base-patch32}"
