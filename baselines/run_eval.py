@@ -86,6 +86,11 @@ def parse_args() -> argparse.Namespace:
                         help="§5 eval-time input control")
     parser.add_argument("--model-kwargs", default="{}",
                         help="JSON kwargs forwarded to every --model (A15 sweeps)")
+    parser.add_argument("--future-cov", default="deterministic",
+                        choices=["deterministic", "all"],
+                        help="window future-covariate mode; 'all' exposes true "
+                             "future weather (lookahead) — only for the "
+                             "chronos2_oracle perfect-foresight ceiling")
     return parser.parse_args()
 
 
@@ -156,6 +161,7 @@ def evaluate_suite(
         window_kwargs["horizon"] = args.horizon
     else:
         window_kwargs["horizon_hours"] = args.horizon_hours
+    window_kwargs["future_cov"] = args.future_cov
     train_df = _filter_datasets(df, args.train_datasets)
     eval_df = _filter_datasets(df, args.eval_datasets)
 
