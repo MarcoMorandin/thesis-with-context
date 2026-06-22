@@ -16,12 +16,13 @@ STEPS_PER_DAY = 24 * 60 // CADENCE_MIN
 
 # Optional third-party deps per baseline; tests skip instead of erroring
 # when a dependency group is not installed (e.g. `uv sync --group tier3`).
-# The chronos2 dummy path still imports the MMTSFM source, which needs
-# transformers + einops.
+# The chronos2 baselines use the official ``chronos-forecasting`` package
+# (imported as ``chronos``).
 OPTIONAL_BASELINE_DEPS: dict[str, tuple[str, ...]] = {
     "tabpfn": ("tabpfn",),
-    "chronos2_zs": ("transformers", "einops"),
-    "chronos2_ft": ("transformers", "einops"),
+    "chronos2_zs": ("chronos",),
+    "chronos2_ft": ("chronos",),
+    "chronos2_oracle": ("chronos",),
 }
 
 
