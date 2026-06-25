@@ -1,9 +1,11 @@
 """TabPFN baseline (Tier 1) — tabular foundation-model counterpoint to TSFMs.
 
-Uses the TabPFN regressor on the same feature table as LightGBM, with the
-training set subsampled to TabPFN's context budget. Optional dependency:
-install with `uv sync --group tabpfn`. Quantiles come from TabPFN's native
-predictive distribution ("quantiles" output) when available.
+Uses the TabPFN-3 regressor (ModelVersion.V3, default in tabpfn>=8) on the same
+feature table as LightGBM, with the training set subsampled to TabPFN's context
+budget. Optional dependency: install with `uv sync --group tabpfn`. Local weight
+download needs a one-time license (set ``TABPFN_TOKEN``; see
+https://ux.priorlabs.ai). Quantiles come from TabPFN's native predictive
+distribution ("quantiles" output) when available.
 """
 
 from __future__ import annotations
@@ -38,7 +40,17 @@ class TabPFNRegressorBaseline(Baseline):
             ) from err
 
         x, y = training_table(train, self.max_context_rows, self.seed)
-        self._model = TabPFNRegressor(random_state=self.seed)
+        # TabPFN-3 is the default in tabpfn>=8, but pin it explicitly
+        # (ModelVersion.V3) for reproducibility. Fall back to the plain
+        # constructor on older signatures — there V3 is still the >=8 default.
+        try:
+            from tabpfn import ModelVersion
+
+            self._model = TabPFNRegressor.create_default_for_version(
+                ModelVersion.V3, random_state=self.seed
+            )
+        except (ImportError, AttributeError, TypeError):
+            self._model = TabPFNRegressor(random_state=self.seed)
         self._model.fit(x, y)
 
     def predict(self, batch: dict) -> Forecast:

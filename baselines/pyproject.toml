@@ -41,7 +41,7 @@ dev = [
     "pytest>=8.0",
 ]
 tabpfn = [
-    "tabpfn>=2.0",
+    "tabpfn>=8.0",   # TabPFN-3 (ModelVersion.V3 is the default in >=8.0)
 ]
 tier3 = [
     # Chronos-2 is imported from MMTSFM/src and needs its transitive deps

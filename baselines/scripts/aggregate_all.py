@@ -34,7 +34,7 @@ MODEL_TIER: dict[str, str] = {
     "lightgbm": "T1", "tabpfn": "T1",
     "mlp": "T2", "dlinear": "T2", "patchtst": "T2",
     "itransformer": "T2", "tft": "T2",
-    "chronos2_zs": "T3", "chronos2_ft": "T3", "timesfm_zs": "T3",
+    "chronos2_zs": "T3", "chronos2_ft": "T3", "chronos2_oracle": "T3", "chronos2_oracle_ft": "T3", "timesfm_zs": "T3",
     "tirex_zs": "T3", "ttm_zs": "T3", "ttm_ft": "T3",
     "cora": "T4", "ts_rag": "T4", "cross_rag": "T4",
     "time_vlm": "T5", "visionts_pp": "T5", "unicast": "T5", "aurora": "T5",
