@@ -20,6 +20,11 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 BASELINES_DIR="$PWD"
 
+# Local secrets / overrides (e.g. TABPFN_TOKEN for TabPFN's one-time license +
+# weight download). `set -a` auto-exports everything sourced, so `uv run`
+# subprocesses (the TabPFN warm-up below) inherit it. Mirrors run_all_baselines.sh.
+if [[ -f .env ]]; then set -a; source .env; set +a; fi
+
 STAGE="${STAGE:-all}"          # all | weights | envs | data
 MAKE_ENVS="${MAKE_ENVS:-1}"
 TEAM_SCRATCH="${TEAM_SCRATCH:-/leonardo_scratch/fast/IscrC_MTSFM}"
@@ -180,6 +185,12 @@ PY
     # node has internet. Skip with TABPFN=0.
     if [[ "${TABPFN:-1}" == "1" ]]; then
         info ">>> TabPFN (tier1 tabular FM) → group sync + checkpoint warm-up"
+        # TabPFN v8 gates its local-inference weight download behind a one-time
+        # license acceptance keyed by TABPFN_TOKEN (https://ux.priorlabs.ai).
+        # Put TABPFN_TOKEN=<key> in baselines/.env (sourced at top); the offline
+        # compute run reuses it via run_all_baselines.sh's own .env source.
+        [[ -n "${TABPFN_TOKEN:-}" ]] \
+            || warn "TABPFN_TOKEN not set (baselines/.env) — weight download will hit the license gate"
         uv sync --group tier3 --group tabpfn || warn "uv sync (tier3+tabpfn) failed"
         if uv run --group tier3 --group tabpfn python - <<'PY'
 import numpy as np
@@ -189,9 +200,9 @@ m.fit(np.random.rand(64, 5), np.random.rand(64))
 print("tabpfn predict shape:", m.predict(np.random.rand(4, 5)).shape)
 PY
         then
-            info "TabPFN OK → checkpoint cached at $TABPFN_MODEL_CACHE_DIR"
+            info "TabPFN OK → weights cached (TABPFN_MODEL_CACHE_DIR=$TABPFN_MODEL_CACHE_DIR)"
         else
-            warn "TabPFN warm-up failed — tabpfn baseline will skip (check tabpfn group / network)"
+            warn "TabPFN warm-up failed — tabpfn baseline will skip (set TABPFN_TOKEN in baselines/.env, accept license at https://ux.priorlabs.ai)"
         fi
     fi
 fi
