@@ -138,7 +138,7 @@ add "chronos2_oracle_ft" "uv run --group $GROUP python run_eval.py --model chron
 # env (precache syncs the optional `tabpfn` group into it + warms the checkpoint
 # into TABPFN_MODEL_CACHE_DIR so it loads offline). Gated so a non-precached env
 # skips loud instead of failing the row.
-if uv run --group "$GROUP" python -c "import tabpfn" 2>/dev/null; then
+if timeout 180 uv run --group "$GROUP" python -c "import tabpfn" 2>/dev/null; then
     add "tabpfn" "uv run --group $GROUP python run_eval.py --model tabpfn --data '$DATA' --tag s2_tabpfn --seeds $SEEDS $DSFLAGS"
 else skip "tabpfn" "needs the optional 'tabpfn' group synced into the main env (precache_login.sh)"; fi
 # Tier 3/4 trained (3 seeds inside one invocation)

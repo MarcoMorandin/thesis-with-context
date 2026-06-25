@@ -184,25 +184,32 @@ PY
     # (pulled from HF on first .fit) into TABPFN_MODEL_CACHE_DIR while the login
     # node has internet. Skip with TABPFN=0.
     if [[ "${TABPFN:-1}" == "1" ]]; then
-        info ">>> TabPFN (tier1 tabular FM) → group sync + checkpoint warm-up"
-        # TabPFN v8 gates its local-inference weight download behind a one-time
-        # license acceptance keyed by TABPFN_TOKEN (https://ux.priorlabs.ai).
-        # Put TABPFN_TOKEN=<key> in baselines/.env (sourced at top); the offline
+        info ">>> TabPFN-3 (tier1 tabular FM) → group sync + V3 weight download"
+        # TabPFN-3 (ModelVersion.V3) gates its local-inference weights behind a
+        # one-time license keyed by TABPFN_TOKEN (https://ux.priorlabs.ai). Put
+        # TABPFN_TOKEN=<key> in baselines/.env (sourced at top); the offline
         # compute run reuses it via run_all_baselines.sh's own .env source.
         [[ -n "${TABPFN_TOKEN:-}" ]] \
-            || warn "TABPFN_TOKEN not set (baselines/.env) — weight download will hit the license gate"
+            || warn "TABPFN_TOKEN not set (baselines/.env) — V3 weight download will hit the license gate"
         uv sync --group tier3 --group tabpfn || warn "uv sync (tier3+tabpfn) failed"
-        if uv run --group tier3 --group tabpfn python - <<'PY'
+        # DOWNLOAD-ONLY: the login node has no GPU and cgroup-kills the heavy CPU
+        # forward pass, so we DON'T require fit() to finish — the download (the
+        # only thing we need cached) completes first. The real fit runs on the
+        # GPU compute node. Success = the V3 ckpt landing in the shared cache.
+        OMP_NUM_THREADS=1 uv run --group tier3 --group tabpfn python - <<'PY' || true
 import numpy as np
-from tabpfn import TabPFNRegressor
-m = TabPFNRegressor(random_state=0)
-m.fit(np.random.rand(64, 5), np.random.rand(64))
-print("tabpfn predict shape:", m.predict(np.random.rand(4, 5)).shape)
+from tabpfn import TabPFNRegressor, ModelVersion
+m = TabPFNRegressor.create_default_for_version(ModelVersion.V3)
+try:
+    m.fit(np.random.rand(16, 3), np.random.rand(16))  # triggers the V3 download
+    print("tabpfn-3 fit OK on login node")
+except Exception as e:  # no GPU / cgroup kill — download already done
+    print("note: login-node fit did not finish (expected, no GPU):", type(e).__name__)
 PY
-        then
-            info "TabPFN OK → weights cached (TABPFN_MODEL_CACHE_DIR=$TABPFN_MODEL_CACHE_DIR)"
+        if find "$TABPFN_MODEL_CACHE_DIR" -iname '*tabpfn-v3*regressor*.ckpt' 2>/dev/null | grep -q .; then
+            info "TabPFN-3 ckpt cached → $TABPFN_MODEL_CACHE_DIR (offline GPU fit will load it)"
         else
-            warn "TabPFN warm-up failed — tabpfn baseline will skip (set TABPFN_TOKEN in baselines/.env, accept license at https://ux.priorlabs.ai)"
+            warn "TabPFN-3 ckpt NOT under $TABPFN_MODEL_CACHE_DIR — tabpfn will skip offline (set TABPFN_TOKEN, accept license at https://ux.priorlabs.ai)"
         fi
     fi
 fi
