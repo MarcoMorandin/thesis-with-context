@@ -37,9 +37,12 @@ CKPT_DIR="${CKPT_DIR:-${TEAM_SCRATCH}/checkpoints}"
 WEIGHTS_DIR="${WEIGHTS_DIR:-${TEAM_SCRATCH}/weights}"   # tier5/6 backbone dirs
 SOLARVLM_DIR="${SOLARVLM_DIR:-}"
 PY_VER="${PY_VER:-3.10}"
+# TabPFN (tier1) pulls its model checkpoint from HF on first .fit; pin a stable
+# cache dir so this warm-up and the offline compute run resolve the same files.
+export TABPFN_MODEL_CACHE_DIR="${TABPFN_MODEL_CACHE_DIR:-${WEIGHTS_DIR}/tabpfn}"
 
 mkdir -p "$HF_HOME" "$TORCH_HOME" "$DATA_DIR" "$UKPV_CSV_DIR" "$CKPT_DIR" \
-         "$WEIGHTS_DIR" logs/slurm
+         "$WEIGHTS_DIR" "$TABPFN_MODEL_CACHE_DIR" logs/slurm
 info() { echo "[precache] $*"; }
 warn() { echo "[precache][WARN] $*" >&2; }
 
@@ -168,6 +171,29 @@ PY
     QWEN_REPO="${QWEN_REPO:-Qwen/Qwen3-VL-Embedding-2B}"
     hf_pull "$QWEN_REPO" "${WEIGHTS_DIR}/qwen3-vl-embedding-2b" \
         || warn "Qwen3-VL pull failed ($QWEN_REPO) — set QWEN_REPO/QWEN_PATH; solar_vlm will skip"
+
+    # --- TabPFN (Tier-1 tabular FM, optional `tabpfn` group) ------------------
+    # TabPFN lives in the MAIN project env (not a vendored uv env). Sync the
+    # optional `tabpfn` group into the project env LAST so the offline compute
+    # node (UV_NO_SYNC) has base + tier3 + tabpfn, then warm its model checkpoint
+    # (pulled from HF on first .fit) into TABPFN_MODEL_CACHE_DIR while the login
+    # node has internet. Skip with TABPFN=0.
+    if [[ "${TABPFN:-1}" == "1" ]]; then
+        info ">>> TabPFN (tier1 tabular FM) → group sync + checkpoint warm-up"
+        uv sync --group tier3 --group tabpfn || warn "uv sync (tier3+tabpfn) failed"
+        if uv run --group tier3 --group tabpfn python - <<'PY'
+import numpy as np
+from tabpfn import TabPFNRegressor
+m = TabPFNRegressor(random_state=0)
+m.fit(np.random.rand(64, 5), np.random.rand(64))
+print("tabpfn predict shape:", m.predict(np.random.rand(4, 5)).shape)
+PY
+        then
+            info "TabPFN OK → checkpoint cached at $TABPFN_MODEL_CACHE_DIR"
+        else
+            warn "TabPFN warm-up failed — tabpfn baseline will skip (check tabpfn group / network)"
+        fi
+    fi
 fi
 
 # --- 4/6: one uv env per vendored model ----------------------------------
