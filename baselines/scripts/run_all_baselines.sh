@@ -49,6 +49,9 @@ IMAGES_H5="${IMAGES_H5:-${DATA_DIR}/images_all.h5}"
 UKPV_CSV_DIR="${UKPV_CSV_DIR:-${DATA_DIR}/ukpv_rag}"
 WEIGHTS_DIR="${WEIGHTS_DIR:-${TEAM_SCRATCH}/weights}"
 CKPT_DIR="${CKPT_DIR:-${TEAM_SCRATCH}/checkpoints}"
+# TabPFN (tier1) loads its model checkpoint from this dir offline; precache warms
+# it. Must match TABPFN_MODEL_CACHE_DIR used in precache_login.sh.
+export TABPFN_MODEL_CACHE_DIR="${TABPFN_MODEL_CACHE_DIR:-${WEIGHTS_DIR}/tabpfn}"
 SEEDS="${SEEDS:-42 43 44}"
 GROUP="${GROUP:-tier3}"
 RUN_LOPO="${RUN_LOPO:-0}"
@@ -131,6 +134,13 @@ add "chronos2_oracle" "uv run --group $GROUP python run_eval.py --model chronos2
 # fine-tuned counterpart of the oracle ceiling (ceiling for chronos2_ft);
 # trained, so 3 seeds like the other --seeds tasks.
 add "chronos2_oracle_ft" "uv run --group $GROUP python run_eval.py --model chronos2_oracle_ft --future-cov all --data '$DATA' --tag s2_chronos2_oracle_ft --seeds $SEEDS $DSFLAGS"
+# Tier 1 tabular FM (TabPFN) — GPU, requires_fit, 3 seeds. Lives in the MAIN uv
+# env (precache syncs the optional `tabpfn` group into it + warms the checkpoint
+# into TABPFN_MODEL_CACHE_DIR so it loads offline). Gated so a non-precached env
+# skips loud instead of failing the row.
+if uv run --group "$GROUP" python -c "import tabpfn" 2>/dev/null; then
+    add "tabpfn" "uv run --group $GROUP python run_eval.py --model tabpfn --data '$DATA' --tag s2_tabpfn --seeds $SEEDS $DSFLAGS"
+else skip "tabpfn" "needs the optional 'tabpfn' group synced into the main env (precache_login.sh)"; fi
 # Tier 3/4 trained (3 seeds inside one invocation)
 for m in chronos2_ft ttm_ft cora; do
     add "$m" "uv run --group $GROUP python run_eval.py --model $m --data '$DATA' --tag s2_$m --seeds $SEEDS $DSFLAGS"
