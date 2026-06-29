@@ -74,3 +74,12 @@ horizon: ${data.horizon}     # inherit from data config
 # ---- Training strategy ----
 freeze_chronos: false        # set true to train vision modules only (adapter pilot)
 backbone_lr_ratio: 0.1       # LR multiplier for pretrained Chronos-2 backbone
+
+# ---- Protocol evaluation (BASELINE_PROTOCOL.md §5) ----
+# NMAE/NRMSE/SS written at test in the baselines results schema. results_dir +
+# results_tag place the JSON where aggregate_all.py finds it; sp_reference_path
+# overrides the Smart-Persistence Skill-Score reference (default: the committed
+# baselines/results/smart_persistence_s2_ukpv.json).
+results_dir: results
+results_tag: mmtsfm_s2_ukpv
+sp_reference_path: null
