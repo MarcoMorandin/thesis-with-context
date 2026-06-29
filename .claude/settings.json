@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run .claude/hooks/guard-uv-only.py",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run --no-sync .claude/hooks/guard-uv-only.py",
             "timeout": 10
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run .claude/hooks/guard-data-readonly.py",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run --no-sync .claude/hooks/guard-data-readonly.py",
             "timeout": 10
           }
         ]
@@ -46,7 +46,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run .claude/hooks/check-new-file-size.py",
+            "command": "uv run --no-sync .claude/hooks/check-new-file-size.py",
             "timeout": 15,
             "statusMessage": "Checking new file size..."
           }
