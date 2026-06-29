@@ -1,0 +1,67 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+uv.lock
+**/uv.lock
+
+# Custom project config / IDE
+.claude/
+.vscode/
+.idea/
+.DS_Store
+*.swp
+.trash/
+
+# Artifacts & checkpoints
+logs/
+checkpoints/
+wandb/
+outputs/
+artifacts/
+*artifacts*
+*.ckpt
+*.pt
+*.pth
+*.safetensors
+
+# Data
+data/
+datasets/
+*.parquet
+*.arrow
+*.nc
+*.h5
+*.hdf5
+*.zarr
+
+# Large media
+*.mp4
+*.avi
+*.mkv
+*.tif
+*.tiff
+
+# Graph / knowledge outputs
+graphify-out/
+.gitnexus/
+.code-review-graph/
+
+# Secrets
+.env
+.env.*
+wandb.key
+
+# Slurm / HPC
+*.err
+*.out
+slurm-*.out
+
+# LaTeX / paper builds
+*.aux
+*.log
+*.bbl
+*.blg
+*.pdf.bak
