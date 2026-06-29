@@ -31,6 +31,7 @@ CLUSTERS = {
         "climatology_hourly",
         "seasonal_naive",
         "lightgbm",
+        "tabpfn",
     ],
     "deep_ts": [
         "mlp",
@@ -54,9 +55,12 @@ CLUSTERS = {
     ],
     "multimodal_vision": [
         "aurora",
+        "visionts_pp",
         "unicast",
+        "crossvivit",
         "sunset",
         "solar_vlm",
+        "time_vlm",
     ],
 }
 
@@ -98,8 +102,8 @@ def parse_args():
     return parser.parse_args()
 
 
-def load_metrics(results_dir: Path, site: str) -> dict[str, float]:
-    """Load NMAE for each model at a specific site from results JSON files."""
+def load_metrics(results_dir: Path, site: str) -> dict[str, dict]:
+    """Load NMAE and Ramp NRMSE for each model at a specific site from results JSON files."""
     metrics = {}
     for f in results_dir.glob("*.json"):
         if "predictions" in f.parts or f.name.endswith("_losses.npz"):
@@ -114,37 +118,60 @@ def load_metrics(results_dir: Path, site: str) -> dict[str, float]:
                     if not model_name:
                         # Fallback to parsing filename
                         model_name = f.name.split("_s2_")[0].split("_orig_")[0]
-                    nmae = per_plant[str(site)].get("nmae")
-                    if nmae is not None:
-                        metrics[model_name] = min(metrics.get(model_name, float("inf")), nmae)
+                    plant_data = per_plant[str(site)]
+                    nmae = plant_data.get("nmae")
+                    nrmse_ramp = plant_data.get("nrmse_ramp")
+                    
+                    if nmae is not None and nrmse_ramp is not None:
+                        # If model already has a score, keep the one with lower nrmse_ramp
+                        existing = metrics.get(model_name)
+                        if existing is None or nrmse_ramp < existing["nrmse_ramp"]:
+                            metrics[model_name] = {
+                                "nmae": nmae,
+                                "nrmse_ramp": nrmse_ramp
+                            }
         except Exception:
             pass
     return metrics
 
 
-def find_best_models(datasets: dict, nmaes: dict[str, float]) -> dict[str, str]:
-    """Find the best available model in each cluster based on NMAE."""
+def get_model_metric(model_name: str, metrics: dict) -> dict | None:
+    """Helper to retrieve metrics for a model using exact or prefix matching."""
+    if model_name in metrics:
+        return metrics[model_name]
+    for k, v in metrics.items():
+        if k == model_name or k.startswith(model_name + "_"):
+            return v
+    return None
+
+
+def find_best_models(datasets: dict, metrics: dict[str, dict]) -> dict[str, str]:
+    """Find the best available model in each cluster based on Ramp NRMSE."""
     best_models = {}
     for cluster_name, model_list in CLUSTERS.items():
         available = [m for m in model_list if m in datasets]
         if not available:
             continue
         
-        # Select available model with lowest NMAE
+        # Select available model with lowest Ramp NRMSE
         best_model = None
         best_score = float("inf")
         for m in available:
-            score = nmaes.get(m, float("inf"))
+            m_metrics = get_model_metric(m, metrics)
+            score = m_metrics["nrmse_ramp"] if m_metrics else float("inf")
             if score < best_score:
                 best_score = score
                 best_model = m
                 
-        # Fallback if no NMAE metric found
+        # Fallback if no metric found
         if best_model is None:
             best_model = available[0]
             
         best_models[cluster_name] = best_model
-        print(f"  Best model for cluster '{cluster_name}': {best_model} (NMAE: {best_score:.4f})")
+        # Print best model with its Ramp NRMSE score
+        best_metrics = get_model_metric(best_model, metrics)
+        score_str = f"{best_metrics['nrmse_ramp']:.4f}" if best_metrics else "inf"
+        print(f"  Best model for cluster '{cluster_name}': {best_model} (Ramp NRMSE: {score_str})")
     return best_models
 
 
@@ -154,7 +181,7 @@ def plot_window(
     model_list: list[str],
     ref_true: np.ndarray,
     context_y: np.ndarray,
-    nmaes: dict[str, float],
+    metrics: dict[str, dict],
     title: str,
     save_path: Path,
 ):
@@ -166,8 +193,15 @@ def plot_window(
     context_x = np.arange(-context_len, 0)
     plt.plot(context_x, context_y, color="black", linestyle="--", linewidth=2.0, label="True Context")
     
+    daylight_mask = ref_true > 1e-5
+    ref_true_plot = ref_true.copy()
+    ref_true_plot[~daylight_mask] = np.nan
+    
     future_x = np.arange(12)
-    plt.plot(future_x, ref_true, color="black", linestyle="-", linewidth=2.5, label="True Future")
+    plt.plot(future_x, ref_true_plot, color="black", linestyle="-", linewidth=2.5, label="True Future")
+
+    # Mark the forecast origin (last observed historical value)
+    plt.plot(-1, context_y[-1], "ko", markersize=6, zorder=5, label="Forecast Origin")
 
     # 2. Plot model predictions
     for model_name in model_list:
@@ -187,19 +221,20 @@ def plot_window(
             continue
             
         pred_y = m_pred[best_j, :12]
+        pred_y_plot = pred_y.copy()
+        pred_y_plot[~daylight_mask] = np.nan
         
         # Connect prediction to the last context point at x = -1
         plot_x = np.arange(-1, 12)
-        plot_y = np.concatenate([[context_y[-1]], pred_y])
+        plot_y = np.concatenate([[context_y[-1]], pred_y_plot])
         
         # Legend label with metric if available
         label = model_name
-        if model_name in nmaes:
-            label += f" (NMAE: {nmaes[model_name]:.4f})"
-        elif model_name.split("_")[0] in nmaes:
-            label += f" (NMAE: {nmaes[model_name.split('_')[0]]:.4f})"
+        m_metrics = get_model_metric(model_name, metrics)
+        if m_metrics:
+            label += f" (R-NRMSE: {m_metrics['nrmse_ramp']:.4f})"
             
-        plt.plot(plot_x, plot_y, linewidth=1.5, alpha=0.85, label=label)
+        plt.plot(plot_x, plot_y, linewidth=1.5, alpha=0.85, label=label, marker="o", markersize=4)
 
     plt.title(title, fontsize=12, fontweight="bold")
     plt.xlabel("Time Step (Relative to forecast start)", fontsize=10)
@@ -211,6 +246,54 @@ def plot_window(
     plt.tight_layout()
     plt.savefig(save_path, dpi=150)
     plt.close()
+
+
+def plot_scatter_plots(datasets: dict, base_out_dir: Path, site: str, metrics: dict[str, dict]):
+    """Generate actual vs predicted scatter plots for each model."""
+    scatter_dir = base_out_dir / "scatter"
+    scatter_dir.mkdir(parents=True, exist_ok=True)
+    
+    for model_name, d in datasets.items():
+        pred = d["pred"].flatten()
+        true = d["true"].flatten()
+        
+        # Filter out NaN values and night steps (true <= 1e-5)
+        mask = ~np.isnan(pred) & ~np.isnan(true) & (true > 1e-5)
+        pred = pred[mask]
+        true = true[mask]
+        
+        if len(true) == 0:
+            continue
+            
+        plt.figure(figsize=(8, 8))
+        
+        # Plot scatter
+        plt.scatter(true, pred, alpha=0.3, color="blue", s=10, label="Predictions")
+        
+        # Identity line
+        min_val = min(true.min(), pred.min())
+        max_val = max(true.max(), pred.max())
+        plt.plot([min_val, max_val], [min_val, max_val], color="red", linestyle="--", linewidth=1.5, label="y = x (Perfect Forecast)")
+        
+        # Labels and Title
+        title = f"Actual vs Predicted — {model_name} (Site {site})"
+        m_metrics = get_model_metric(model_name, metrics)
+        if m_metrics:
+            title += f"\nNMAE: {m_metrics['nmae']:.4f} | Ramp NRMSE: {m_metrics['nrmse_ramp']:.4f}"
+            
+        plt.title(title, fontsize=12, fontweight="bold")
+        plt.xlabel("Actual Normalized PV Power", fontsize=10)
+        plt.ylabel("Predicted Normalized PV Power", fontsize=10)
+        plt.grid(True, linestyle=":", alpha=0.6)
+        plt.xlim(min_val, max_val)
+        plt.ylim(min_val, max_val)
+        plt.legend(loc="upper left")
+        plt.tight_layout()
+        
+        save_path = scatter_dir / f"scatter_{model_name}.png"
+        plt.savefig(save_path, dpi=150)
+        plt.close()
+    print("Generated actual vs predicted scatter plots in 'scatter' folder.")
 
 
 def main():
@@ -263,12 +346,12 @@ def main():
     global_true = ref_data["true"].flatten()
 
     # Load metrics
-    nmaes = load_metrics(results_dir, args.site)
+    metrics = load_metrics(results_dir, args.site)
     print("Loaded performance metrics.")
 
     # Find best model in each cluster
     print("Finding best model for each cluster...")
-    best_models = find_best_models(datasets, nmaes)
+    best_models = find_best_models(datasets, metrics)
 
     # Determine which windows to plot
     if args.window is not None:
@@ -308,7 +391,7 @@ def main():
                 model_list=model_list,
                 ref_true=ref_true,
                 context_y=context_y,
-                nmaes=nmaes,
+                metrics=metrics,
                 title=title,
                 save_path=save_path,
             )
@@ -332,11 +415,14 @@ def main():
             model_list=comparison_models,
             ref_true=ref_true,
             context_y=context_y,
-            nmaes=nmaes,
+            metrics=metrics,
             title=title,
             save_path=save_path,
         )
         print(f"  Saved comparison plot for window {w_idx}")
+
+    # Generate scatter plots
+    plot_scatter_plots(datasets, base_out_dir, args.site, metrics)
 
 
 if __name__ == "__main__":

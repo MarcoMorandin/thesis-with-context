@@ -44,6 +44,32 @@ def site_of(path: Path) -> str:
     return path.name[: -len("_pred.npz")].split("_")[-1]
 
 
+def ramp_mask_from_true(true: np.ndarray, quantile: float = 0.9) -> np.ndarray:
+    """Model-independent S6 ramp subset from a site's own targets (§4.2).
+
+    Mirrors ``common.runner._ramp_mask`` but reconstructs the ramp subset from
+    the dumped ``true`` alone (the externals' npz carry no history/mask):
+    - daylight/validity proxy = ``true > 0`` (same proxy as the point mask);
+    - per-step |Δtrue| vs the previous in-window step, top-decile threshold per
+      site (thresholds are a property of the data, not the model);
+    - step 0 has no in-window predecessor (history is not dumped) so it is
+      excluded from the ramp subset.
+    Caveat: computed on each harness's NATIVE windows, so ramp NMAE/NRMSE for
+    Tiers 4-6 are not bit-aligned with Tiers 0-3 — compare within-tier / by rank.
+    """
+    if true.shape[1] < 2:
+        return np.zeros_like(true)
+    prev, cur = true[:, :-1], true[:, 1:]
+    delta = np.abs(cur - prev)
+    valid = (cur > 0) & (prev > 0)
+    if valid.sum() == 0:
+        return np.zeros_like(true)
+    thr = float(np.quantile(delta[valid], quantile))
+    rm = np.zeros_like(true)
+    rm[:, 1:] = ((delta >= thr) & valid).astype(np.float64)
+    return rm
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--model", required=True, help="result stem, e.g. time_vlm")
@@ -98,7 +124,8 @@ def main() -> None:
         q = _2d(data["quantiles"]) if "quantiles" in data else None
         acc.update(plants=np.array([site] * len(pred)),
                    y_true=true, y_pred=np.clip(pred, 0.0, 1.0),
-                   mask=mask, quantile_preds=q)
+                   mask=mask, quantile_preds=q,
+                   ramp_mask=ramp_mask_from_true(true))
 
     results = {"overall": acc.macro(), "per_plant": acc.per_plant()}
 
@@ -124,6 +151,9 @@ def main() -> None:
         "model": args.model, "tag": args.tag, "source": "vendored harness",
         "glob": args.glob, "n_plants": len(acc.per_plant()),
         "daylight_mask": "proxy true>0 (not exact clear-sky mask)",
+        "ramp_subset": "proxy top-decile |Δtrue| per site on native windows, "
+                       "step 0 excluded (no dumped history); not bit-aligned "
+                       "with tiers 0-3",
         "eval_windows": "native harness split — not aligned with tiers 0-4; "
                         "no DM/bootstrap sidecar (compare via SS/rank, §4.4)",
         "quantile_levels": config.QUANTILE_LEVELS,
