@@ -96,18 +96,27 @@ def _forecast(pipeline, batch: dict, future_cov_idx: tuple[int, ...]) -> Forecas
     )
 
 
+def _resolve_future_cov_idx(future_cov: str, force_all: bool) -> tuple[int, ...]:
+    """All covariate columns when future weather is treated as available
+    (future_cov="all", the deployable NWP assumption) or for the oracle ceiling;
+    otherwise only the leakage-free deterministic (solar geometry / calendar) set."""
+    return _ALL_IDX if (force_all or future_cov == "all") else _DETERMINISTIC_IDX
+
+
 @register
 class Chronos2ZS(Baseline):
     name = "chronos2_zs"
     tier = 3
     requires_fit = False
     supports_quantiles = True
-    _future_cov_idx = _DETERMINISTIC_IDX
+    _force_all_cov = False
 
-    def __init__(self, model_id: str = "amazon/chronos-2", device: str | None = None):
+    def __init__(self, model_id: str = "amazon/chronos-2", device: str | None = None,
+                 future_cov: str = "deterministic"):
         self.model_id = model_id
         self.device_name = device
         self._pipeline = None
+        self._future_cov_idx = _resolve_future_cov_idx(future_cov, self._force_all_cov)
 
     def _ensure_pipeline(self) -> None:
         if self._pipeline is None:
@@ -127,7 +136,7 @@ class Chronos2Oracle(Chronos2ZS):
     """
 
     name = "chronos2_oracle"
-    _future_cov_idx = _ALL_IDX
+    _force_all_cov = True
 
 
 @register
@@ -136,7 +145,7 @@ class Chronos2FT(Baseline):
     tier = 3
     requires_fit = True
     supports_quantiles = True
-    _future_cov_idx = _DETERMINISTIC_IDX
+    _force_all_cov = False
 
     def __init__(
         self,
@@ -147,6 +156,7 @@ class Chronos2FT(Baseline):
         finetune_mode: str = "full",
         seed: int = config.SEED,
         device: str | None = None,
+        future_cov: str = "deterministic",
     ):
         self.model_id = model_id
         self.num_steps = num_steps
@@ -156,6 +166,7 @@ class Chronos2FT(Baseline):
         self.seed = seed
         self.device_name = device
         self._pipeline = None
+        self._future_cov_idx = _resolve_future_cov_idx(future_cov, self._force_all_cov)
 
     def _all_inputs(self, ds: WindowDataset, mode: str) -> list[dict]:
         rows: list[dict] = []
@@ -208,4 +219,4 @@ class Chronos2OracleFT(Chronos2FT):
     """
 
     name = "chronos2_oracle_ft"
-    _future_cov_idx = _ALL_IDX
+    _force_all_cov = True

@@ -139,19 +139,27 @@ add "chronos2_oracle_ft" "uv run --group $GROUP python run_eval.py --model chron
 # into TABPFN_MODEL_CACHE_DIR so it loads offline). Gated so a non-precached env
 # skips loud instead of failing the row.
 if timeout 180 uv run --group "$GROUP" python -c "import tabpfn" 2>/dev/null; then
-    add "tabpfn" "uv run --group $GROUP python run_eval.py --model tabpfn --data '$DATA' --tag s2_tabpfn --seeds $SEEDS $DSFLAGS"
+    add "tabpfn" "uv run --group $GROUP python run_eval.py --model tabpfn --future-cov all --data '$DATA' --tag s2_tabpfn --seeds $SEEDS $DSFLAGS"
 else skip "tabpfn" "needs the optional 'tabpfn' group synced into the main env (precache_login.sh)"; fi
-# Tier 3/4 trained (3 seeds inside one invocation)
-for m in chronos2_ft ttm_ft cora; do
+# Tier 3/4 trained (3 seeds inside one invocation). chronos2_ft / ttm_ft stay on
+# deterministic covariates (their future-weather counterpart is the chronos2_oracle*
+# ceiling); cora is the covariate-adaptation baseline, so it consumes future
+# weather (--future-cov all) per the "treat as available" decision.
+for m in chronos2_ft ttm_ft; do
     add "$m" "uv run --group $GROUP python run_eval.py --model $m --data '$DATA' --tag s2_$m --seeds $SEEDS $DSFLAGS"
 done
+add "cora" "uv run --group $GROUP python run_eval.py --model cora --future-cov all --data '$DATA' --tag s2_cora --seeds $SEEDS $DSFLAGS"
 # Tier 2 deep baselines (tslib: mlp/dlinear/patchtst/itransformer/tft). These
 # auto-select GPU via tslib.trainer.resolve_device, so they belong in the GPU
 # pool — running them in the CPU Phase A pegged ~11 cores for hours and blocked
 # Phase B behind them. One GPU + 3 seeds each; unique --tag s2_$m keeps each
 # task's smart_persistence reference write off the shared s2 reference.
-for m in mlp dlinear patchtst itransformer tft; do
-    add "$m" "uv run --group $GROUP python run_eval.py --model $m --data '$DATA' --tag s2_$m --seeds $SEEDS $DSFLAGS"
+# Future weather is treated as available (NWP) → exog-capable models consume the
+# full future covariate set (--future-cov all). dlinear is univariate (ignores
+# cov) so it stays on the default deterministic windows.
+add "dlinear" "uv run --group $GROUP python run_eval.py --model dlinear --data '$DATA' --tag s2_dlinear --seeds $SEEDS $DSFLAGS"
+for m in mlp patchtst itransformer tft; do
+    add "$m" "uv run --group $GROUP python run_eval.py --model $m --future-cov all --data '$DATA' --tag s2_$m --seeds $SEEDS $DSFLAGS"
 done
 # Optional goes leave-one-plant-out (heavy; §4.1)
 if [[ "$RUN_LOPO" == 1 ]]; then
@@ -230,10 +238,13 @@ fi
 if [[ "$RUN_PHASE_A" == 1 ]]; then
 echo ""; echo ">>> Phase A: splits + Tier 0-1 reference (CPU)"
 uv run --group "$GROUP" python -m common.splits --data "$DATA" || true
+# --future-cov all gives lightgbm future weather (treated as available); it is
+# inert for the tier-0 reference models, which read clearsky, not cov — so the
+# smart_persistence Skill-Score reference written here is unchanged.
 ( CUDA_VISIBLE_DEVICES="" uv run --group "$GROUP" python run_eval.py \
     --model persistence smart_persistence climatology_hourly seasonal_naive \
             lightgbm \
-    --data "$DATA" --tag s2 --seeds $SEEDS $DSFLAGS ) > "$LOGDIR/tier0_2_cpu.log" 2>&1 &
+    --future-cov all --data "$DATA" --tag s2 --seeds $SEEDS $DSFLAGS ) > "$LOGDIR/tier0_2_cpu.log" 2>&1 &
 CPU_PID=$!
 # uk_pv CSV export the RAG originals read (single canonical copy)
 uv run python tier4/vendor/export_ukpv.py --data "$DATA" --out "$UKPV_CSV_DIR" \

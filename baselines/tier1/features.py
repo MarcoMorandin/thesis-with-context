@@ -15,7 +15,10 @@ FEATURE_NAMES: list[str] = (
     [f"y_lag_{i}" for i in range(config.HISTORY_STEPS)]
     + ["y_mean", "y_std", "y_max", "y_last"]
     + [f"cov_hist_mean_{c}" for c in config.COV_COLS]
-    + [f"cov_future_{c}" for c in config.DETERMINISTIC_COVS]
+    # All covariate columns over the horizon: solar geometry / calendar are always
+    # known; observed-weather future cols are zeroed by WindowDataset unless the
+    # run uses future_cov="all" (future weather treated as available — NWP).
+    + [f"cov_future_{c}" for c in config.COV_COLS]
     + ["horizon_frac"]
 )
 
@@ -40,7 +43,7 @@ def build_features(batch: dict) -> np.ndarray:
     )  # (N, 4)
 
     cov_hist_mean = batch["cov"][:, :t, :].mean(axis=1)          # (N, C)
-    cov_future = batch["cov"][:, t:, list(config.DETERMINISTIC_COV_IDX)]  # (N, H, D)
+    cov_future = batch["cov"][:, t:, :]                          # (N, H, C) all cols
 
     static = np.concatenate([y, y_stats, cov_hist_mean], axis=1)  # (N, S)
     static = np.repeat(static[:, None, :], h, axis=1)             # (N, H, S)

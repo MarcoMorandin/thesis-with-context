@@ -88,9 +88,12 @@ def parse_args() -> argparse.Namespace:
                         help="JSON kwargs forwarded to every --model (A15 sweeps)")
     parser.add_argument("--future-cov", default="deterministic",
                         choices=["deterministic", "all"],
-                        help="window future-covariate mode; 'all' exposes true "
-                             "future weather (lookahead) — only for the "
-                             "chronos2_oracle perfect-foresight ceiling")
+                        help="future-covariate mode for the window AND every "
+                             "covariate-consuming model: 'deterministic' = solar "
+                             "geometry/calendar only (leakage-free); 'all' = future "
+                             "weather treated as available (NWP assumption), and "
+                             "the perfect-foresight ceiling when paired with the "
+                             "chronos2_oracle* models")
     return parser.parse_args()
 
 
@@ -107,8 +110,12 @@ def _subsample_plants(sites: set[str], fraction: float, seed: int) -> set[str]:
     return {ordered[i] for i in pick}
 
 
+def _accepts(name: str, param: str) -> bool:
+    return param in inspect.signature(REGISTRY[name].__init__).parameters
+
+
 def _accepts_seed(name: str) -> bool:
-    return "seed" in inspect.signature(REGISTRY[name].__init__).parameters
+    return _accepts(name, "seed")
 
 
 def _scalar_overalls(results_list: list[dict]) -> dict[str, dict[str, float]]:
@@ -209,6 +216,11 @@ def evaluate_suite(
             kwargs = dict(model_kwargs)
             if _accepts_seed(name):
                 kwargs.setdefault("seed", seed)
+            # models that consume covariates pick up the run's future-cov mode
+            # (deterministic vs "all" = future weather available), matching the
+            # window build above so the batch and the model agree.
+            if _accepts(name, "future_cov"):
+                kwargs.setdefault("future_cov", args.future_cov)
             model = build(name, **kwargs)
             if model.requires_fit:
                 if train_ds is None:
