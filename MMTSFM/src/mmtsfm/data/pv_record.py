@@ -220,6 +220,11 @@ class PVRecordDataset(Dataset):
             "Y_future": torch.from_numpy(
                 np.asarray(item["y_future"], np.float32)
             ).view(1, H, 1),
+            # daylight horizon mask (clearsky_ghi > 0): protocol metrics are scored
+            # only over daylight steps, matching the baselines (common.runner).
+            "daylight_future": torch.from_numpy(
+                np.asarray(item["daylight_future"], np.float32)
+            ).view(1, H, 1),
             "X_cov": torch.from_numpy(cov).view(1, T + H, -1),
             "V": V,
             "timestamps": torch.from_numpy(
@@ -235,4 +240,6 @@ class PVRecordDataset(Dataset):
             "mask_visual": mask_visual,
             "mask_modality_dropout": torch.tensor([[1.0, float(mask_visual.any())]]),
             "adj_matrix": torch.eye(1),
+            # plant id for per-plant macro-averaging in the protocol metrics
+            "site_id": str(item["site_id"]),
         }

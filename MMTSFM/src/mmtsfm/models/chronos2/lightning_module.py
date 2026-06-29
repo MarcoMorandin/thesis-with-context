@@ -75,9 +75,15 @@ class VisionChronos2LightningModule(LightningModule):
         grassmann_warmup_steps: int = 0,
         vidtok_model: Optional[nn.Module] = None,
         pretrained_model_name_or_path: Optional[str] = "amazon/chronos-2",
+        # Protocol evaluation (BASELINE_PROTOCOL.md §5): NMAE/NRMSE/SS written in
+        # the baselines results schema so aggregate_all.py ingests MMTSFM too.
+        results_dir: str = "results",
+        results_tag: str = "mmtsfm_s2_ukpv",
+        sp_reference_path: Optional[str] = None,
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["vidtok_model"])
+        self._protocol_eval = None
         self.grassmann_warmup_steps = grassmann_warmup_steps
         self.n_unfreeze_encoder_blocks = n_unfreeze_encoder_blocks
         self._last_loss = None
@@ -350,16 +356,18 @@ class VisionChronos2LightningModule(LightningModule):
     # Training / Validation / Test
     # ------------------------------------------------------------------
 
-    def _step(self, batch: Dict[str, torch.Tensor], stage: str):
+    def _forward(self, batch: Dict[str, torch.Tensor]):
+        """Run the fp32 forward once; return (unpacked inputs, model output)."""
         inputs = self._unpack_batch(batch)
         device_type = self.device.type
         device_type = device_type if isinstance(device_type, str) and device_type != "mps" else "cpu"
         with torch.autocast(device_type=device_type, enabled=False):
-            fp32_inputs = {
-                key: self._to_float32(value)
-                for key, value in inputs.items()
-            }
+            fp32_inputs = {key: self._to_float32(value) for key, value in inputs.items()}
             out = self.model.forward(**fp32_inputs)
+        return inputs, out
+
+    def _step(self, batch: Dict[str, torch.Tensor], stage: str):
+        inputs, out = self._forward(batch)
 
         loss = out.loss
         assert loss is not None, "Loss is None — check future_target in batch"
@@ -412,8 +420,62 @@ class VisionChronos2LightningModule(LightningModule):
     def validation_step(self, batch, batch_idx):
         self._step(batch, "val")
 
+    def on_test_start(self):
+        from eval.protocol_eval import ProtocolEvaluator
+
+        self._protocol_eval = ProtocolEvaluator(
+            horizon=self.hparams.horizon,
+            reference_path=self.hparams.sp_reference_path,
+        )
+
     def test_step(self, batch, batch_idx):
-        self._step(batch, "test")
+        inputs, out = self._forward(batch)
+        loss = out.loss
+        if loss is not None and torch.isfinite(loss):
+            self.log("test/loss", loss, on_epoch=True, prog_bar=True, sync_dist=True)
+        if self._protocol_eval is not None and out.quantile_preds is not None:
+            self._accumulate_protocol(batch, inputs, out)
+
+    def _accumulate_protocol(self, batch, inputs, out):
+        """Collect masked daylight predictions for NMAE/NRMSE/SS (protocol §5)."""
+        H = self.hparams.horizon
+        q = out.quantile_preds.detach().float()          # [B, Q, H_out]
+        q50 = self.model.chronos.num_quantiles // 2
+        median = q[:, q50, :H]                            # [B, H]
+        quantiles = q[:, :, :H].permute(0, 2, 1)         # [B, H, Q]
+        y = inputs["future_target"][:, :H].float()       # [B, H]
+        mask = inputs["future_target_mask"][:, :H].float()
+        daylight = batch["daylight_future"].reshape(y.shape[0], -1)[:, :H].float()
+        site_ids = [str(s) for s in batch["site_id"]]
+        self._protocol_eval.update(
+            site_ids=site_ids,
+            y_true=y.cpu().numpy(),
+            median=median.cpu().numpy(),
+            mask=(mask * daylight).cpu().numpy(),
+            quantiles=quantiles.cpu().numpy(),
+        )
+
+    def on_test_epoch_end(self):
+        if self._protocol_eval is None or not self.trainer.is_global_zero:
+            return
+        results = self._protocol_eval.finalize()
+        overall = results.get("overall", {})
+        for k in ("nmae", "nrmse", "skill_score", "crps"):
+            if k in overall:
+                self.log(f"test/{k}", float(overall[k]), rank_zero_only=True)
+        try:
+            from omegaconf import OmegaConf
+
+            run_cfg = {"seed": getattr(self.hparams, "seed", 42),
+                       "model": "mmtsfm", "quantile_levels": None}
+            path = self._protocol_eval.write(
+                self.hparams.results_dir, self.hparams.results_tag, run_cfg
+            )
+            print(f"[protocol-eval] NMAE={overall.get('nmae'):.4f} "
+                  f"NRMSE={overall.get('nrmse'):.4f} "
+                  f"SS={overall.get('skill_score', float('nan')):.4f} → {path}", flush=True)
+        except Exception as e:  # never fail the run on a results-write hiccup
+            print(f"[protocol-eval] results write skipped: {e}", flush=True)
 
     # ------------------------------------------------------------------
     # Gradient norm logging (before clipping)
