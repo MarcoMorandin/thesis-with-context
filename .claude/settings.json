@@ -46,7 +46,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run --no-sync .claude/hooks/check-new-file-size.py",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run --no-sync .claude/hooks/check-new-file-size.py",
             "timeout": 15,
             "statusMessage": "Checking new file size..."
           }
