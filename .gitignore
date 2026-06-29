@@ -37,6 +37,10 @@ datasets/
 *.hdf5
 *.zarr
 
+# ...but the MMTSFM source package literally named `data` is code, not a data dir.
+!MMTSFM/src/mmtsfm/data/
+!MMTSFM/src/mmtsfm/data/*.py
+
 # Large media
 *.mp4
 *.avi
