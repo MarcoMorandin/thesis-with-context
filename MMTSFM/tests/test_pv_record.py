@@ -95,6 +95,28 @@ def test_eval_split_is_nonoverlapping(tmp_path):
     assert all((b - a) % 12 == 0 for a, b in zip(starts, starts[1:]) if b > a)
 
 
+def test_datamodule_config_wires_through(tmp_path):
+    import yaml
+
+    cfg = yaml.safe_load(
+        (Path(__file__).resolve().parents[1] / "configs" / "data" / "ukpv.yaml").read_text()
+    )
+    cfg.pop("_target_")
+    parquet = tmp_path / "dataset_all.parquet"
+    _make_parquet(parquet, SPLITS["uk_pv"]["train"][:2] + SPLITS["uk_pv"]["val"][:2])
+    cfg.update(data_dir=str(parquet), num_workers=0, batch_size=2)
+
+    from mmtsfm.data.datamodule import MMTSFMDataModule
+
+    dm = MMTSFMDataModule(**cfg)
+    dm.setup("fit")
+    batch = next(iter(dm.train_dataloader()))
+    assert batch["Y"].shape == (2, 1, 672, 1)
+    assert batch["Y_future"].shape == (2, 1, 12, 1)
+    assert batch["X_cov"].shape == (2, 1, 684, 14)
+    assert batch["V"].shape[:3] == (2, 1, 8)
+
+
 def test_vision_frames_loaded(tmp_path):
     h5py = pytest.importorskip("h5py")
     sites = SPLITS["uk_pv"]["train"][:1]

@@ -37,9 +37,12 @@ datasets/
 *.hdf5
 *.zarr
 
-# ...but the MMTSFM source package literally named `data` is code, not a data dir.
+# ...but the MMTSFM source package and Hydra config group literally named `data`
+# are code/config, not data dirs.
 !MMTSFM/src/mmtsfm/data/
 !MMTSFM/src/mmtsfm/data/*.py
+!MMTSFM/configs/data/
+!MMTSFM/configs/data/*.yaml
 
 # Large media
 *.mp4

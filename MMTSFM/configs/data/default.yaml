@@ -1,0 +1,23 @@
+_target_: mmtsfm.data.datamodule.MMTSFMDataModule
+data_dir: /leonardo_scratch/fast/IscrC_MTSFM/data
+dataset_name: skippd
+batch_size: 32
+num_workers: 0
+num_entities: 10
+# 12h of 1-min SKIPPD PV at input_patch_size=8 → T_ctx=90 patches.
+# Pure-TS macro = 87 patches; last n_visual_context_steps=3 patches get visual
+# refinement → decoupled-resolution architecture per proposal §1/§7.
+hist_steps: 720
+horizon: 12
+target_dim: 1
+covariate_dim: 0
+video_frames: 17
+img_size: 224
+img_channels: 3
+imagenet_norm: true
+num_samples_train: 1000
+num_samples_val: 200
+num_samples_test: 200
+train_frac: 0.70
+val_frac: 0.10
+vis_cadence_multiplier: 1  # >1 queries frames at M× denser cadence than TS steps (C4 decoupling)

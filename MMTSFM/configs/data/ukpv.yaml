@@ -1,0 +1,34 @@
+_target_: mmtsfm.data.datamodule.MMTSFMDataModule
+
+# Dataset of record, uk_pv numerical+visual track, scored on the disjoint
+# cross-plant protocol (BASELINE_PROTOCOL.md). data_dir is the DATA_DIR from
+# scripts/run_all_baselines.sh; PVRecordDataset resolves dataset_all.parquet +
+# images_all.h5 inside it (an explicit *.parquet path is also accepted).
+data_dir: /leonardo_scratch/fast/IscrC_MTSFM/data
+h5_path: null                # null → <data_dir>/images_all.h5
+dataset_name: uk_pv
+batch_size: 16
+num_workers: 8               # real frame decode → parallelize the loader
+num_entities: 1              # single plant per window (cross-plant generalization)
+
+# Physical-time windows (§3): 14-day history / 6-hour horizon. uk_pv 30-min
+# cadence → 672 / 12 steps, resolved per-cadence inside PVRecordDataset.
+history_days: 14.0
+horizon_hours: 6.0
+hist_steps: null             # null → physical-time history above
+horizon: 12                  # resolved step horizon; model.horizon inherits this
+
+target_dim: 1
+covariate_dim: 14            # len(common.config.COV_COLS) — protocol covariates incl. future weather
+video_frames: 8              # 8 frames over the recent window (§3 visual cadence)
+img_size: 224
+img_channels: 3
+imagenet_norm: true
+
+# unused by pv_record (synthetic-only knobs) — kept for datamodule signature compat
+num_samples_train: 1000
+num_samples_val: 200
+num_samples_test: 200
+train_frac: 0.70
+val_frac: 0.10
+vis_cadence_multiplier: 1

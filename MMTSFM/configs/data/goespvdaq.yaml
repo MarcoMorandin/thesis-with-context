@@ -1,0 +1,31 @@
+_target_: mmtsfm.data.datamodule.MMTSFMDataModule
+
+# Dataset of record, goes_pvdaq track (15-min cadence, 256px RGB frames). Must
+# additionally be evaluated leave-one-plant-out (§4.1) — its fixed test share is
+# only 1 plant. See BASELINE_PROTOCOL.md and reconcile bad_site_flag sites first.
+data_dir: /leonardo_scratch/fast/IscrC_MTSFM/data
+h5_path: null
+dataset_name: goes_pvdaq
+batch_size: 16
+num_workers: 8
+num_entities: 1
+
+# 14-day history / 6-hour horizon at 15-min cadence → 1344 / 24 steps.
+history_days: 14.0
+horizon_hours: 6.0
+hist_steps: null
+horizon: 24
+
+target_dim: 1
+covariate_dim: 14
+video_frames: 8
+img_size: 224
+img_channels: 3
+imagenet_norm: true
+
+num_samples_train: 1000
+num_samples_val: 200
+num_samples_test: 200
+train_frac: 0.70
+val_frac: 0.10
+vis_cadence_multiplier: 1

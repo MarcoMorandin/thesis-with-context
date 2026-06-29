@@ -1,0 +1,11 @@
+# @package _global_
+# Runnable entrypoint for the protocol-aligned uk_pv run:
+#     uv run python -m mmtsfm.train +experiment=ukpv
+#
+# Disjoint cross-plant splits (configs/splits.json), 14-day history / 6-hour
+# horizon, protocol covariates incl. KNOWN future weather (future_cov=all), and
+# satellite frames from images_all.h5. model.horizon inherits ${data.horizon}.
+defaults:
+  - override /data: ukpv
+
+seed: 42

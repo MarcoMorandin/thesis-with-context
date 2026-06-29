@@ -41,6 +41,9 @@ class MMTSFMDataModule(LightningDataModule):
         num_entities: int = 10,
         hist_steps: int = 24,
         horizon: int = 12,
+        history_days: float = 14.0,   # pv_record physical-time history (BASELINE_PROTOCOL §3)
+        horizon_hours: float = 6.0,   # pv_record physical-time horizon
+        h5_path: Optional[str] = None,  # pv_record frames; default <data_dir>/images_all.h5
         target_dim: int = 1,
         covariate_dim: int = 5,
         video_frames: int = 8,
@@ -67,15 +70,15 @@ class MMTSFMDataModule(LightningDataModule):
                 split=split,
                 dataset_name=self.hparams.dataset_name,
                 data_path=self.hparams.data_dir,
-                history_days=self.hparams.get("history_days", 14.0),
-                horizon_hours=self.hparams.get("horizon_hours", 6.0),
-                hist_steps=self.hparams.get("hist_steps") or None,
-                horizon=self.hparams.get("horizon") or None,
+                history_days=self.hparams.history_days,
+                horizon_hours=self.hparams.horizon_hours,
+                hist_steps=self.hparams.hist_steps or None,
+                horizon=self.hparams.horizon or None,
                 video_frames=self.hparams.video_frames,
                 img_size=self.hparams.img_size,
                 img_channels=self.hparams.img_channels,
                 imagenet_norm=self.hparams.imagenet_norm,
-                h5_path=self.hparams.get("h5_path") or None,
+                h5_path=self.hparams.h5_path,
             )
         return MMTSFMDataset(
             num_samples=num_samples,
