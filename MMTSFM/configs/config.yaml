@@ -1,7 +1,7 @@
 defaults:
   - trainer: default
   - model: vision_chronos2
-  - data: default
+  - data: ukpv
   - logger: wandb
   - _self_
 
