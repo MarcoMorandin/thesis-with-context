@@ -18,6 +18,11 @@
 | A13 | Visual token budget sweep | `model.vision.num_tokens=...` |  -  | TODO |  -  |
 | A14 | Frozen vs partial-unfreeze backbone | `model.unfreeze=...` |  -  | TODO |  -  |
 | A15 | RAG datastore size / top-k sweep | `baselines/ts_rag k=..., store=...` |  -  | TODO |  -  |
+| HEADLINE | Proposed architecture (V-JEPA 2.1 + interleaved + Grassmann) is the reported model | `model=vision_chronos2_headline` | fix/generalization-merge | CODE DONE; numbers [cluster, deferred] |  -  |
+| W4 | Cross-plant group batching (num_entities>1, train-time) activates GroupSelfAttention and improves zero-shot cross-plant skill | `data.num_entities=4` (train only; val/test forced 1) | fix/generalization-merge | CODE DONE; numbers [cluster, deferred] | CPU: group disjointness + cross-entity gradient verified |
+| W5 | Bounding the visual window (visual_window_hours) + true frame Δt to the summarizer improves sub-hourly skill | `data.visual_window_hours=6.0` | fix/generalization-merge | CODE DONE; numbers [cluster, deferred] | CPU: recency bound + Δt plumbing verified |
+| W6 | Visual marginal gain (NMAE/NRMSE vision-on vs vision-off) confirms the visual stream is used | `model.compute_marginal_gain=true` (eval) | fix/generalization-merge | CODE DONE; sign/magnitude [cluster, deferred] | CPU: dual-pass + Δ computed; forced-off == masked forward |
+| W7 | n_visual_context_steps is derived from cadence and bounded by T_ctx (no silent clamp) | derived; asserted at model init | fix/generalization-merge | DONE | CPU: derivation + init assert verified |
 
 ## How to register
 
