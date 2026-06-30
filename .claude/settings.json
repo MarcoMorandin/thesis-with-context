@@ -51,6 +51,17 @@
             "statusMessage": "Checking new file size..."
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && FILE=$(python3 -c \"import json,sys;d=json.load(sys.stdin);print(d.get('tool_result',{}).get('filePath') or d.get('tool_input',{}).get('file_path',''))\") && echo \"$FILE\" | grep -q '\\.py$' && uv run ruff format \"$FILE\" 2>/dev/null || true",
+            "timeout": 10,
+            "statusMessage": "Formatting Python file..."
+          }
+        ]
       }
     ],
     "Stop": [
