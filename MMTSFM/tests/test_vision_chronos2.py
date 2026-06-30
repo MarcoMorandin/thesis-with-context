@@ -1403,3 +1403,47 @@ class TestCrossPlantGroupAttention:
         assert grad_cross_sep < 1e-8, (
             "separate groups must not leak gradient across entities"
         )
+
+
+class TestVisualContextDerivation:
+    """W7: n_visual_context_steps derivation + bound vs T_ctx."""
+
+    def test_t_ctx_derivation(self):
+        from mmtsfm.models.chronos2.vision_chronos2 import t_ctx_from_context
+
+        # goes_pvdaq: 14 d @ 15-min = 1344 steps, patch 8 → 168 context patches
+        assert t_ctx_from_context(1344, 8) == 168
+        # uk_pv: 14 d @ 30-min = 672 steps, patch 8 → 84
+        assert t_ctx_from_context(672, 8) == 84
+        # non-divisible rounds up
+        assert t_ctx_from_context(20, 8) == 3
+
+    def test_validate_passes_for_headline(self):
+        from mmtsfm.models.chronos2.vision_chronos2 import (
+            validate_n_visual_context_steps,
+        )
+
+        # headline n_visual_context_steps=3 fits both datasets
+        assert validate_n_visual_context_steps(3, 1344, 8) == 168
+        assert validate_n_visual_context_steps(3, 672, 8) == 84
+
+    def test_validate_fires_on_impossible_value(self):
+        from mmtsfm.models.chronos2.vision_chronos2 import (
+            validate_n_visual_context_steps,
+        )
+
+        # context_length=16, patch 8 → T_ctx=2; 5 visual steps is impossible
+        with pytest.raises(
+            ValueError, match="exceeds the number of TS context patches"
+        ):
+            validate_n_visual_context_steps(5, 16, 8)
+
+    def test_model_init_rejects_impossible_config(self):
+        from mmtsfm.models.chronos2 import VisionChronos2Model, VisionChronos2Config
+
+        chronos = _make_chronos2(d_model=32, context_length=16)  # patch 8 → T_ctx=2
+        vcfg = VisionChronos2Config(d_video_latent=4, n_visual_context_steps=9)
+        with pytest.raises(
+            ValueError, match="exceeds the number of TS context patches"
+        ):
+            VisionChronos2Model(chronos, vcfg, vidtok_model=_make_fake_vidtok())

@@ -19,6 +19,7 @@ default). Output is provably identical up to fp32 precision.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
@@ -30,6 +31,42 @@ from .model import Chronos2Model
 from ..vision.vidtok_encoder import VidTokEncoder
 from ..vision.latent_summarizer import LatentSummarizer
 from ..vision.cross_modal_adapter import CrossModalAdapter
+
+
+# ---------------------------------------------------------------------------
+# Visual-context-window derivation (W7)
+# ---------------------------------------------------------------------------
+
+
+def t_ctx_from_context(context_length: int, input_patch_size: int) -> int:
+    """Number of TS context patches for a given history length and patch size.
+
+    Chronos-2 patchifies the ``context_length``-step history into
+    ``ceil(context_length / input_patch_size)`` non-overlapping input patches —
+    the upper bound on how many of those patches can receive a visual summary
+    token (``n_visual_context_steps``).
+    """
+    return math.ceil(int(context_length) / int(input_patch_size))
+
+
+def validate_n_visual_context_steps(
+    n_visual_context_steps: int, context_length: int, input_patch_size: int
+) -> int:
+    """Assert the visual window fits inside the TS context; return ``T_ctx``.
+
+    ``n_visual_context_steps`` is how many of the most-recent context patches
+    are given visual tokens, so it must not exceed ``T_ctx`` (W7). Fires loudly
+    on an impossible config instead of silently clamping.
+    """
+    t_ctx = t_ctx_from_context(context_length, input_patch_size)
+    if n_visual_context_steps > t_ctx:
+        raise ValueError(
+            f"n_visual_context_steps={n_visual_context_steps} exceeds the number "
+            f"of TS context patches T_ctx={t_ctx} "
+            f"(context_length={context_length}, input_patch_size={input_patch_size}). "
+            f"Reduce n_visual_context_steps to <= {t_ctx}."
+        )
+    return t_ctx
 
 
 # ---------------------------------------------------------------------------
@@ -285,6 +322,15 @@ class VisionChronos2Model(nn.Module):
         self.chronos = chronos_model
         self.vcfg = vision_config
         d_model: int = chronos_model.model_dim
+
+        # W7: the visual window (n_visual_context_steps) must fit inside the TS
+        # context patch grid; assert loudly rather than silently clamping later.
+        if not vision_config.skip_vision_stack:
+            validate_n_visual_context_steps(
+                vision_config.n_visual_context_steps,
+                chronos_model.chronos_config.context_length,
+                chronos_model.chronos_config.input_patch_size,
+            )
 
         if not vision_config.skip_vision_stack:
             if vision_config.visual_encoder_type == "vjepa2":

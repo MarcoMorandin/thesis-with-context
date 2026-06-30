@@ -47,7 +47,10 @@ vision_cfg:
   d_video_latent: 4                # KL-4ch=4; V-JEPA ViT-L=1024; ViT-B=768
 
   # --- LatentSummarizer + CrossModalAdapter ---
-  n_visual_context_steps: 3        # = ceil(hist_steps / input_patch_size) = ceil(24/8); only actual data patches get visual tokens
+  n_visual_context_steps: 3        # most-recent context patches given visual tokens.
+                                   # Derivation: ceil((visual_window_hours/24 * steps_per_day) / input_patch_size)
+                                   # — goes_pvdaq 15-min: ceil(24/8)=3; uk_pv 30-min: ceil(12/8)=2.
+                                   # Must be <= T_ctx = ceil(hist_steps / input_patch_size); asserted at model init (W7).
   n_soft_tokens: 1
   adapter_type: linear
   adapter_n_layers: 2
