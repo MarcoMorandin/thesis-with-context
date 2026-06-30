@@ -1,8 +1,18 @@
 # MMTSFM — Technical Proposal
 
-**Multimodal Multiscale Temporal Spatiotemporal Foundation Model**
+**Multimodal Multiscale Temporal Spatiotemporal Foundation Model for PV Power Forecasting**
 
 **Status:** Active development — `feat/grassmann-flow-integration`\
+\
+**Scope:** This proposal targets **photovoltaic (PV) power forecasting**. The
+primary scientific objective is **zero-shot cross-plant generalization** —
+forecasting power on disjoint, never-seen PV plants from a short history,
+without sacrificing point-forecast quality. The architecture is sensor-agnostic
+by construction (it admits RGB sky cameras and multi-band geostationary
+satellite imagery alike), but the model, its training curriculum, and its
+evaluation are all scoped to PV. (An earlier revision framed MMTSFM as a general
+multi-domain physical-world forecaster; that framing is retired — PV is the sole
+target of record.)\
 \
 **References:** [Notion bibliography](https://www.notion.so/c43ccbe3627344e4ba201e1f8262a57e?pvs=21)
 
@@ -10,9 +20,18 @@
 
 ## Abstract
 
-This proposal introduces a native spatiotemporal foundation model designed to enhance the predictive capabilities of time-series foundation models through early-fusion multimodal reasoning. The core objective is to enable deep cross-modal temporal reasoning for forecasting numeric time-series by extracting physically meaningful dynamics from video and imagery across diverse physical-world sensing domains (solar, meteorology, traffic, hydrology, agriculture, wildfire, ecology), while grounding visual anomalies in structured telemetry and known covariates.
+This proposal introduces a native spatiotemporal foundation model for **PV power
+forecasting** that enhances time-series foundation models through early-fusion
+multimodal reasoning. The core objective is **zero-shot cross-plant
+generalization**: forecasting future PV power on plants held out from training,
+using a short numeric history, known future weather covariates, and recent
+visual observations of the sky/atmosphere (ground sky-camera frames or
+geostationary satellite imagery). The model extracts cloud-advection and
+sky-state dynamics from imagery and grounds them in PV telemetry and structured
+covariates, targeting the cloud-driven sub-hourly variability that defeats
+TS-only foundation models.
 
-Unlike late-fusion architectures — which encode modalities independently and merge them only at the decision layer — MMTSFM performs deep token-level alignment across time, covariates, and physical entities, enabling multimodal interaction throughout the forecasting backbone.
+Unlike late-fusion architectures — which encode modalities independently and merge them only at the decision layer — MMTSFM performs deep token-level alignment across time, covariates, and PV plants, enabling multimodal interaction throughout the forecasting backbone.
 
 The architecture has three primary contributions:
 
@@ -20,7 +39,7 @@ The architecture has three primary contributions:
 
 **2. Selective Temporal Interleaving.** Rather than injecting visual tokens only at the group attention layer (late fusion), the model interleaves visual summary tokens with TS tokens *exclusively in the visual refinement window*, feeding the joint sequence directly into the temporal mixing layer. The macro-history processes as pure TS, preserving its temporal geometry. This enables the Grassmann flow layer to track cross-modal state transitions in the recent window while maintaining O(L) complexity over the full long-context sequence. The cost increase is proportional only to $n_{\text{vis}}$ (~2% of $T_{\text{ctx}}$), not to the full context length.
 
-**3. Sensor-Agnostic Visual Encoding.** A pretrained V-JEPA 2.1 spatiotemporal encoder (frozen, then progressively fine-tuned) acts as the visual backbone across all RGB-compatible datasets. A learned per-sensor `SensorProjection` module maps native multi-channel sensor observations (SAR, multispectral, IR, radar) to 3-channel RGB before encoding, enabling a single backbone to serve heterogeneous physical-world sensors without architecture changes.
+**3. Sensor-Agnostic Visual Encoding.** A pretrained V-JEPA 2.1 spatiotemporal encoder (frozen, then progressively fine-tuned) acts as the visual backbone across all PV imaging modalities. A learned per-sensor `SensorProjection` module maps native multi-channel observations (e.g. GOES geostationary multi-band imagery) to 3-channel RGB before encoding, so a single backbone serves both ground-based RGB sky cameras and satellite imagery without architecture changes. This matters for PV because the two dominant PV-forecasting visual sources — fisheye sky cameras (native RGB) and geostationary satellites (multi-band IR/visible) — must share one model to enable cross-plant, cross-source generalization.
 
 Additional components: Chronos-2 time-series tokenization (arcsinh normalization, patch segmentation), Perceiver-style latent summarization, a two-level attention backbone (**Time Grassmann Flow → Group**), and non-autoregressive multi-token probabilistic forecasting.
 
@@ -28,13 +47,13 @@ Additional components: Chronos-2 time-series tokenization (arcsinh normalization
 
 ## Problem Setup
 
-Given a set of $N$ physical entities, the model receives:
+Given a set of $N$ PV plants (the project default is a single plant per window, $N=1$, to enforce cross-plant generalization), the model receives:
 
-- **Historical target values** $Y \in \mathbb{R}^{N \times T \times C_y}$ — the numeric quantities to forecast
-- **Historical and future-known covariates** $X \in \mathbb{R}^{N \times (T+H) \times C_x}$ — structured contextual features known over the forecast horizon
-- **Recent visual observations** $V \in \mathbb{R}^{N \times T_v \times C_{\text{sensor}} \times H_{\text{px}} \times W_{\text{px}}}$ — sparsely sampled frames from the last $n_{\text{vis}}$ context steps, at higher temporal frequency than the TS cadence; $C_{\text{sensor}}$ is sensor-specific (3 for RGB cameras, 13 for Sentinel-2, 2 for SAR, etc.)
+- **Historical PV power** $Y \in \mathbb{R}^{N \times T \times C_y}$ — the plant power output to forecast ($C_y = 1$)
+- **Historical and future-known covariates** $X \in \mathbb{R}^{N \times (T+H) \times C_x}$ — protocol covariates including known future numerical weather (treated as available over the horizon, per `baselines/common.config.COV_COLS`)
+- **Recent visual observations** $V \in \mathbb{R}^{N \times T_v \times C_{\text{sensor}} \times H_{\text{px}} \times W_{\text{px}}}$ — frames from the last $n_{\text{vis}}$ context steps over a short recent window (cloud-advection horizon), at higher temporal frequency than the TS cadence; $C_{\text{sensor}}$ is source-specific (3 for RGB fisheye sky cameras; multi-band for geostationary satellite, projected to 3)
 
-The model outputs probabilistic forecasts (quantiles) $\hat{Y} \in \mathbb{R}^{N \times H \times Q}$ for each target entity over the forecast horizon $H$.
+The model outputs probabilistic forecasts (quantiles) $\hat{Y} \in \mathbb{R}^{N \times H \times Q}$ of PV power for each plant over the forecast horizon $H$. Per the evaluation protocol (see *Evaluation Protocol* below): 14-day physical-time history, 6-hour horizon, native per-dataset cadence (`uk_pv` 30-min → 672/12 steps; `goes_pvdaq` 15-min → 1344/24 steps).
 
 ### Batch data schema
 
@@ -106,20 +125,20 @@ The `MMTSFMDataLoader` generates aligned sliding windows across both streams, ma
 
 ### 2. Sensor Projection
 
-Physical-world sensors produce observations in heterogeneous spectral configurations: RGB cameras (3 channels), Sentinel-2 (13 bands), Sentinel-1 SAR (VV + VH), GOES-16 (16 channels), NEXRAD radar (reflectivity + velocity + spectrum width), thermal cameras (1 channel). The `VisualEncoder` backbone (V-JEPA 2.1) expects 3-channel RGB input.
+PV forecasting draws on visual sources in heterogeneous spectral configurations: ground fisheye sky cameras (3-channel RGB), and geostationary satellites — GOES-16/18 ABI (up to 16 bands), which dominate utility-scale and distributed PV nowcasting. The `VisualEncoder` backbone (V-JEPA 2.1) expects 3-channel RGB input.
 
-A lightweight `SensorProjection` module maps each sensor's native channels to 3:
+A lightweight `SensorProjection` module maps each source's native channels to 3:
 
 ```text
 SensorProjection(in_channels: int)
   → nn.Conv2d(in_channels, 3, kernel_size=1, bias=True)
 ```
 
-One `SensorProjection` per sensor type, applied per frame before the visual backbone. Initialization: identity mapping for the first 3 channels (or channel replication for $C_{\text{sensor}} < 3$), so training starts from a meaningful RGB approximation.
+One `SensorProjection` per source type, applied per frame before the visual backbone. Initialization: identity mapping for the first 3 channels (or channel replication for $C_{\text{sensor}} < 3$), so training starts from a meaningful RGB approximation.
 
-The learned projection is not a fixed pseudocolor mapping — it is trained jointly in Stage 2a and learns the **optimal 3-channel compression for discriminative feature extraction** in each domain. For example, for Sentinel-2 the network can learn to emphasize SWIR and NIR bands over raw RGB if those carry more forecasting-relevant signal (e.g., NDVI, soil moisture).
+The learned projection is not a fixed pseudocolor mapping — it is trained jointly in Stage 2a and learns the **optimal 3-channel compression for discriminative feature extraction** per source. For GOES multi-band imagery the network can learn to emphasize the IR/water-vapor bands that carry cloud-optical-depth and advection signal over raw visible, if those are more PV-forecasting-relevant. RGB sky cameras pass through the identity-initialized projection unchanged.
 
-This approach is strictly superior to fixed pseudocolor mappings and avoids the need for a sensor-specific backbone architecture.
+This approach is strictly superior to fixed pseudocolor mappings and lets a single backbone serve ground and satellite PV sources without architecture changes.
 
 ***
 
@@ -367,9 +386,9 @@ Training proceeds in four stages designed around the pretrained weight recycling
 
 | Frozen / not instantiated                                  | Trainable                                                                               | Data                                         | Purpose                                                                                                     |
 | ---------------------------------------------------------- | --------------------------------------------------------------------------------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| All vision modules **skipped at construction** (see below) | Chronos-2 encoder (group attn + FF + embeddings) + `CausalGrassmannMixing` (at 0.1× LR) | Diverse TS-only datasets (visual mask = 1.0) | Establish strong numeric temporal geometry; initialize Grassmann compatibly with pretrained residual stream |
+| All vision modules **skipped at construction** (see below) | Chronos-2 encoder (group attn + FF + embeddings) + `CausalGrassmannMixing` (at 0.1× LR) | PV power TS across train plants (+ optional external PV TS); visual mask = 1.0 | Establish strong numeric temporal geometry on PV dynamics; initialize Grassmann compatibly with pretrained residual stream |
 
-Load Chronos-2 pretrained weights for all components except `CausalGrassmannMixing`. Apply 0.1× LR multiplier to Grassmann parameters for the first 2,000 warmup steps, then restore normal LR. Train on diverse TS data — include all TS-only datasets plus the TS streams of multimodal datasets with 100% visual masking. This produces a Grassmann layer that has learned to encode meaningful TS temporal subspaces before encountering visual tokens.
+Load Chronos-2 pretrained weights for all components except `CausalGrassmannMixing`. Apply 0.1× LR multiplier to Grassmann parameters for the first 2,000 warmup steps, then restore normal LR. Train on PV power TS — the train-plant numeric streams (and optionally external PV TS, e.g. SKIPP'D/SolarNet) with 100% visual masking. This produces a Grassmann layer that has learned to encode meaningful PV temporal subspaces before encountering visual tokens.
 
 > **Vision-module skip:** with `data.visual_mask_prob = 1.0` no visual tensor reaches the encoder, so `VisualEncoder`, `SensorProjection`, `LatentSummarizer`, and `CrossModalAdapter` should not be instantiated in Stage 1 — guard them behind a `model.skip_vision_stack=true` flag rather than loading and freezing ~300M of V-JEPA weights into GPU memory unused. Stage 2a constructs the full multimodal stack from scratch (or from a Stage 0 vision warmup checkpoint) and resumes the Chronos-2 weights from the Stage 1 checkpoint.
 
@@ -395,9 +414,35 @@ Switch `fusion_mode` to `"interleaved"`. Now the Grassmann layer sees cross-moda
 
 | Frozen  | Trainable      | Data                           | Purpose                                                         |
 | ------- | -------------- | ------------------------------ | --------------------------------------------------------------- |
-| Nothing | All components | Full diverse multimodal corpus | End-to-end cross-modal temporal optimization across all domains |
+| Nothing | All components | Full PV multimodal train set (all train plants; both sources if in scope) | End-to-end cross-modal temporal optimization for cross-plant PV generalization |
 
-Progressive V-JEPA 2.1 unfreezing (4 more layers per epoch) prevents early-stage feature corruption. Full asymmetric Bernoulli modality masking enforces modality-robust representations. Training on the **full diverse dataset corpus** — not a single dataset — is what distinguishes a foundation model from a fine-tuned specialist: the model must generalize zero-shot across solar, traffic, meteorology, hydrology, agriculture.
+Progressive V-JEPA 2.1 unfreezing (4 more layers per epoch) prevents early-stage feature corruption. Full asymmetric Bernoulli modality masking enforces modality-robust representations (so the model degrades gracefully when frames are missing/corrupted — common in PV deployment). Training on **all train plants and both imaging sources** — not a single plant or site — is what yields cross-plant generalization: the model must forecast zero-shot on disjoint, never-seen PV plants and transfer across imaging sources (sky-camera ↔ satellite).
+
+***
+
+## Evaluation Protocol
+
+Evaluation follows `docs/experiments/BASELINE_PROTOCOL.md` so MMTSFM is directly
+comparable to every baseline (Smart Persistence, LightGBM, Chronos-2 ZS/FT,
+Solar-VLM, TS-RAG, …). Key rules:
+
+- **Disjoint cross-plant splits.** Train / Val / Test plant sets are disjoint
+  (`baselines/configs/splits.json`, seed 42). The headline metric is **zero-shot
+  cross-plant**: report only on Test plants, never seen in fit. `intra_plant`
+  (same plant, held-out time) is a sanity check only.
+- **Same horizon & cadence as baselines.** 14-day physical-time history, 6-hour
+  horizon, native per-dataset cadence (no resampling). `goes_pvdaq` is
+  additionally evaluated **leave-one-plant-out** (its fixed test share is ~1 plant).
+- **Metrics.** NMAE and NRMSE on physical scale (un-normalized by plant capacity),
+  plus **Forecast Skill Score** (NRMSE-based) relative to Smart Persistence.
+  Report the skill-decay curve at 1 / 6 / 24 h.
+- **No domain physics heuristics** (no clear-sky-index or irradiance-physics
+  conversions) unless explicitly ablating them.
+- **Mechanics.** MMTSFM trains via its own Lightning/Hydra entrypoint and writes
+  results in the baselines results schema (`ProtocolEvaluator` → `baselines/results/`,
+  picked up by `aggregate_all.py`). It is *not* registered in the
+  `baselines/common.base` `Baseline`/`Forecast` registry — comparison happens at
+  the results-JSON level, by design.
 
 ***
 
@@ -418,7 +463,9 @@ Progressive V-JEPA 2.1 unfreezing (4 more layers per epoch) prevents early-stage
 | `MMTSFM/src/mmtsfm/models/vision/cross_modal_adapter.py` | `CrossModalAdapter` — N_soft soft tokens *(late-fusion path only)*                                                 |
 | `MMTSFM/src/mmtsfm/models/vision/vidtok_encoder.py` | `VidTokEncoder` → **to be replaced by** `VisualEncoder` wrapping V-JEPA 2.1                                        |
 | `MMTSFM/src/mmtsfm/models/vision/sensor_projection.py` | `SensorProjection` — per-sensor learned C_sensor → 3 projection *(to be implemented)*                              |
-| `MMTSFM/src/mmtsfm/data/dataset.py`               | `MMTSFMDataset` — synthetic and SKIPPD loaders                                                                     |
+| `MMTSFM/src/mmtsfm/data/dataset.py`               | `MMTSFMDataset` — synthetic + legacy loaders                                                                       |
+| `MMTSFM/src/mmtsfm/data/pv_record.py`             | `PVRecordDataset` — dataset-of-record (`uk_pv`/`goes_pvdaq`) loader; reuses `baselines/` splits + windows          |
+| `MMTSFM/src/eval/protocol_eval.py`                | `ProtocolEvaluator` — NMAE/NRMSE/Skill-Score in the baselines results schema                                       |
 | `MMTSFM/src/mmtsfm/train.py`                      | Hydra entry point                                                                                                  |
 
 ### Key config changes vs. current implementation
@@ -449,129 +496,88 @@ fusion_mode = "interleaved"
 
 ### Running
 
-All running commands should be executed from within the `MMTSFM/` directory:
+All commands run from within `MMTSFM/`. The default Hydra config is now the PV
+dataset of record (`data=ukpv`, `data_dir=/Volumes/SSD/thesis-dataset`); pass
+`data=goespvdaq` for the satellite track.
+
+The four curriculum stages are chained **manually** by passing the previous
+stage's checkpoint via `+ckpt_path=` — there is currently **no single script
+that runs the full Stage 1→2a→2b→3 curriculum end-to-end**. `scripts/run_all_mmtsfm.sh`
+is a protocol-eval orchestrator (numeric sanity + one Stage-2 run per dataset,
+writing NMAE/NRMSE/SS into `baselines/results/`), not the curriculum runner.
 
 ```bash
 cd MMTSFM
 
-# Stage 1 (TS pretraining, Grassmann warmup)
+# Stage 1 (PV TS pretraining, Grassmann warmup; vision stack skipped)
 uv run python -m mmtsfm.train \
   model.vision_cfg.fusion_mode=late \
-  model.vision_cfg.freeze_visual_encoder=true \
+  model.vision_cfg.skip_vision_stack=true \
   data.visual_mask_prob=1.0
+# → save S1 checkpoint, pass it to S2a via +ckpt_path=
 
 # Stage 2a (visual alignment, late fusion)
 uv run python -m mmtsfm.train \
+  +ckpt_path=/path/to/stage1.ckpt \
   model.vision_cfg.fusion_mode=late \
   model.vision_cfg.freeze_visual_encoder=partial \
   model.freeze_chronos=true
 
 # Stage 2b (Grassmann cross-modal alignment, interleaved)
 uv run python -m mmtsfm.train \
+  +ckpt_path=/path/to/stage2a.ckpt \
   model.vision_cfg.fusion_mode=interleaved \
   model.chronos_core_cfg.use_grassmann=true \
   model.freeze_chronos=true  # only Grassmann params trainable
 
 # Stage 3 (full joint training)
 uv run python -m mmtsfm.train \
+  +ckpt_path=/path/to/stage2b.ckpt \
   model.vision_cfg.fusion_mode=interleaved \
   model.chronos_core_cfg.use_grassmann=true \
   model.freeze_chronos=false
 
-# Cluster (SLURM)
-sbatch MMTSFM/scripts/slurm_train.sh \
-  model.chronos_core_cfg.d_model=512 \
-  model.vision_cfg.d_video_latent=1024
+# Cluster (SLURM): protocol eval (Stage-2 run + numeric sanity), writes to baselines/results/
+sbatch scripts/run_all_mmtsfm.sh
+DATASETS="uk_pv goes_pvdaq" sbatch scripts/run_all_mmtsfm.sh
 ```
+
+> **Open implementation gap:** a `scripts/slurm_curriculum.sh` that chains all four
+> stages (each `sbatch` dependency-linked, threading `+ckpt_path` between stages)
+> does not yet exist and should be added before large-scale cluster training.
 
 ***
 
 ## Datasets
 
-> All datasets require download, exploration, and standardization. TS-only datasets are used in Stage 1 (100% visual masking). Non-RGB sensors use `SensorProjection` to map to 3-channel RGB before the visual backbone.
+PV forecasting is the sole scope. All experiments of record use the consolidated
+**dataset of record** at `/Volumes/SSD/thesis-dataset/` (`dataset_all.parquet` +
+`images_all.h5`, frame pointer `image_h5_index`), under the disjoint cross-plant
+protocol (see *Evaluation Protocol*). Additional public PV datasets are listed as
+**optional pretraining / external-validation** sources, not as the reporting
+benchmark.
 
-### Mobility
+### Datasets of record (reporting benchmark)
 
-| Dataset                     | Sensor type | SensorProjection  | Modalities                                              | Notes                                                                |
-| --------------------------- | ----------- | ----------------- | ------------------------------------------------------- | -------------------------------------------------------------------- |
-| **I-24 MOTION**             | RGB camera  | None (native RGB) | Visual: highway cameras · TS: vehicle trajectories      | Natively complete multimodal.                                        |
-| **I24-WaveX**               | RGB camera  | None              | Visual: I-24 camera · TS: radar detector TS (30s)       | Multi-rate (radar + camera). Ideal for macro/micro split validation. |
-| **MARVEL**                  | RGB CCTV    | None              | Visual: CCTV · TS: pedestrian/vehicle counts            |                                                                      |
-| **City-scale Trajectories** | RGB camera  | None              | Visual: traffic images · TS: 5M trajectories            |                                                                      |
+| Dataset       | Plants | Cadence | Visual source              | SensorProjection | Window (T/H)     | Role                                           |
+| ------------- | :----: | :-----: | -------------------------- | ---------------- | ---------------- | ---------------------------------------------- |
+| **`uk_pv`**   | 98 (69/15/14) | 30-min | residential frames (RGB)   | None             | 672 / 12 steps   | Primary cross-plant benchmark                  |
+| **`goes_pvdaq`** | 10 (LOPO) | 15-min | GOES geostationary RGB (256²) | None / N→3   | 1344 / 24 steps  | Secondary; leave-one-plant-out (small test set) |
 
-### Meteorology & Earth Observation
+Both are scored on NMAE / NRMSE / Skill-Score vs Smart Persistence; splits are
+committed to `baselines/configs/splits.json` (seed 42, `bad_site_flag` sites
+excluded). See `docs/experiments/BASELINE_PROTOCOL.md` for the authoritative
+split membership.
 
-| Dataset                    | Sensor type          | SensorProjection     | Modalities                                                         | Notes                             |
-| -------------------------- | -------------------- | -------------------- | ------------------------------------------------------------------ | --------------------------------- |
-| **MeteoNet**               | Radar + satellite    | Radar: 1→3; Sat: 3→3 | Visual: radar (5min) + satellite · TS: 500 stations                | Strong multi-rate structure.      |
-| **MP-Bench**               | Meteorological grids | N→3                  | Visual: 4D gridded fields · TS: multi-year + weather events        |                                   |
-| **EarthNet2021**           | Sentinel-2           | 13→3                 | Visual: Sentinel-2 · TS: E-OBS weather                             |                                   |
-| **SEVIR / SVRIMG**         | GOES-16 + NEXRAD     | IR→3; Radar→3        | Visual: satellite + radar · TS: lightning + storm metadata         |                                   |
-| **NOAA NEXRAD + GOES ABI** | Radar + satellite    | N→3                  | Visual: satellite + 3D radar · TS: integrate ASOS/AWOS             | Heavy preprocessing required.     |
-| **ERA5 (ECMWF)**           | Atmospheric grids    | N→3                  | Visual: 2D/3D gridded fields · TS: 40+ years hourly               | Stage 1 TS pretraining candidate. |
-| **RainBench**              | Satellite + radar    | N→3                  | Visual: precipitation maps · TS: ERA5-derived                      |                                   |
+### Optional pretraining / external-validation PV datasets
 
-### Earth Observation & Wildfire
+These provide diverse PV TS (Stage 1) and held-out climate zones for zero-shot
+external validation; none are part of the headline benchmark.
 
-| Dataset        | Sensor type             | SensorProjection   | Modalities                                                  | Notes        |
-| -------------- | ----------------------- | ------------------ | ----------------------------------------------------------- | ------------ |
-| **FireSentry** | RGB + thermal UAV       | Thermal: 1→3       | Visual: UAV video · TS: wind, temp, humidity                |              |
-| **TS-SatFire** | VIIRS multispectral     | N→3                | Visual: multi-spectral imagery · TS: GRIDMET/GFS            |              |
-| **TerraMesh**  | Sentinel-1 + Sentinel-2 | SAR: 2→3; S2: 13→3 | Visual: SAR + optical · TS: NDVI, land cover                | CVPRW 2025.  |
-| **MillionST**  | Satellite               | N→3                | Visual: 1M patches · TS: 10 temporal phases / 5yr           |              |
-
-### Photovoltaic Energy Production
-
-| Dataset                      | Sensor type             | SensorProjection | Modalities                                                     | Notes                                                |
-| ---------------------------- | ----------------------- | ---------------- | -------------------------------------------------------------- | ---------------------------------------------------- |
-| **SKIPP'D**                  | Fisheye RGB             | None             | Visual: sky camera · TS: PV power (1 min)                      | Literature reference. (Project dataset of record: `uk_pv` + `goes_pvdaq` in `/Volumes/SSD/thesis-dataset/`.) |
-| **Girasol**                  | IR + visible fisheye    | IR: 1→3          | Visual: IR + visible · TS: GSI + sun position                  |                                                      |
-| **SolarBench (SkyImageNet)** | RGB sky camera          | None             | Visual: harmonized sky cameras · TS: irradiance + power        | ICLR 2024 Climate Change AI.                         |
-| **SolarNet**                 | RGB sky camera          | None             | Visual: cloud images · TS: pyranometer irradiance              |                                                      |
-| **SIRTA & DEWA**             | RGB sky camera          | None             | Visual: sky images (France + UAE) · TS: local irradiance       | Distinct climate zones for generalization.           |
-| **GOES-16/18 ABI + NSRDB**   | Geostationary satellite | 16→3             | Visual: 5-15 min satellite · TS: GHI/DNI + weather             | Large-scale multi-entity.                            |
-
-### Agriculture
-
-| Dataset                   | Sensor type                  | SensorProjection | Modalities                                                          | Notes |
-| ------------------------- | ---------------------------- | ---------------- | ------------------------------------------------------------------- | ----- |
-| **CYCleSS**               | Satellite RS                 | N→3              | Visual: RS data (5-day) · TS: daily weather + yearly yield          |       |
-| **CropClimateX**          | Sentinel-1/2, Landsat, MODIS | Multi→3          | Visual: multi-sensor imagery · TS: Daymet + drought maps            |       |
-| **California Crop Yield** | Landsat multispectral        | N→3              | Visual: Landsat sequences · TS: daily climate + evapotranspiration  |       |
-
-### Hydrology
-
-| Dataset                             | Sensor type         | SensorProjection | Modalities                                                   | Notes |
-| ----------------------------------- | ------------------- | ---------------- | ------------------------------------------------------------ | ----- |
-| **Planet SkySat River Video**       | RGB satellite video | None             | Visual: sub-daily satellite · TS: river discharge + ADCP     |       |
-| **Xiaomai Island Wave Dataset**     | RGB shore camera    | None             | Visual: wave monitoring video · TS: buoy height + SWAN       |       |
-| **IceNet**                          | Satellite sea ice   | N→3              | Visual: sea ice concentration maps · TS: climate variables   |       |
-| **Sentinel-1 Global Flood Archive** | SAR                 | 2→3              | Visual: SAR imagery · TS: flood extent + streamflow          |       |
-
-### Air Quality & Pollution
-
-| Dataset                | Sensor type | SensorProjection | Modalities                                                          | Notes |
-| ---------------------- | ----------- | ---------------- | ------------------------------------------------------------------- | ----- |
-| **OpenAQ + Satellite** | GOES-16 ABI | N→3              | Visual: aerosol optical depth (10-15min) · TS: PM2.5, NO2, ozone   |       |
-
-### Healthcare *(data access may be restricted)*
-
-| Dataset                      | Sensor type   | SensorProjection | Modalities                                                     | Notes                         |
-| ---------------------------- | ------------- | ---------------- | -------------------------------------------------------------- | ----------------------------- |
-| **REVIT Dataset**            | RGB + thermal | Thermal: 1→3     | Visual: patient monitoring video · TS: heart rate, respiration | Single-patient.               |
-| **ICU Video-Vitals Dataset** | RGB camera    | None             | Visual: ICU feeds · TS: ECG, PPG, SpO2                         | PhysioNet / MIMIC extensions. |
-
-### Ecology
-
-| Dataset             | Sensor type              | SensorProjection | Modalities                                                         | Notes                                     |
-| ------------------- | ------------------------ | ---------------- | ------------------------------------------------------------------ | ----------------------------------------- |
-| **EarthNet2021**    | Sentinel-2               | 13→3             | Visual: Sentinel-2 TS · TS: E-OBS weather                          | Dual-listed with Meteorology.             |
-| **GreenEarthNet**   | Sentinel-2               | 13→3             | Visual: vegetation indices · TS: meteorological                    |                                           |
-| **Digital Typhoon** | Geostationary IR/visible | IR→3             | Visual: decades of typhoon imagery · TS: pressure, wind speed      | National Institute of Informatics, Japan. |
-
-### Port Monitoring
-
-| Dataset                        | Sensor type | SensorProjection | Modalities                                                   | Notes                       |
-| ------------------------------ | ----------- | ---------------- | ------------------------------------------------------------ | --------------------------- |
-| **Sentinel-1 SAR Maritime**    | SAR         | 2→3              | Visual: SAR imagery · TS: AIS coordinates                    | Cloud/darkness penetrating. |
-| **Global Fishing Watch (GFW)** | VIIRS + SAR | N→3              | Visual: nighttime lights + SAR · TS: AIS + fishing activity  |                             |
+| Dataset                      | Sensor type             | SensorProjection | Modalities                                              | Notes                                       |
+| ---------------------------- | ----------------------- | ---------------- | ------------------------------------------------------- | ------------------------------------------- |
+| **SKIPP'D**                  | Fisheye RGB             | None             | Visual: sky camera · TS: PV power (1 min)               | Literature reference / sky-camera baseline. |
+| **SolarNet**                 | RGB sky camera          | None             | Visual: cloud images · TS: pyranometer irradiance       | Sky-camera external validation.             |
+| **SolarBench (SkyImageNet)** | RGB sky camera          | None             | Visual: harmonized sky cameras · TS: irradiance + power  | ICLR 2024 Climate Change AI.                |
+| **SIRTA & DEWA**             | RGB sky camera          | None             | Visual: sky images (France + UAE) · TS: local irradiance | Distinct climate zones for generalization.  |
+| **GOES-16/18 ABI + NSRDB**   | Geostationary satellite | 16→3             | Visual: 5-15 min satellite · TS: GHI/DNI + weather       | Satellite multi-band → SensorProjection.    |
