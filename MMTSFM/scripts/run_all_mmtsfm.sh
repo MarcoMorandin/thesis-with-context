@@ -2,8 +2,8 @@
 #SBATCH --job-name=run-all-mmtsfm
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=8
-#SBATCH --gres=gpu:1
+#SBATCH --cpus-per-task=32
+#SBATCH --gres=gpu:4
 #SBATCH --partition=boost_usr_prod
 #SBATCH --qos=boost_qos_lprod
 #SBATCH --time=24:00:00
@@ -11,20 +11,28 @@
 #SBATCH --output=logs/slurm/%j_%x.out
 #SBATCH --error=logs/slurm/%j_%x.err
 # =============================================================================
-# MMTSFM OFFLINE ORCHESTRATOR — run on a GPU node (no internet).
+# MMTSFM OFFLINE ORCHESTRATOR — train ALL ablations in parallel on a GPU node.
 # =============================================================================
 # Trains + tests the protocol-aligned MMTSFM model (BASELINE_PROTOCOL.md) on each
 # requested dataset of record and writes NMAE/NRMSE/Skill-Score into
 # baselines/results (the baselines results schema), so aggregate_all.py lists
-# MMTSFM next to every baseline.
+# every MMTSFM ablation next to every baseline.
+#
+# Saturates the node: the ablation matrix (datasets × ABLATIONS) is dispatched
+# one run per GPU, $GPUS at a time (default = all GPUs on the node, Leonardo
+# boost = 4× A100). Each run is pinned with CUDA_VISIBLE_DEVICES + trainer.devices=1.
+#
+# Ablations are MMTSFM-architecture variants ONLY. Variants already covered by the
+# baselines suite are NOT re-run here — Chronos-2 zero-shot / fine-tune (tier3) and
+# TS-RAG / Cross-RAG (tier4) live in baselines/ and are evaluated there.
 #
 # Prereq: scripts/precache_login.sh has run on the login node (uv env, V-JEPA 2.1
 # + Chronos-2 weights, data staged to $DATA_DIR).
 #
 #   sbatch scripts/run_all_mmtsfm.sh
 #   DATASETS="uk_pv goes_pvdaq" sbatch scripts/run_all_mmtsfm.sh
-#   ENCODER=skip RUN_NUMERIC_SANITY=0 sbatch scripts/run_all_mmtsfm.sh   # numeric+cov only
-#   MAX_EPOCHS=5 bash scripts/run_all_mmtsfm.sh                          # interactive node
+#   ABLATIONS=$'grassmann_interleaved|model=vision_chronos2_grassmann' sbatch scripts/run_all_mmtsfm.sh
+#   GPUS=2 MAX_EPOCHS=5 bash scripts/run_all_mmtsfm.sh                   # interactive node
 set -uo pipefail
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")/..}"     # MMTSFM/
 MMTSFM_DIR="$PWD"
@@ -53,21 +61,40 @@ RESULTS_DIR="${RESULTS_DIR:-${REPO_ROOT}/baselines/results}"
 SP_REF_UKPV="${SP_REF_UKPV:-${RESULTS_DIR}/smart_persistence_s2_ukpv.json}"
 
 DATASETS="${DATASETS:-uk_pv}"          # space list, e.g. "uk_pv goes_pvdaq"
-ENCODER="${ENCODER:-vjepa2}"           # vjepa2 | vidtok | skip
+ENCODER="${ENCODER:-vjepa2}"           # vjepa2 | vidtok | skip (applied to vision ablations)
 MAX_EPOCHS="${MAX_EPOCHS:-50}"
 BATCH_SIZE="${BATCH_SIZE:-16}"
-NUM_WORKERS="${NUM_WORKERS:-8}"
+NUM_WORKERS="${NUM_WORKERS:-8}"        # per run; × GPUS ≤ --cpus-per-task
 SEED="${SEED:-42}"
-RUN_NUMERIC_SANITY="${RUN_NUMERIC_SANITY:-1}"   # 1 → quick numeric+cov pre-run (encoder off)
-SANITY_EPOCHS="${SANITY_EPOCHS:-3}"
 AGGREGATE="${AGGREGATE:-1}"            # 1 → refresh baselines/results/ALL_RESULTS at the end
+
+# GPUs to saturate. Default = all visible on the node; ≥1 fallback for login/CPU.
+GPUS="${GPUS:-$(nvidia-smi -L 2>/dev/null | grep -c GPU)}"
+[[ "$GPUS" =~ ^[0-9]+$ && "$GPUS" -ge 1 ]] || GPUS=1
+
+# ---- ablation matrix: "tag|hydra overrides" (one per line) ------------------
+# MMTSFM-architecture variants only (NOT baseline-covered Chronos ZS/FT or RAG).
+#   grassmann_interleaved : flagship — interleaved fusion + Causal Grassmann mixing
+#   selfattn_late         : Variant B diagnostic — late fusion + TimeSelfAttention
+#   selfattn_interleaved  : interleaving WITHOUT Grassmann (isolates the mixer)
+#   grassmann_no_modbias  : flagship minus modality-pair offset bias (§8.1 ablation)
+#   numeric_grassmann     : vision off, Grassmann TS-only (vision-lift lower bound;
+#                           distinct from the Chronos-2 baseline — keeps Grassmann)
+ABLATIONS_DEFAULT=$'grassmann_interleaved|model=vision_chronos2_grassmann
+selfattn_late|model=vision_chronos2_timeselfattn
+selfattn_interleaved|model.vision_cfg.fusion_mode=interleaved model.chronos_core_cfg.use_grassmann=false
+grassmann_no_modbias|model=vision_chronos2_grassmann model.chronos_core_cfg.grassmann_modality_pair_bias=false
+numeric_grassmann|model.vision_cfg.skip_vision_stack=true model.vision_cfg.fusion_mode=interleaved model.chronos_core_cfg.use_grassmann=true'
+ABLATIONS="${ABLATIONS:-$ABLATIONS_DEFAULT}"
 
 [[ -f "$DATA" ]] || { echo "FATAL: DATA not found: $DATA (run precache_login.sh)"; exit 1; }
 mkdir -p logs/slurm "$CKPT_DIR" "$RESULTS_DIR"
 
+N_ABL="$(grep -c '|' <<< "$ABLATIONS")"
 echo "=============================================================="
-echo " RUN ALL MMTSFM   job=${SLURM_JOB_ID:-local}"
+echo " RUN ALL MMTSFM (parallel ablations)   job=${SLURM_JOB_ID:-local}"
 echo " DATASETS=$DATASETS   ENCODER=$ENCODER   epochs=$MAX_EPOCHS"
+echo " ABLATIONS=$N_ABL   GPUS=$GPUS   (concurrency $GPUS runs/wave)"
 echo " DATA_DIR=$DATA_DIR   RESULTS_DIR=$RESULTS_DIR"
 echo "=============================================================="
 
@@ -88,36 +115,59 @@ vis_flags() {
     esac
 }
 
-run_one() {  # run_one <dataset> <encoder> <epochs> <tag>
-    local ds="$1" enc="$2" ep="$3" tag="$4"
-    local dcfg; dcfg="$(data_cfg "$ds")"
-    [[ -n "$dcfg" ]] || { echo "  SKIP $tag — unknown dataset '$ds'"; STATUS[$tag]=skip; return; }
+# ---- build the job list: datasets × ablations -------------------------------
+declare -a J_TAG J_DS J_DCFG J_OVR
+for ds in $DATASETS; do
+    dcfg="$(data_cfg "$ds")"
+    [[ -n "$dcfg" ]] || { echo "  SKIP dataset '$ds' — unknown"; continue; }
+    s="$(short "$ds")"
+    while IFS='|' read -r name ovr; do
+        [[ -z "$name" || "$name" == \#* ]] && continue
+        J_TAG+=("mmtsfm_${name}_${s}")
+        J_DS+=("$ds")
+        J_DCFG+=("$dcfg")
+        J_OVR+=("$ovr")
+    done <<< "$ABLATIONS"
+done
+NJOBS=${#J_TAG[@]}
+
+# launch_job <index> <gpu> — start one training run in the background on $gpu
+launch_job() {
+    local i="$1" gpu="$2"
+    local tag="${J_TAG[$i]}" ds="${J_DS[$i]}" dcfg="${J_DCFG[$i]}" ovr="${J_OVR[$i]}"
     local ref; ref="$(sp_ref "$ds")"
-    echo ""; echo ">>> [$tag] dataset=$ds encoder=$enc epochs=$ep"
     local -a CMD=(
         python -m mmtsfm.train
-        "data=$dcfg" trainer=slurm "seed=$SEED"
-        "trainer.max_epochs=$ep"
-        "trainer.default_root_dir=${CKPT_DIR}/mmtsfm_${tag}"
+        "data=$dcfg" trainer=slurm trainer.devices=1 "seed=$SEED"
+        "trainer.max_epochs=$MAX_EPOCHS"
+        "trainer.default_root_dir=${CKPT_DIR}/${tag}"
         "data.data_dir=$DATA_DIR"
         "data.batch_size=$BATCH_SIZE" "data.num_workers=$NUM_WORKERS"
         "model.results_dir=$RESULTS_DIR" "model.results_tag=$tag"
     )
     [[ -n "$ref" && -f "$ref" ]] && CMD+=("model.sp_reference_path=$ref")
-    local vf; vf="$(vis_flags "$enc")"
+    local vf; vf="$(vis_flags "$ENCODER")"
     [[ -n "$vf" ]] && CMD+=($vf)
-    echo "    uv run ${CMD[*]}"
-    uv run "${CMD[@]}"
-    STATUS[$tag]=$?
+    # shellcheck disable=SC2206  -- intentional word-split: $ovr is a list of overrides
+    CMD+=($ovr)
+    local log="logs/slurm/${tag}.log"
+    echo ">>> [GPU $gpu] $tag  →  $log"
+    echo "    uv run ${CMD[*]}" > "$log"
+    CUDA_VISIBLE_DEVICES="$gpu" uv run "${CMD[@]}" >> "$log" 2>&1 &
 }
 
-# ---- run each dataset -------------------------------------------------------
-for ds in $DATASETS; do
-    s="$(short "$ds")"
-    if [[ "$RUN_NUMERIC_SANITY" == "1" ]]; then
-        run_one "$ds" skip "$SANITY_EPOCHS" "mmtsfm_numeric_s2_${s}"
-    fi
-    run_one "$ds" "$ENCODER" "$MAX_EPOCHS" "mmtsfm_s2_${s}"
+# ---- dispatch in waves of $GPUS, one run pinned per GPU ----------------------
+echo ""; echo ">>> dispatching $NJOBS run(s), $GPUS per wave"
+i=0
+while (( i < NJOBS )); do
+    pids=(); ptags=()
+    for (( g=0; g<GPUS && i<NJOBS; g++, i++ )); do
+        launch_job "$i" "$g"
+        pids+=("$!"); ptags+=("${J_TAG[$i]}")
+    done
+    for k in "${!pids[@]}"; do
+        wait "${pids[$k]}"; STATUS["${ptags[$k]}"]=$?
+    done
 done
 
 # ---- aggregate (best-effort; baselines env) --------------------------------
@@ -141,4 +191,5 @@ for n in "${!STATUS[@]}"; do
 done
 echo "   ----  ok=$ok fail=$fail"
 echo " Results → $RESULTS_DIR/<tag>.json (+ ALL_RESULTS.md)"
+echo " Per-run logs → logs/slurm/<tag>.log"
 echo "=============================================================="
