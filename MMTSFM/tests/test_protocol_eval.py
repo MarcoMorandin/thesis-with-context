@@ -67,3 +67,33 @@ def test_write_results_schema(tmp_path):
     assert "nmae" in blob["results"]["overall"]
     # no reference present → no skill_score
     assert "skill_score" not in blob["results"]["overall"]
+
+
+def test_visual_marginal_gain():
+    from eval.protocol_eval import ProtocolEvaluator
+
+    ev = ProtocolEvaluator(horizon=4, compute_marginal_gain=True)
+
+    y = np.zeros((1, 4))
+    # vision_on predictions: perfect (error 0.0)
+    pred_on = np.zeros((1, 4))
+    # vision_off predictions: error of 0.2
+    pred_off = np.array([[0.2, 0.2, 0.2, 0.2]])
+
+    mask = np.ones((1, 4))
+
+    ev.update(site_ids=["A"], y_true=y, median=pred_on, mask=mask, vision_off=False)
+    ev.update(site_ids=["A"], y_true=y, median=pred_off, mask=mask, vision_off=True)
+
+    res = ev.finalize()
+    assert abs(res["overall"]["nmae_vision_on"] - 0.0) < 1e-9
+    assert abs(res["overall"]["nmae_vision_off"] - 0.2) < 1e-9
+    assert abs(res["overall"]["delta_nmae"] - 0.2) < 1e-9
+
+    assert abs(res["overall"]["nrmse_vision_on"] - 0.0) < 1e-9
+    assert abs(res["overall"]["nrmse_vision_off"] - 0.2) < 1e-9
+    assert abs(res["overall"]["delta_nrmse"] - 0.2) < 1e-9
+
+    assert abs(res["per_plant"]["A"]["nmae_vision_on"] - 0.0) < 1e-9
+    assert abs(res["per_plant"]["A"]["nmae_vision_off"] - 0.2) < 1e-9
+    assert abs(res["per_plant"]["A"]["delta_nmae"] - 0.2) < 1e-9
