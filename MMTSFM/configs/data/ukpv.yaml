@@ -10,7 +10,9 @@ h5_path: null                # null → <data_dir>/images_all.h5
 dataset_name: uk_pv
 batch_size: 16
 num_workers: 8               # real frame decode → parallelize the loader
-num_entities: 1              # single plant per window (cross-plant generalization)
+num_entities: 4              # W4: 4 distinct plants/group at TRAIN time (cross-plant
+                             # mixing via GroupSelfAttention); val/test forced to 1 in
+                             # the datamodule so per-plant protocol metrics stay clean
 
 # Physical-time windows (§3): 14-day history / 6-hour horizon. uk_pv 30-min
 # cadence → 672 / 12 steps, resolved per-cadence inside PVRecordDataset.

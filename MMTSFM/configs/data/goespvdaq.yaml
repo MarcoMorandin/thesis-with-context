@@ -8,7 +8,8 @@ h5_path: null
 dataset_name: goes_pvdaq
 batch_size: 16
 num_workers: 8
-num_entities: 1
+num_entities: 4              # W4: 4 distinct plants/group at TRAIN time (cross-plant
+                             # mixing); val/test forced to 1 in the datamodule
 
 # 14-day history / 6-hour horizon at 15-min cadence → 1344 / 24 steps.
 history_days: 14.0

@@ -58,7 +58,9 @@ def _steps_per_day(df: pd.DataFrame) -> int:
     return int(round(pd.Timedelta(days=1) / step))
 
 
-def _prep_frame(arr: np.ndarray, side: int, c_img: int, imagenet_norm: bool) -> torch.Tensor:
+def _prep_frame(
+    arr: np.ndarray, side: int, c_img: int, imagenet_norm: bool
+) -> torch.Tensor:
     """Raw uint8 H5 frame → float tensor (c_img, side, side) in [0, 1].
 
     Handles uk_pv ``(H, W)`` grayscale and goes_pvdaq ``(H, W, 3)`` RGB; resizes
@@ -122,6 +124,7 @@ class PVRecordDataset(Dataset):
         stride: int | None = None,
         future_cov: str = "all",
         visual_window_hours: float = 6.0,
+        num_entities: int = 1,
         **_ignored,
     ):
         super().__init__()
@@ -131,6 +134,11 @@ class PVRecordDataset(Dataset):
         self.C_img = int(img_channels)
         self.imagenet_norm = bool(imagenet_norm)
         self.visual_window_hours = float(visual_window_hours)
+        # W4: number of distinct plants assembled per group (cross-plant mixing).
+        # >1 groups disjoint plants from THIS split that share a time window so
+        # GroupSelfAttention fuses across entities. Disjointness vs other splits
+        # is guaranteed because site_ids is already filtered to this split.
+        self.num_entities = max(1, int(num_entities))
 
         # Resolve a data directory (the run_all_baselines.sh DATA_DIR convention)
         # to the canonical parquet + h5; an explicit *.parquet path is used as-is.
@@ -147,11 +155,19 @@ class PVRecordDataset(Dataset):
             )
         site_ids = {str(s) for s in splits[dataset_name][_normalize_part(split)]}
 
-        cols = sorted({
-            config.DATASET_COL, config.SITE_COL, config.TIME_COL,
-            config.TARGET_COL, config.CAPACITY_COL, config.CLEARSKY_COL,
-            config.BAD_SITE_COL, FRAME_IDX_COL, *config.COV_COLS,
-        })
+        cols = sorted(
+            {
+                config.DATASET_COL,
+                config.SITE_COL,
+                config.TIME_COL,
+                config.TARGET_COL,
+                config.CAPACITY_COL,
+                config.CLEARSKY_COL,
+                config.BAD_SITE_COL,
+                FRAME_IDX_COL,
+                *config.COV_COLS,
+            }
+        )
         df = pd.read_parquet(data_path, columns=cols)
         df = df[df[config.DATASET_COL] == dataset_name].copy()
         df[config.SITE_COL] = df[config.SITE_COL].astype(str)
@@ -166,8 +182,12 @@ class PVRecordDataset(Dataset):
             stride = 1 if split == "train" else self.H
 
         self.win = dataset_for_sites(
-            df, site_ids, history=self.T, horizon=self.H,
-            stride=stride, future_cov=future_cov,
+            df,
+            site_ids,
+            history=self.T,
+            horizon=self.H,
+            stride=stride,
+            future_cov=future_cov,
         )
 
         # per-(dataset, site) {unix_ts -> frame_idx} from the canonical pointer
@@ -183,9 +203,55 @@ class PVRecordDataset(Dataset):
                 zip(unix.astype(np.int64).tolist(), idx.tolist())
             )
         self._h5 = None  # opened lazily (h5py handles are not fork-safe)
+        self._build_groups()
+
+    def _build_groups(self) -> None:
+        """Assemble groups of ``num_entities`` distinct plants per time window.
+
+        N==1 → one window per group (legacy single-entity behaviour). N>1 →
+        bucket windows by their absolute origin timestamp and emit full groups
+        of N distinct plants sharing that window. Partial buckets (< N plants)
+        are dropped so every group stacks to a fixed [N, ...] shape.
+        """
+        if self.num_entities == 1:
+            self.groups: list[list[int]] = [[i] for i in range(len(self.win))]
+            return
+
+        from collections import defaultdict
+
+        buckets: dict[int, list[int]] = defaultdict(list)
+        seen: dict[int, set[str]] = defaultdict(set)
+        for wi, (si, start) in enumerate(self.win._index):
+            s = self.win.series[si]
+            t0 = int(s.timestamps[start])
+            if s.site_id in seen[t0]:
+                continue  # one window per (site, origin)
+            seen[t0].add(s.site_id)
+            buckets[t0].append(wi)
+
+        N = self.num_entities
+        groups: list[list[int]] = []
+        for t0 in sorted(buckets):
+            members = buckets[t0]
+            for k in range(0, len(members) - N + 1, N):
+                groups.append(members[k : k + N])
+
+        if not groups:
+            # Not enough co-temporal plants to form a single full group of N
+            # (e.g. a split with < N plants). Fall back to single-entity windows
+            # so the run still proceeds rather than yielding an empty dataset.
+            print(
+                f"[pv_record] num_entities={N} but no time window has {N} distinct "
+                f"plants in this split — falling back to single-entity windows.",
+                flush=True,
+            )
+            self.num_entities = 1
+            self.groups = [[i] for i in range(len(self.win))]
+            return
+        self.groups = groups
 
     def __len__(self) -> int:
-        return len(self.win)
+        return len(self.groups)
 
     def _group(self, dataset: str, site: str):
         import h5py
@@ -194,7 +260,9 @@ class PVRecordDataset(Dataset):
             self._h5 = h5py.File(self.h5_path, "r")
         return self._h5[f"{dataset}_{site}"]
 
-    def _load_vision(self, item: dict) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def _load_vision(
+        self, item: dict
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         T, Tv, S, C = self.T, self.T_v, self.img_size, self.C_img
         key = (str(item["dataset"]), str(item["site_id"]))
         fmap = self.frame_maps.get(key, {})
@@ -204,7 +272,8 @@ class PVRecordDataset(Dataset):
 
         # Candidate frame timestamps within visual_window_hours
         present = [
-            int(t) for t in hist_ts.tolist()
+            int(t)
+            for t in hist_ts.tolist()
             if int(t) in fmap and (t_now - window_sec <= int(t) <= t_now)
         ]
 
@@ -228,8 +297,8 @@ class PVRecordDataset(Dataset):
 
         return V, mask_v, video_delta_t
 
-    def __getitem__(self, idx: int) -> dict:
-        item = self.win[idx]
+    def _build_entity(self, item: dict) -> dict:
+        """Per-entity tensors (leading entity dim = 1) for one window."""
         T, H = self.T, self.H
         cov = np.asarray(item["cov"], dtype=np.float32)  # (T+H, C) future weather known
         hist_ts = item["timestamps"][:T]
@@ -239,9 +308,9 @@ class PVRecordDataset(Dataset):
 
         return {
             "Y": torch.from_numpy(np.asarray(item["y_hist"], np.float32)).view(1, T, 1),
-            "Y_future": torch.from_numpy(
-                np.asarray(item["y_future"], np.float32)
-            ).view(1, H, 1),
+            "Y_future": torch.from_numpy(np.asarray(item["y_future"], np.float32)).view(
+                1, H, 1
+            ),
             # daylight horizon mask (clearsky_ghi > 0): protocol metrics are scored
             # only over daylight steps, matching the baselines (common.runner).
             "daylight_future": torch.from_numpy(
@@ -249,10 +318,6 @@ class PVRecordDataset(Dataset):
             ).view(1, H, 1),
             "X_cov": torch.from_numpy(cov).view(1, T + H, -1),
             "V": V,
-            "timestamps": torch.from_numpy(
-                np.asarray(item["timestamps"], np.int64)
-            ).long(),
-            "entity_ids": torch.zeros(1, dtype=torch.long),
             "mask_target": torch.from_numpy(
                 np.asarray(item["mask_hist"], np.float32)
             ).view(1, T, 1),
@@ -263,7 +328,39 @@ class PVRecordDataset(Dataset):
             "video_delta_t": video_delta_t,
             "hist_delta_t": hist_delta_t,
             "mask_modality_dropout": torch.tensor([[1.0, float(mask_visual.any())]]),
-            "adj_matrix": torch.eye(1),
-            # plant id for per-plant macro-averaging in the protocol metrics
             "site_id": str(item["site_id"]),
         }
+
+    def __getitem__(self, idx: int) -> dict:
+        win_indices = self.groups[idx]
+        entities = [self._build_entity(self.win[w]) for w in win_indices]
+        N = len(entities)
+
+        # Stack per-entity tensors along the leading entity dim → [N, ...].
+        stack_keys = (
+            "Y",
+            "Y_future",
+            "daylight_future",
+            "X_cov",
+            "V",
+            "mask_target",
+            "mask_future",
+            "mask_visual",
+            "video_delta_t",
+            "hist_delta_t",
+            "mask_modality_dropout",
+        )
+        out = {k: torch.cat([e[k] for e in entities], dim=0) for k in stack_keys}
+
+        # Timestamps are shared across the group (same window) → take entity 0.
+        first = self.win[win_indices[0]]
+        out["timestamps"] = torch.from_numpy(
+            np.asarray(first["timestamps"], np.int64)
+        ).long()
+        out["entity_ids"] = torch.arange(N, dtype=torch.long)
+        out["adj_matrix"] = torch.eye(N)
+        # plant ids: keep a single str when N==1 (legacy collate + per-plant
+        # protocol path unchanged); list[str] for N>1 cross-plant groups.
+        site_ids = [e["site_id"] for e in entities]
+        out["site_id"] = site_ids[0] if N == 1 else site_ids
+        return out

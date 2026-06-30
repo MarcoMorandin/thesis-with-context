@@ -1367,3 +1367,39 @@ class TestProposalTrainingConfigs:
         }
         loss_no_video = mod.training_step(batch_no_video, batch_idx=1)
         assert torch.isfinite(loss_no_video)
+
+
+class TestCrossPlantGroupAttention:
+    """W4: group_ids gate cross-entity (cross-plant) fusion in the core."""
+
+    def test_group_attention_couples_entities(self):
+        from mmtsfm.models.chronos2 import Chronos2Model  # noqa: F401
+
+        torch.manual_seed(0)
+        chronos = _make_chronos2(d_model=32, context_length=16)
+        chronos.eval()
+        L = 16
+
+        # Two series in ONE group → group attention couples them: entity 0's
+        # output must depend on entity 1's input (non-zero cross gradient).
+        ctx_grouped = torch.randn(2, L, requires_grad=True)
+        out_g = chronos.forward(
+            context=ctx_grouped, group_ids=torch.tensor([0, 0]), num_output_patches=1
+        )
+        out_g.quantile_preds[0].sum().backward()
+        grad_cross_grouped = ctx_grouped.grad[1].abs().sum().item()
+
+        # Same inputs, SEPARATE groups → entity 0 cannot see entity 1.
+        ctx_sep = ctx_grouped.detach().clone().requires_grad_(True)
+        out_s = chronos.forward(
+            context=ctx_sep, group_ids=torch.tensor([0, 1]), num_output_patches=1
+        )
+        out_s.quantile_preds[0].sum().backward()
+        grad_cross_sep = ctx_sep.grad[1].abs().sum().item()
+
+        assert grad_cross_grouped > 1e-8, (
+            "grouped entities must couple via group attention (N>1 mixing)"
+        )
+        assert grad_cross_sep < 1e-8, (
+            "separate groups must not leak gradient across entities"
+        )

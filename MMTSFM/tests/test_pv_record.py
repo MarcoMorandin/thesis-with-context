@@ -125,6 +125,43 @@ def test_datamodule_config_wires_through(tmp_path):
     assert batch["V"].shape[:3] == (2, 1, 8)
 
 
+def test_datamodule_train_groups_n_entities(tmp_path):
+    """W4: datamodule applies num_entities>1 to TRAIN, forces N=1 for val/test."""
+    import yaml
+
+    cfg = yaml.safe_load(
+        (
+            Path(__file__).resolve().parents[1] / "configs" / "data" / "ukpv.yaml"
+        ).read_text()
+    )
+    cfg.pop("_target_")
+    parquet = tmp_path / "dataset_all.parquet"
+    # ≥4 train plants so a full group of N=4 forms; ≥1 val/test plant.
+    _make_parquet(
+        parquet,
+        SPLITS["uk_pv"]["train"][:4]
+        + SPLITS["uk_pv"]["val"][:2]
+        + SPLITS["uk_pv"]["test"][:1],
+    )
+    cfg.update(data_dir=str(parquet), num_workers=0, batch_size=2, num_entities=4)
+
+    from mmtsfm.data.datamodule import MMTSFMDataModule
+
+    dm = MMTSFMDataModule(**cfg)
+    dm.setup("fit")
+    dm.setup("test")
+
+    train_batch = next(iter(dm.train_dataloader()))
+    assert train_batch["Y"].shape[:2] == (2, 4)  # train: N=4
+    assert train_batch["V"].shape[:2] == (2, 4)
+
+    val_batch = next(iter(dm.val_dataloader()))
+    assert val_batch["Y"].shape[:2] == (2, 1)  # val: forced N=1
+
+    test_batch = next(iter(dm.test_dataloader()))
+    assert test_batch["Y"].shape[:2] == (2, 1)  # test: forced N=1
+
+
 def test_vision_frames_loaded(tmp_path):
     h5py = pytest.importorskip("h5py")
     sites = SPLITS["uk_pv"]["train"][:1]
@@ -206,3 +243,61 @@ def test_delta_t_keys_emitted(tmp_path):
     hist_dt = item["hist_delta_t"][0]
     assert float(hist_dt[-1].item()) == 0.0
     assert float(hist_dt[0].item()) > 0.0
+
+
+def test_cross_plant_groups_shape_and_disjointness(tmp_path):
+    """W4: num_entities>1 groups N distinct same-split plants per window."""
+    train_sites = SPLITS["uk_pv"]["train"][:4]
+    test_sites = set(SPLITS["uk_pv"]["test"])
+    parquet = tmp_path / "dataset_all.parquet"
+    _make_parquet(parquet, train_sites)
+
+    from mmtsfm.data.pv_record import PVRecordDataset
+
+    ds = PVRecordDataset(
+        split="train",
+        dataset_name="uk_pv",
+        data_path=str(parquet),
+        img_size=16,
+        img_channels=3,
+        video_frames=4,
+        num_entities=4,
+    )
+    assert len(ds) > 0
+    item = ds[0]
+    T, H = ds.T, ds.H
+    assert item["Y"].shape == (4, T, 1)
+    assert item["Y_future"].shape == (4, H, 1)
+    assert item["V"].shape[0] == 4
+    assert item["X_cov"].shape[0] == 4
+    assert item["adj_matrix"].shape == (4, 4)
+    assert item["entity_ids"].tolist() == [0, 1, 2, 3]
+
+    # plants within a group are distinct, all from train, none from test
+    sites = item["site_id"]
+    assert isinstance(sites, list) and len(set(sites)) == 4
+    for g in ds.groups:
+        gsites = {str(ds.win[w]["site_id"]) for w in g}
+        assert len(gsites) == 4  # distinct plants per group
+        assert gsites.isdisjoint(test_sites)  # never a test plant
+        assert gsites.issubset(set(train_sites))
+
+
+def test_num_entities_one_is_legacy(tmp_path):
+    """N==1 keeps the single-entity contract (one window per group, str site_id)."""
+    sites = SPLITS["uk_pv"]["train"][:2]
+    parquet = tmp_path / "dataset_all.parquet"
+    _make_parquet(parquet, sites)
+
+    from mmtsfm.data.pv_record import PVRecordDataset
+
+    ds = PVRecordDataset(
+        split="train",
+        dataset_name="uk_pv",
+        data_path=str(parquet),
+        num_entities=1,
+    )
+    assert len(ds) == len(ds.win)
+    item = ds[0]
+    assert item["Y"].shape[0] == 1
+    assert isinstance(item["site_id"], str)

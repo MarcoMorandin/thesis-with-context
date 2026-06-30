@@ -82,6 +82,9 @@ class MMTSFMDataModule(LightningDataModule):
                 img_channels=self.hparams.img_channels,
                 imagenet_norm=self.hparams.imagenet_norm,
                 visual_window_hours=self.hparams.visual_window_hours,
+                # W4: cross-plant mixing is a TRAIN-time mechanism. val/test keep
+                # N=1 so per-plant protocol metrics + site_id collate are unchanged.
+                num_entities=self.hparams.num_entities if split == "train" else 1,
                 h5_path=self.hparams.h5_path,
             )
         return MMTSFMDataset(
