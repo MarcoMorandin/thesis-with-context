@@ -38,8 +38,8 @@ from ..vision.cross_modal_adapter import CrossModalAdapter
 
 
 def interleave_sequences(
-    ts_tokens: torch.Tensor,    # [B, T_ctx, d]
-    vis_tokens: torch.Tensor,   # [B, n_vis, d]
+    ts_tokens: torch.Tensor,  # [B, T_ctx, d]
+    vis_tokens: torch.Tensor,  # [B, n_vis, d]
     n_vis: int,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Selectively interleave visual summary tokens into the refinement window.
@@ -55,9 +55,9 @@ def interleave_sequences(
 
     macro = ts_tokens[:, :T_M, :]
     ts_refine = ts_tokens[:, T_M:, :]
-    pairs = torch.stack([ts_refine, vis_tokens], dim=2)   # [B, n_vis, 2, d]
+    pairs = torch.stack([ts_refine, vis_tokens], dim=2)  # [B, n_vis, 2, d]
     refinement = pairs.reshape(B, 2 * n_vis, d)
-    interleaved = torch.cat([macro, refinement], dim=1)   # [B, T_ctx+n_vis, d]
+    interleaved = torch.cat([macro, refinement], dim=1)  # [B, T_ctx+n_vis, d]
 
     device = ts_tokens.device
     modality_mask = torch.zeros(B, T_ctx + n_vis, dtype=torch.long, device=device)
@@ -91,6 +91,7 @@ def build_interleaved_position_ids(
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class VisionChronos2Config:
@@ -132,6 +133,7 @@ class VisionChronos2Config:
     dropout:
         Dropout for adapter and summarizer.
     """
+
     vidtok_cfg_path: str = ""
     vidtok_ckpt_path: str = ""
     vidtok_root: Optional[str] = None
@@ -143,9 +145,13 @@ class VisionChronos2Config:
     adapter_n_layers: int = 2
     summarizer_n_heads: int = 4
     visual_dropout_prob: float = 0.5
-    numeric_dropout_prob: float = 0.1  # M3 fix: asymmetric Bernoulli — numeric stream dropout rate
+    numeric_dropout_prob: float = (
+        0.1  # M3 fix: asymmetric Bernoulli — numeric stream dropout rate
+    )
     dropout: float = 0.1
-    n_entities: int = 0  # >0 enables entity-identity embedding; set to num_entities in data config
+    n_entities: int = (
+        0  # >0 enables entity-identity embedding; set to num_entities in data config
+    )
 
     # --- NEW fields for proposal ---
     fusion_mode: str = "late"
@@ -157,8 +163,6 @@ class VisionChronos2Config:
     # "vjepa2"  → new VisualEncoder wrapping V-JEPA 2.1
 
     visual_encoder_ckpt_path: str = ""
-    sensor_type: str = "rgb"
-    sensor_in_channels: int = 3
     freeze_visual_encoder: bool = True
     skip_vision_stack: bool = False
 
@@ -167,19 +171,25 @@ class VisionChronos2Config:
 # Output
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class VisionChronos2Output:
     loss: Optional[torch.Tensor] = None
     quantile_preds: Optional[torch.Tensor] = None
     enc_time_self_attn_weights: Optional[Tuple] = None
     enc_group_self_attn_weights: Optional[Tuple] = None
-    visual_active: Optional[torch.Tensor] = None   # [B] bool — which samples kept visual stream
-    numeric_active: Optional[torch.Tensor] = None  # [B] bool — M3: which samples kept numeric stream
+    visual_active: Optional[torch.Tensor] = (
+        None  # [B] bool — which samples kept visual stream
+    )
+    numeric_active: Optional[torch.Tensor] = (
+        None  # [B] bool — M3: which samples kept numeric stream
+    )
 
 
 # ---------------------------------------------------------------------------
 # Multimodal embedding
 # ---------------------------------------------------------------------------
+
 
 class MultimodalEmbedding(nn.Module):
     """Modality-type, segment-type, token-type, and entity-identity bias embeddings.
@@ -194,10 +204,14 @@ class MultimodalEmbedding(nn.Module):
 
     def __init__(self, d_model: int, n_entities: int = 0):
         super().__init__()
-        self.modality_embed    = nn.Embedding(2, d_model)
-        self.segment_embed     = nn.Embedding(2, d_model)
-        self.token_type_embed  = nn.Embedding(3, d_model)  # M1 fix: target/covariate/visual
-        self.entity_embed      = nn.Embedding(n_entities, d_model) if n_entities > 0 else None
+        self.modality_embed = nn.Embedding(2, d_model)
+        self.segment_embed = nn.Embedding(2, d_model)
+        self.token_type_embed = nn.Embedding(
+            3, d_model
+        )  # M1 fix: target/covariate/visual
+        self.entity_embed = (
+            nn.Embedding(n_entities, d_model) if n_entities > 0 else None
+        )
         # Default N(0,1) init gives magnitude ≈ sqrt(d_model) ≈ 22 which swamps the
         # pretrained Chronos-2 activations and causes bf16 overflow → NaN loss.
         # Use small std (0.02, same as BERT/T5 token embeddings) to keep scale compatible.
@@ -228,7 +242,9 @@ class MultimodalEmbedding(nn.Module):
         idx = torch.tensor(token_type_id, device=tokens.device, dtype=torch.long)
         return tokens + self.token_type_embed(idx)
 
-    def add_entity(self, tokens: torch.Tensor, entity_ids: torch.Tensor) -> torch.Tensor:
+    def add_entity(
+        self, tokens: torch.Tensor, entity_ids: torch.Tensor
+    ) -> torch.Tensor:
         """``tokens [B, T, d]`` + entity embedding ``[B, d]`` from position indices."""
         if self.entity_embed is None:
             return tokens
@@ -243,6 +259,7 @@ class MultimodalEmbedding(nn.Module):
 # ---------------------------------------------------------------------------
 # Main model
 # ---------------------------------------------------------------------------
+
 
 class VisionChronos2Model(nn.Module):
     """Chronos-2 with VidTok video soft covariates (Phase 3).
@@ -272,6 +289,7 @@ class VisionChronos2Model(nn.Module):
         if not vision_config.skip_vision_stack:
             if vision_config.visual_encoder_type == "vjepa2":
                 from ..vision.visual_encoder import VisualEncoder
+
                 self.video_encoder: Optional[nn.Module] = VisualEncoder(
                     arch="vit_large",
                     freeze=vision_config.freeze_visual_encoder,
@@ -287,14 +305,6 @@ class VisionChronos2Model(nn.Module):
                     model=vidtok_model,
                 )
                 _d_v = vision_config.d_video_latent
-
-            if vision_config.sensor_type != "rgb":
-                from ..vision.sensor_projection import SensorProjection
-                self.sensor_projection: Optional[nn.Module] = SensorProjection(
-                    in_channels=vision_config.sensor_in_channels
-                )
-            else:
-                self.sensor_projection = None
 
             self.latent_summarizer: Optional[nn.Module] = LatentSummarizer(
                 d_v=_d_v,
@@ -316,11 +326,12 @@ class VisionChronos2Model(nn.Module):
                 self.cross_modal_adapter = None
         else:
             self.video_encoder = None
-            self.sensor_projection = None
             self.latent_summarizer = None
             self.cross_modal_adapter = None
 
-        self.multimodal_embed = MultimodalEmbedding(d_model=d_model, n_entities=vision_config.n_entities)
+        self.multimodal_embed = MultimodalEmbedding(
+            d_model=d_model, n_entities=vision_config.n_entities
+        )
 
     # ------------------------------------------------------------------
     # Helpers
@@ -353,7 +364,7 @@ class VisionChronos2Model(nn.Module):
         """
         B = visual_embeds.shape[0]
         device = visual_embeds.device
-        visual_active  = torch.ones(B, dtype=torch.bool, device=device)
+        visual_active = torch.ones(B, dtype=torch.bool, device=device)
         numeric_active = torch.ones(B, dtype=torch.bool, device=device)
 
         if self.training:
@@ -368,13 +379,21 @@ class VisionChronos2Model(nn.Module):
                 drop_num = torch.rand(B, device=device) < self.vcfg.numeric_dropout_prob
                 # Guard: never drop numeric if visual is also dropped for the same sample
                 # (that would give a zero-information row and destabilise training).
-                drop_num = drop_num & visual_active  # only drop numeric when visual is present
+                drop_num = (
+                    drop_num & visual_active
+                )  # only drop numeric when visual is present
                 numeric_active = ~drop_num
                 num_mask = (~drop_num).float().view(B, 1, 1)
-                input_embeds_mm  = input_embeds_mm  * num_mask
+                input_embeds_mm = input_embeds_mm * num_mask
                 future_embeds_mm = future_embeds_mm * num_mask
 
-        return visual_embeds, input_embeds_mm, future_embeds_mm, visual_active, numeric_active
+        return (
+            visual_embeds,
+            input_embeds_mm,
+            future_embeds_mm,
+            visual_active,
+            numeric_active,
+        )
 
     def _build_visual_embeds(
         self,
@@ -433,10 +452,18 @@ class VisionChronos2Model(nn.Module):
                 pad_length = T_lat * stride - T_v
                 if pad_length > 0:
                     # Pad with zeros at the end to match expected length
-                    visual_mask = torch.cat([
-                        visual_mask,
-                        torch.zeros(B, pad_length, device=visual_mask.device, dtype=visual_mask.dtype)
-                    ], dim=1)
+                    visual_mask = torch.cat(
+                        [
+                            visual_mask,
+                            torch.zeros(
+                                B,
+                                pad_length,
+                                device=visual_mask.device,
+                                dtype=visual_mask.dtype,
+                            ),
+                        ],
+                        dim=1,
+                    )
                     T_v = visual_mask.shape[1]  # Update T_v to new length
                 lat_mask = (
                     visual_mask[:, : T_lat * stride]
@@ -473,11 +500,13 @@ class VisionChronos2Model(nn.Module):
         soft_win = self.cross_modal_adapter(vis_window)
 
         # Zero-pad to full T_ctx: early positions (long TS history) receive no visual tokens
-        B_  = soft_win.shape[0]
+        B_ = soft_win.shape[0]
         N_s = soft_win.shape[2]
-        D_  = soft_win.shape[3]
-        soft = torch.zeros(B_, T_ctx, N_s, D_, device=soft_win.device, dtype=soft_win.dtype)
-        soft[:, T_ctx - n_vis:, :, :] = soft_win
+        D_ = soft_win.shape[3]
+        soft = torch.zeros(
+            B_, T_ctx, N_s, D_, device=soft_win.device, dtype=soft_win.dtype
+        )
+        soft[:, T_ctx - n_vis :, :, :] = soft_win
 
         # Flatten N_soft into batch — [B * N_soft, T_ctx, d_model]
         return (
@@ -542,8 +571,10 @@ class VisionChronos2Model(nn.Module):
             group_ids = torch.arange(B, dtype=torch.long, device=device)
 
         # ---- TS preprocessing (Chronos-2 path) --------------------------
-        patched_context, attention_mask, loc_scale = self.chronos._prepare_patched_context(
-            context=context, context_mask=context_mask
+        patched_context, attention_mask, loc_scale = (
+            self.chronos._prepare_patched_context(
+                context=context, context_mask=context_mask
+            )
         )
         patched_future, patched_future_cov_mask = self.chronos._prepare_patched_future(
             future_covariates=future_covariates,
@@ -560,16 +591,23 @@ class VisionChronos2Model(nn.Module):
 
         # REG token (optional)
         if self.chronos.chronos_config.use_reg_token:
-            reg_ids = torch.full((B, 1), self.chronos.config.reg_token_id,  # type: ignore[attr-defined]
-                                 device=device, dtype=torch.long)
+            reg_ids = torch.full(
+                (B, 1),
+                self.chronos.config.reg_token_id,  # type: ignore[attr-defined]
+                device=device,
+                dtype=torch.long,
+            )
             reg_embeds = self.chronos.shared(reg_ids)
             input_embeds = torch.cat([input_embeds, reg_embeds], dim=1)
             attention_mask = torch.cat(
-                [attention_mask.to(dtype), torch.ones(B, 1, device=device, dtype=dtype)],
+                [
+                    attention_mask.to(dtype),
+                    torch.ones(B, 1, device=device, dtype=dtype),
+                ],
                 dim=1,
             )
 
-        T_ctx = input_embeds.shape[1]   # context + optional reg token
+        T_ctx = input_embeds.shape[1]  # context + optional reg token
 
         # Future patch embeddings [B, num_output_patches, d_model]
         future_embeds: torch.Tensor = self.chronos.input_patch_embedding(patched_future)
@@ -588,7 +626,7 @@ class VisionChronos2Model(nn.Module):
 
         # N1 fix: build covariate rows unconditionally (runs regardless of use_video)
         cov_embed_rows: list[torch.Tensor] = []
-        cov_mask_rows:  list[torch.Tensor] = []
+        cov_mask_rows: list[torch.Tensor] = []
         cov_group_rows: list[torch.Tensor] = []
 
         if covariate_channels:
@@ -602,20 +640,37 @@ class VisionChronos2Model(nn.Module):
                     num_output_patches=num_output_patches,
                     batch_size=B,
                 )
-                patched_cov = torch.nan_to_num(patched_cov, nan=0.0, posinf=0.0, neginf=0.0)
+                patched_cov = torch.nan_to_num(
+                    patched_cov, nan=0.0, posinf=0.0, neginf=0.0
+                )
                 cov_embeds = self.chronos.input_patch_embedding(patched_cov)
-                cov_ctx = torch.zeros(B, T_ctx, self.chronos.model_dim, device=device, dtype=dtype)
-                cov_embeds = self.multimodal_embed.add_modality(cov_embeds, modality_id=0)
+                cov_ctx = torch.zeros(
+                    B, T_ctx, self.chronos.model_dim, device=device, dtype=dtype
+                )
+                cov_embeds = self.multimodal_embed.add_modality(
+                    cov_embeds, modality_id=0
+                )
                 cov_embeds = self.multimodal_embed.add_segment(cov_embeds, segment_id=1)
-                cov_embeds = self.multimodal_embed.add_token_type(cov_embeds, token_type_id=1)
+                cov_embeds = self.multimodal_embed.add_token_type(
+                    cov_embeds, token_type_id=1
+                )
                 if entity_ids is not None:
-                    cov_embeds = self.multimodal_embed.add_entity(cov_embeds, entity_ids)
+                    cov_embeds = self.multimodal_embed.add_entity(
+                        cov_embeds, entity_ids
+                    )
                 cov_full = torch.cat([cov_ctx, cov_embeds], dim=1)
                 cov_embed_rows.append(cov_full)
-                cov_mask_rows.append(torch.cat([
-                    torch.zeros(B, T_ctx, device=device, dtype=dtype),
-                    torch.ones(B, num_output_patches, device=device, dtype=dtype),
-                ], dim=1))
+                cov_mask_rows.append(
+                    torch.cat(
+                        [
+                            torch.zeros(B, T_ctx, device=device, dtype=dtype),
+                            torch.ones(
+                                B, num_output_patches, device=device, dtype=dtype
+                            ),
+                        ],
+                        dim=1,
+                    )
+                )
                 cov_group_rows.append(group_ids)
 
         if use_video and self.vcfg.fusion_mode == "interleaved":
@@ -627,14 +682,11 @@ class VisionChronos2Model(nn.Module):
             if video_latents is not None:
                 video_tokens = video_latents
             else:
-                vid_input = video
-                if self.sensor_projection is not None and vid_input is not None:
-                    # video is [B, C, T_v, H, W] → permute to [B, T_v, C, H, W] for SensorProjection
-                    vid_input = self.sensor_projection(vid_input.permute(0, 2, 1, 3, 4))
-                    # vid_input is now [B, T_v, 3, H, W] — permute back for video_encoder
-                    vid_input = vid_input.permute(0, 2, 1, 3, 4)  # [B, 3, T_v, H, W]
-                video_tokens = self.video_encoder(vid_input)  # [B, T_lat, P, D_v]
-            video_tokens = torch.nan_to_num(video_tokens, nan=0.0, posinf=0.0, neginf=0.0)
+                # video is [B, 3, T_v, H, W]; frames arrive as RGB from the .h5 loader
+                video_tokens = self.video_encoder(video)  # [B, T_lat, P, D_v]
+            video_tokens = torch.nan_to_num(
+                video_tokens, nan=0.0, posinf=0.0, neginf=0.0
+            )
 
             B_, T_lat, P, D_v = video_tokens.shape
 
@@ -643,7 +695,12 @@ class VisionChronos2Model(nn.Module):
             if visual_mask is not None:
                 T_v = visual_mask.shape[1]
                 stride = max(1, T_v // T_lat)
-                lat_mask = visual_mask[:, :T_lat * stride].reshape(B_, T_lat, stride).max(-1).values
+                lat_mask = (
+                    visual_mask[:, : T_lat * stride]
+                    .reshape(B_, T_lat, stride)
+                    .max(-1)
+                    .values
+                )
 
             # LatentSummarizer — [B, n_vis, d_model]  (T_ts=n_vis → no null tokens)
             vis_summary = self.latent_summarizer(
@@ -651,33 +708,59 @@ class VisionChronos2Model(nn.Module):
             )
 
             # Multimodal embeddings for TS tokens
-            input_embeds_mm = self.multimodal_embed.add_modality(input_embeds, modality_id=0)
-            input_embeds_mm = self.multimodal_embed.add_segment(input_embeds_mm, segment_id=0)
-            input_embeds_mm = self.multimodal_embed.add_token_type(input_embeds_mm, token_type_id=0)
-            future_embeds_mm = self.multimodal_embed.add_modality(future_embeds, modality_id=0)
-            future_embeds_mm = self.multimodal_embed.add_segment(future_embeds_mm, segment_id=1)
-            future_embeds_mm = self.multimodal_embed.add_token_type(future_embeds_mm, token_type_id=0)
+            input_embeds_mm = self.multimodal_embed.add_modality(
+                input_embeds, modality_id=0
+            )
+            input_embeds_mm = self.multimodal_embed.add_segment(
+                input_embeds_mm, segment_id=0
+            )
+            input_embeds_mm = self.multimodal_embed.add_token_type(
+                input_embeds_mm, token_type_id=0
+            )
+            future_embeds_mm = self.multimodal_embed.add_modality(
+                future_embeds, modality_id=0
+            )
+            future_embeds_mm = self.multimodal_embed.add_segment(
+                future_embeds_mm, segment_id=1
+            )
+            future_embeds_mm = self.multimodal_embed.add_token_type(
+                future_embeds_mm, token_type_id=0
+            )
             if entity_ids is not None:
-                input_embeds_mm  = self.multimodal_embed.add_entity(input_embeds_mm,  entity_ids)
-                future_embeds_mm = self.multimodal_embed.add_entity(future_embeds_mm, entity_ids)
+                input_embeds_mm = self.multimodal_embed.add_entity(
+                    input_embeds_mm, entity_ids
+                )
+                future_embeds_mm = self.multimodal_embed.add_entity(
+                    future_embeds_mm, entity_ids
+                )
 
             # Multimodal embeddings for visual summary tokens
             vis_summary = self.multimodal_embed.add_modality(vis_summary, modality_id=1)
             vis_summary = self.multimodal_embed.add_segment(vis_summary, segment_id=0)
-            vis_summary = self.multimodal_embed.add_token_type(vis_summary, token_type_id=2)
+            vis_summary = self.multimodal_embed.add_token_type(
+                vis_summary, token_type_id=2
+            )
             if entity_ids is not None:
                 vis_summary = self.multimodal_embed.add_entity(vis_summary, entity_ids)
 
             # Modality dropout on visual summary
-            vis_summary, input_embeds_mm, future_embeds_mm, visual_active, numeric_active = (
-                self._modality_dropout(vis_summary, input_embeds_mm, future_embeds_mm)
-            )
+            (
+                vis_summary,
+                input_embeds_mm,
+                future_embeds_mm,
+                visual_active,
+                numeric_active,
+            ) = self._modality_dropout(vis_summary, input_embeds_mm, future_embeds_mm)
 
             # FIX F: same as late-fusion — restore vanilla embeddings for dropped samples
             if visual_active is not None:
                 vis_active_3d = visual_active.view(B, 1, 1)
-                input_embeds_mm  = torch.where(vis_active_3d, input_embeds_mm,  input_embeds)
-                future_embeds_mm = torch.where(vis_active_3d, future_embeds_mm, future_embeds)
+                input_embeds_mm = torch.where(
+                    vis_active_3d, input_embeds_mm, input_embeds
+                )
+                future_embeds_mm = torch.where(
+                    vis_active_3d, future_embeds_mm, future_embeds
+                )
 
             # Interleave refinement window
             interleaved_ctx, modality_mask_ctx = interleave_sequences(
@@ -696,7 +779,9 @@ class VisionChronos2Model(nn.Module):
 
             # Position IDs: TS and vis tokens at same step share position
             T_M = T_ctx - n_vis
-            position_ids = build_interleaved_position_ids(T_M, n_vis, T_fut, device).expand(B, -1)
+            position_ids = build_interleaved_position_ids(
+                T_M, n_vis, T_fut, device
+            ).expand(B, -1)
 
             all_embeds = torch.nan_to_num(all_embeds, nan=0.0)
             encoder_out = self.chronos.encoder(
@@ -744,7 +829,9 @@ class VisionChronos2Model(nn.Module):
                 q=self.chronos.num_quantiles,
                 h=T_fut * self.chronos.chronos_config.output_patch_size,
             )
-            quantile_preds = self.chronos.instance_norm.inverse(quantile_preds, loc_scale)
+            quantile_preds = self.chronos.instance_norm.inverse(
+                quantile_preds, loc_scale
+            )
             quantile_preds = rearrange(
                 quantile_preds,
                 "b (q h) -> b q h",
@@ -763,26 +850,46 @@ class VisionChronos2Model(nn.Module):
         elif use_video:
             # Modality-type (numeric=0), segment (context=0, future=1),
             # token-type (target=0, covariate=1), entity embeddings
-            input_embeds_mm = self.multimodal_embed.add_modality(input_embeds, modality_id=0)
-            input_embeds_mm = self.multimodal_embed.add_segment(input_embeds_mm, segment_id=0)
-            input_embeds_mm = self.multimodal_embed.add_token_type(input_embeds_mm, token_type_id=0)  # target
-            future_embeds_mm = self.multimodal_embed.add_modality(future_embeds, modality_id=0)
-            future_embeds_mm = self.multimodal_embed.add_segment(future_embeds_mm, segment_id=1)
-            future_embeds_mm = self.multimodal_embed.add_token_type(future_embeds_mm, token_type_id=0)  # target (forecast horizon)
+            input_embeds_mm = self.multimodal_embed.add_modality(
+                input_embeds, modality_id=0
+            )
+            input_embeds_mm = self.multimodal_embed.add_segment(
+                input_embeds_mm, segment_id=0
+            )
+            input_embeds_mm = self.multimodal_embed.add_token_type(
+                input_embeds_mm, token_type_id=0
+            )  # target
+            future_embeds_mm = self.multimodal_embed.add_modality(
+                future_embeds, modality_id=0
+            )
+            future_embeds_mm = self.multimodal_embed.add_segment(
+                future_embeds_mm, segment_id=1
+            )
+            future_embeds_mm = self.multimodal_embed.add_token_type(
+                future_embeds_mm, token_type_id=0
+            )  # target (forecast horizon)
             if entity_ids is not None:
-                input_embeds_mm  = self.multimodal_embed.add_entity(input_embeds_mm,  entity_ids)
-                future_embeds_mm = self.multimodal_embed.add_entity(future_embeds_mm, entity_ids)
+                input_embeds_mm = self.multimodal_embed.add_entity(
+                    input_embeds_mm, entity_ids
+                )
+                future_embeds_mm = self.multimodal_embed.add_entity(
+                    future_embeds_mm, entity_ids
+                )
 
             # soft_ctx: [B*N_soft, T_ctx, d_model]
-            soft_ctx, input_embeds_mm, future_embeds_mm, visual_active, numeric_active = (
-                self._build_visual_embeds(
-                    video=video,
-                    visual_mask=visual_mask,
-                    T_ctx=T_ctx,
-                    input_embeds_mm=input_embeds_mm,
-                    future_embeds_mm=future_embeds_mm,
-                    video_latents=video_latents,
-                )
+            (
+                soft_ctx,
+                input_embeds_mm,
+                future_embeds_mm,
+                visual_active,
+                numeric_active,
+            ) = self._build_visual_embeds(
+                video=video,
+                visual_mask=visual_mask,
+                T_ctx=T_ctx,
+                input_embeds_mm=input_embeds_mm,
+                future_embeds_mm=future_embeds_mm,
+                video_latents=video_latents,
             )
             # FIX F (late-fusion): restore vanilla Chronos-2 embeddings for samples
             # where the visual stream was dropped by modality dropout inside
@@ -790,11 +897,17 @@ class VisionChronos2Model(nn.Module):
             # modality/segment/token-type noise even with no visual signal.
             if visual_active is not None:
                 vis_active_3d = visual_active.view(B, 1, 1)
-                input_embeds_mm  = torch.where(vis_active_3d, input_embeds_mm,  input_embeds)
-                future_embeds_mm = torch.where(vis_active_3d, future_embeds_mm, future_embeds)
+                input_embeds_mm = torch.where(
+                    vis_active_3d, input_embeds_mm, input_embeds
+                )
+                future_embeds_mm = torch.where(
+                    vis_active_3d, future_embeds_mm, future_embeds
+                )
 
             # Token-type: visual soft tokens
-            soft_ctx = self.multimodal_embed.add_token_type(soft_ctx, token_type_id=2)  # visual
+            soft_ctx = self.multimodal_embed.add_token_type(
+                soft_ctx, token_type_id=2
+            )  # visual
             # Entity embedding on visual soft tokens (context segment, visual modality already applied)
             if entity_ids is not None:
                 vis_entity_ids = entity_ids.repeat_interleave(N_soft)
@@ -804,54 +917,78 @@ class VisionChronos2Model(nn.Module):
 
             # Future visual tokens: zero (no visual in forecast window)
             soft_fut = torch.zeros(
-                B * N_soft, num_output_patches, self.chronos.model_dim,
-                device=device, dtype=dtype,
+                B * N_soft,
+                num_output_patches,
+                self.chronos.model_dim,
+                device=device,
+                dtype=dtype,
             )
 
             # Full sequence: [T_ctx + T_fut] tokens
-            ts_full = torch.cat([input_embeds_mm, future_embeds_mm], dim=1)   # [B, T_full, d]
-            vis_full = torch.cat([soft_ctx, soft_fut], dim=1)                  # [B*N_soft, T_full, d]
+            ts_full = torch.cat(
+                [input_embeds_mm, future_embeds_mm], dim=1
+            )  # [B, T_full, d]
+            vis_full = torch.cat([soft_ctx, soft_fut], dim=1)  # [B*N_soft, T_full, d]
 
-            ts_mask_full  = torch.cat([attention_mask, future_attn_mask], dim=1)
+            ts_mask_full = torch.cat([attention_mask, future_attn_mask], dim=1)
             # N9 fix: mask zero-padded early context positions and future-window visual tokens
             n_vis = min(self.vcfg.n_visual_context_steps, T_ctx)
             vis_ctx_mask = torch.zeros(B, T_ctx, device=device, dtype=dtype)
-            vis_ctx_mask[:, T_ctx - n_vis:] = 1.0
-            vis_mask_full = torch.cat([
-                vis_ctx_mask,
-                torch.zeros(B, num_output_patches, device=device, dtype=dtype),
-            ], dim=1).repeat_interleave(N_soft, dim=0)
+            vis_ctx_mask[:, T_ctx - n_vis :] = 1.0
+            vis_mask_full = torch.cat(
+                [
+                    vis_ctx_mask,
+                    torch.zeros(B, num_output_patches, device=device, dtype=dtype),
+                ],
+                dim=1,
+            ).repeat_interleave(N_soft, dim=0)
 
             # Stack target + covariate-channel rows + visual rows
             all_embed_parts = [ts_full] + cov_embed_rows + [vis_full]
-            all_mask_parts  = [ts_mask_full] + cov_mask_rows + [vis_mask_full]
-            vis_group_ids   = group_ids.repeat_interleave(N_soft)
+            all_mask_parts = [ts_mask_full] + cov_mask_rows + [vis_mask_full]
+            vis_group_ids = group_ids.repeat_interleave(N_soft)
             all_group_parts = [group_ids] + cov_group_rows + [vis_group_ids]
 
-            all_embeds   = torch.cat(all_embed_parts, dim=0)
-            all_mask     = torch.cat(all_mask_parts,  dim=0)
+            all_embeds = torch.cat(all_embed_parts, dim=0)
+            all_mask = torch.cat(all_mask_parts, dim=0)
             all_group_ids = torch.cat(all_group_parts, dim=0)
         else:
             if cov_embed_rows:
                 # Numeric+covariate: apply target embeddings to distinguish from covariate rows
-                input_embeds_nm = self.multimodal_embed.add_modality(input_embeds, modality_id=0)
-                input_embeds_nm = self.multimodal_embed.add_segment(input_embeds_nm, segment_id=0)
-                input_embeds_nm = self.multimodal_embed.add_token_type(input_embeds_nm, token_type_id=0)
-                future_embeds_nm = self.multimodal_embed.add_modality(future_embeds, modality_id=0)
-                future_embeds_nm = self.multimodal_embed.add_segment(future_embeds_nm, segment_id=1)
-                future_embeds_nm = self.multimodal_embed.add_token_type(future_embeds_nm, token_type_id=0)
+                input_embeds_nm = self.multimodal_embed.add_modality(
+                    input_embeds, modality_id=0
+                )
+                input_embeds_nm = self.multimodal_embed.add_segment(
+                    input_embeds_nm, segment_id=0
+                )
+                input_embeds_nm = self.multimodal_embed.add_token_type(
+                    input_embeds_nm, token_type_id=0
+                )
+                future_embeds_nm = self.multimodal_embed.add_modality(
+                    future_embeds, modality_id=0
+                )
+                future_embeds_nm = self.multimodal_embed.add_segment(
+                    future_embeds_nm, segment_id=1
+                )
+                future_embeds_nm = self.multimodal_embed.add_token_type(
+                    future_embeds_nm, token_type_id=0
+                )
                 if entity_ids is not None:
-                    input_embeds_nm  = self.multimodal_embed.add_entity(input_embeds_nm,  entity_ids)
-                    future_embeds_nm = self.multimodal_embed.add_entity(future_embeds_nm, entity_ids)
+                    input_embeds_nm = self.multimodal_embed.add_entity(
+                        input_embeds_nm, entity_ids
+                    )
+                    future_embeds_nm = self.multimodal_embed.add_entity(
+                        future_embeds_nm, entity_ids
+                    )
                 ts_full = torch.cat([input_embeds_nm, future_embeds_nm], dim=1)
                 ts_mask_full = torch.cat([attention_mask, future_attn_mask], dim=1)
-                all_embeds    = torch.cat([ts_full] + cov_embed_rows, dim=0)
-                all_mask      = torch.cat([ts_mask_full] + cov_mask_rows, dim=0)
+                all_embeds = torch.cat([ts_full] + cov_embed_rows, dim=0)
+                all_mask = torch.cat([ts_mask_full] + cov_mask_rows, dim=0)
                 all_group_ids = torch.cat([group_ids] + cov_group_rows, dim=0)
             else:
                 # Pure TS: no modality embeddings → identical to vanilla Chronos-2
-                all_embeds    = torch.cat([input_embeds, future_embeds], dim=1)
-                all_mask      = torch.cat([attention_mask, future_attn_mask], dim=1)
+                all_embeds = torch.cat([input_embeds, future_embeds], dim=1)
+                all_mask = torch.cat([attention_mask, future_attn_mask], dim=1)
                 all_group_ids = group_ids
 
         # ---- Encoder ----------------------------------------------------
@@ -872,14 +1009,16 @@ class VisionChronos2Model(nn.Module):
             attention_mask=all_mask,
             output_attentions=output_attentions,
         )
-        hidden_states: torch.Tensor = encoder_out.last_hidden_state  # [B_ext, T_full, d]
+        hidden_states: torch.Tensor = (
+            encoder_out.last_hidden_state
+        )  # [B_ext, T_full, d]
         hidden_states = torch.nan_to_num(hidden_states, nan=0.0, posinf=0.0, neginf=0.0)
 
         # Extract TS entity rows
         hidden_states = hidden_states[:B]  # [B, T_full, d]
 
         # ---- Decode (matches Chronos-2 exactly) -------------------------
-        forecast_embeds = hidden_states[:, -num_output_patches:]      # [B, P_out, d]
+        forecast_embeds = hidden_states[:, -num_output_patches:]  # [B, P_out, d]
         quantile_preds = self.chronos.output_patch_embedding(forecast_embeds)
         quantile_preds = rearrange(
             quantile_preds,
@@ -888,7 +1027,9 @@ class VisionChronos2Model(nn.Module):
             q=self.chronos.num_quantiles,
             p=self.chronos.chronos_config.output_patch_size,
         )
-        quantile_preds = torch.nan_to_num(quantile_preds, nan=0.0, posinf=0.0, neginf=0.0)
+        quantile_preds = torch.nan_to_num(
+            quantile_preds, nan=0.0, posinf=0.0, neginf=0.0
+        )
 
         loss: Optional[torch.Tensor] = None
         if future_target is not None:

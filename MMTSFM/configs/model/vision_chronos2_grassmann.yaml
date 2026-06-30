@@ -34,8 +34,6 @@ vision_cfg:
   visual_encoder_ckpt_path: ""
   freeze_visual_encoder: true
   skip_vision_stack: false
-  sensor_type: "rgb"
-  sensor_in_channels: 3
   fusion_mode: "interleaved"
   # VidTok checkpoint — set these before training on a real dataset
   vidtok_cfg_path: ""
