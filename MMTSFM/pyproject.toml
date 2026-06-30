@@ -67,3 +67,17 @@ packages = ["src/mmtsfm", "src/utils", "src/eval"]
 override-dependencies = [
     "decord>=0.6.0; sys_platform != 'darwin'"
 ]
+
+# Leonardo compute-node NVIDIA driver is CUDA 12.2 (reports "found version 12020").
+# The default PyPI torch wheel ships a newer CUDA runtime → training dies with
+# "RuntimeError: The NVIDIA driver on your system is too old". Pin the cu121 build
+# on Linux (CUDA minor-version compat covers a 12.2 driver). macOS dev keeps the
+# PyPI CPU wheel, so this is a no-op locally.
+[[tool.uv.index]]
+name = "pytorch-cu121"
+url = "https://download.pytorch.org/whl/cu121"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu121", marker = "sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cu121", marker = "sys_platform == 'linux'" }]
