@@ -80,6 +80,9 @@ class VisionChronos2LightningModule(LightningModule):
         results_dir: str = "results",
         results_tag: str = "mmtsfm_s2_ukpv",
         sp_reference_path: Optional[str] = None,
+        # W6: run a second vision-off pass at test time and report the visual
+        # marginal gain (Δ on/off). Off by default — doubles the test forward.
+        compute_marginal_gain: bool = False,
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["vidtok_model"])
@@ -96,10 +99,14 @@ class VisionChronos2LightningModule(LightningModule):
             # This ensures settings like use_grassmann=False actually take effect — calling
             # from_pretrained() without a config restores the checkpoint's saved config
             # (which defaults use_grassmann=True), silently ignoring the YAML override.
-            pretrained_config = Chronos2CoreConfig.from_pretrained(pretrained_model_name_or_path)
+            pretrained_config = Chronos2CoreConfig.from_pretrained(
+                pretrained_model_name_or_path
+            )
             pretrained_config.use_grassmann = core_config.use_grassmann
             pretrained_config.grassmann_reduced_dim = core_config.grassmann_reduced_dim
-            pretrained_config.grassmann_window_offsets = core_config.grassmann_window_offsets
+            pretrained_config.grassmann_window_offsets = (
+                core_config.grassmann_window_offsets
+            )
             pretrained_config.grassmann_plucker_eps = core_config.grassmann_plucker_eps
             # Propagate nested chronos_config overrides (use_arcsinh, max_output_patches, quantiles, …).
             # Without this, YAML values silently lose to the values stored in the HF checkpoint —
@@ -107,7 +114,9 @@ class VisionChronos2LightningModule(LightningModule):
             yaml_chronos_cfg = getattr(core_config, "chronos_config", None)
             if yaml_chronos_cfg is not None:
                 if not isinstance(pretrained_config.chronos_config, dict):
-                    pretrained_config.chronos_config = dict(pretrained_config.chronos_config)
+                    pretrained_config.chronos_config = dict(
+                        pretrained_config.chronos_config
+                    )
                 pretrained_config.chronos_config.update(dict(yaml_chronos_cfg))
             chronos_model = Chronos2Model.from_pretrained(
                 pretrained_model_name_or_path,
@@ -117,7 +126,10 @@ class VisionChronos2LightningModule(LightningModule):
             # FIX: HF from_pretrained ignores the buffer shape mismatch but reinitializes it with zeros.
             # We must restore our intended quantiles array.
             chronos_model.quantiles.data.copy_(
-                torch.tensor(pretrained_config.chronos_config["quantiles"], dtype=chronos_model.dtype)
+                torch.tensor(
+                    pretrained_config.chronos_config["quantiles"],
+                    dtype=chronos_model.dtype,
+                )
             )
 
         else:
@@ -138,9 +150,15 @@ class VisionChronos2LightningModule(LightningModule):
                 p.requires_grad_(False)
 
             keep_trainable_substrings = (
-                "W_red", "W_plu", "W_gate", "offset_weights", "modality_pair_bias",
+                "W_red",
+                "W_plu",
+                "W_gate",
+                "offset_weights",
+                "modality_pair_bias",
                 # Re-initialised due to checkpoint size mismatch — must learn.
-                "input_patch_embedding", "output_patch_embedding", "shared",
+                "input_patch_embedding",
+                "output_patch_embedding",
+                "shared",
             )
             for name, p in self.model.chronos.named_parameters():
                 if any(k in name for k in keep_trainable_substrings):
@@ -157,8 +175,12 @@ class VisionChronos2LightningModule(LightningModule):
                     for p in block.parameters():
                         p.requires_grad_(True)
 
-        self._output_patch_size: int = self.model.chronos.chronos_config.output_patch_size
-        self._num_output_patches: int = max(1, math.ceil(horizon / self._output_patch_size))
+        self._output_patch_size: int = (
+            self.model.chronos.chronos_config.output_patch_size
+        )
+        self._num_output_patches: int = max(
+            1, math.ceil(horizon / self._output_patch_size)
+        )
 
     # ------------------------------------------------------------------
     # Checkpoint compatibility
@@ -172,6 +194,7 @@ class VisionChronos2LightningModule(LightningModule):
         (e.g. resuming a late-fusion ckpt with interleaved-fusion model).
         """
         import logging
+
         _log = logging.getLogger(__name__)
 
         # 1. Drop stale model state_dict keys
@@ -206,38 +229,50 @@ class VisionChronos2LightningModule(LightningModule):
                     (nn_ if no_decay else nd).append(idx)
                 idx += 1
 
-            lr  = self.hparams.lr
+            lr = self.hparams.lr
             blr = lr * self.hparams.backbone_lr_ratio
-            wd  = self.hparams.weight_decay
+            wd = self.hparams.weight_decay
 
             new_groups = []
             for params, _lr, _wd in [
-                (bd,  blr, wd),
-                (bn,  blr, 0.0),
-                (nd,  lr,  wd),
-                (nn_, lr,  0.0),
+                (bd, blr, wd),
+                (bn, blr, 0.0),
+                (nd, lr, wd),
+                (nn_, lr, 0.0),
             ]:
                 if params:
-                    new_groups.append({
-                        "params": params, "lr": _lr, "initial_lr": _lr,
-                        "weight_decay": _wd, "betas": (0.9, 0.999), "eps": 1e-8,
-                        "amsgrad": False, "maximize": False, "foreach": None,
-                        "capturable": False, "differentiable": False, "fused": None,
-                    })
+                    new_groups.append(
+                        {
+                            "params": params,
+                            "lr": _lr,
+                            "initial_lr": _lr,
+                            "weight_decay": _wd,
+                            "betas": (0.9, 0.999),
+                            "eps": 1e-8,
+                            "amsgrad": False,
+                            "maximize": False,
+                            "foreach": None,
+                            "capturable": False,
+                            "differentiable": False,
+                            "fused": None,
+                        }
+                    )
 
             checkpoint["optimizer_states"] = [{"state": {}, "param_groups": new_groups}]
 
             # LambdaLR.load_state_dict pops "lr_lambdas" then calls super().
             # Lambdas are not serializable so the checkpoint stores None per group.
             all_lrs = [g["lr"] for g in new_groups]
-            checkpoint["lr_schedulers"] = [{
-                "last_epoch": 0,
-                "_step_count": 1,
-                "verbose": "deprecated",
-                "base_lrs": all_lrs,
-                "_last_lr": all_lrs,
-                "lr_lambdas": [None] * len(new_groups),
-            }]
+            checkpoint["lr_schedulers"] = [
+                {
+                    "last_epoch": 0,
+                    "_step_count": 1,
+                    "verbose": "deprecated",
+                    "base_lrs": all_lrs,
+                    "_last_lr": all_lrs,
+                    "lr_lambdas": [None] * len(new_groups),
+                }
+            ]
             # Reset EarlyStopping patience so the new architecture gets a full
             # budget. Without this, the inherited wait_count fires after 1-2 epochs.
             for cb_state in checkpoint.get("callbacks", {}).values():
@@ -260,48 +295,55 @@ class VisionChronos2LightningModule(LightningModule):
 
         Returns a dict ready for ``VisionChronos2Model.forward()``.
         """
-        Y        = batch["Y"]           # [BS, N, T, 1]
-        Y_future = batch["Y_future"]    # [BS, N, H, 1]
-        X_cov    = batch["X_cov"]       # [BS, N, T+H, C_cov]
-        V        = batch["V"]           # [BS, N, T_v, C, H_img, W_img]
-        mask_tgt = batch["mask_target"] # [BS, N, T, 1]
-        mask_fut = batch["mask_future"] # [BS, N, H, 1]
-        mask_vis = batch["mask_visual"] # [BS, N, T_v]
+        Y = batch["Y"]  # [BS, N, T, 1]
+        Y_future = batch["Y_future"]  # [BS, N, H, 1]
+        X_cov = batch["X_cov"]  # [BS, N, T+H, C_cov]
+        V = batch["V"]  # [BS, N, T_v, C, H_img, W_img]
+        mask_tgt = batch["mask_target"]  # [BS, N, T, 1]
+        mask_fut = batch["mask_future"]  # [BS, N, H, 1]
+        mask_vis = batch["mask_visual"]  # [BS, N, T_v]
 
         BS, N, T, _ = Y.shape
         H = Y_future.shape[2]
 
         # Flatten [BS, N] → [BS*N]
-        context        = Y.reshape(BS * N, T)
-        context_mask   = mask_tgt.reshape(BS * N, T)
-        future_target  = Y_future.reshape(BS * N, H)
-        future_mask    = mask_fut.reshape(BS * N, H)
-        visual_mask    = mask_vis.reshape(BS * N, -1)
+        context = Y.reshape(BS * N, T)
+        context_mask = mask_tgt.reshape(BS * N, T)
+        future_target = Y_future.reshape(BS * N, H)
+        future_mask = mask_fut.reshape(BS * N, H)
+        visual_mask = mask_vis.reshape(BS * N, -1)
 
         # M2 fix: extract per-channel covariate tensors instead of mean-collapsing.
         # Each channel becomes its own token in the encoder (token-type=covariate).
         # The first channel is also passed as ``future_covariates`` to preserve the
         # Chronos-2 loss path which requires a single [B, H] tensor.
         C_cov = X_cov.shape[-1]
-        future_cov_slices = X_cov[:, :, T:, :]   # [BS, N, H, C_cov]
+        future_cov_slices = X_cov[:, :, T:, :]  # [BS, N, H, C_cov]
         covariate_channels: list[torch.Tensor] = [
-            future_cov_slices[..., c].reshape(BS * N, H)   # [BS*N, H]
+            future_cov_slices[..., c].reshape(BS * N, H)  # [BS*N, H]
             for c in range(C_cov)
         ]
         # Primary covariate (first channel) used by Chronos-2 loss internals.
-        future_covariates = covariate_channels[0] if C_cov > 0 else torch.zeros(BS * N, H, device=Y.device)
+        future_covariates = (
+            covariate_channels[0]
+            if C_cov > 0
+            else torch.zeros(BS * N, H, device=Y.device)
+        )
         # C1 fix: pass a zero mask so the model treats these as *unknown* covariates.
         # Without this, model.py auto-builds mask=all-1s (no NaNs after .mean()),
         # which sets inv_future_covariate_mask=all-0s and collapses loss to 0.
         future_covariates_mask = torch.zeros_like(future_covariates)
 
         # Group IDs: entities within same sample share group
-        group_ids = torch.arange(BS, device=Y.device, dtype=torch.long).repeat_interleave(N)
+        group_ids = torch.arange(
+            BS, device=Y.device, dtype=torch.long
+        ).repeat_interleave(N)
 
         # Entity position indices 0..N-1 (consistent ordering per dataset)
         entity_ids = (
             torch.arange(N, device=Y.device, dtype=torch.long)
-            .unsqueeze(0).expand(BS, -1)
+            .unsqueeze(0)
+            .expand(BS, -1)
             .reshape(BS * N)
         )
 
@@ -324,8 +366,8 @@ class VisionChronos2LightningModule(LightningModule):
             video_latents = Z_raw.reshape(BS * N, *Z_raw.shape[2:])
         else:
             # Cache miss: pass raw frames to VidTokEncoder
-            T_v   = V.shape[2]
-            C     = V.shape[3]
+            T_v = V.shape[2]
+            C = V.shape[3]
             H_img = V.shape[4]
             W_img = V.shape[5]
             video = V.reshape(BS * N, T_v, C, H_img, W_img).permute(0, 2, 1, 3, 4)
@@ -333,7 +375,7 @@ class VisionChronos2LightningModule(LightningModule):
 
         visual_available = visual_mask.any(dim=-1)  # [BS*N]
         if not visual_available.any():
-            video         = None
+            video = None
             video_latents = None
 
         return dict(
@@ -343,11 +385,13 @@ class VisionChronos2LightningModule(LightningModule):
             future_target_mask=future_mask,
             future_covariates=future_covariates,
             future_covariates_mask=future_covariates_mask,  # C1 fix: zero mask → treat as unknown
-            covariate_channels=covariate_channels,          # M2 fix: per-channel list [BS*N, H] each
+            covariate_channels=covariate_channels,  # M2 fix: per-channel list [BS*N, H] each
             group_ids=group_ids,
             entity_ids=entity_ids,
             video=video,
-            visual_mask=visual_mask if (video is not None or video_latents is not None) else None,
+            visual_mask=visual_mask
+            if (video is not None or video_latents is not None)
+            else None,
             video_latents=video_latents,
             num_output_patches=self._num_output_patches,
         )
@@ -356,18 +400,26 @@ class VisionChronos2LightningModule(LightningModule):
     # Training / Validation / Test
     # ------------------------------------------------------------------
 
-    def _forward(self, batch: Dict[str, torch.Tensor]):
+    def _forward(self, batch: Dict[str, torch.Tensor], force_vision_off: bool = False):
         """Run the fp32 forward once; return (unpacked inputs, model output)."""
         inputs = self._unpack_batch(batch)
         device_type = self.device.type
-        device_type = device_type if isinstance(device_type, str) and device_type != "mps" else "cpu"
+        device_type = (
+            device_type
+            if isinstance(device_type, str) and device_type != "mps"
+            else "cpu"
+        )
         with torch.autocast(device_type=device_type, enabled=False):
-            fp32_inputs = {key: self._to_float32(value) for key, value in inputs.items()}
-            out = self.model.forward(**fp32_inputs)
+            fp32_inputs = {
+                key: self._to_float32(value) for key, value in inputs.items()
+            }
+            out = self.model.forward(**fp32_inputs, force_vision_off=force_vision_off)
         return inputs, out
 
-    def _step(self, batch: Dict[str, torch.Tensor], stage: str):
-        inputs, out = self._forward(batch)
+    def _step(
+        self, batch: Dict[str, torch.Tensor], stage: str, force_vision_off: bool = False
+    ):
+        inputs, out = self._forward(batch, force_vision_off=force_vision_off)
 
         loss = out.loss
         assert loss is not None, "Loss is None — check future_target in batch"
@@ -385,17 +437,32 @@ class VisionChronos2LightningModule(LightningModule):
         if out.visual_active is not None:
             with torch.no_grad():
                 visual_frac = out.visual_active.float().mean()
-                self.log(f"{stage}/visual_fraction", visual_frac,
-                         on_step=(stage == "train"), on_epoch=True,
-                         prog_bar=False, sync_dist=True)
+                self.log(
+                    f"{stage}/visual_fraction",
+                    visual_frac,
+                    on_step=(stage == "train"),
+                    on_epoch=True,
+                    prog_bar=False,
+                    sync_dist=True,
+                )
 
-        self.log(f"{stage}/loss", loss,
-                 on_step=(stage == "train"), on_epoch=True,
-                 prog_bar=True, sync_dist=True)
+        self.log(
+            f"{stage}/loss",
+            loss,
+            on_step=(stage == "train"),
+            on_epoch=True,
+            prog_bar=True,
+            sync_dist=True,
+        )
         if stage == "train":
-            self.log("train/loss_epoch", loss,
-                     on_step=False, on_epoch=True,
-                     prog_bar=False, sync_dist=True)
+            self.log(
+                "train/loss_epoch",
+                loss,
+                on_step=False,
+                on_epoch=True,
+                prog_bar=False,
+                sync_dist=True,
+            )
         return loss
 
     @staticmethod
@@ -404,7 +471,9 @@ class VisionChronos2LightningModule(LightningModule):
             return value.float()
         if isinstance(value, list):
             return [
-                item.float() if isinstance(item, torch.Tensor) and item.is_floating_point() else item
+                item.float()
+                if isinstance(item, torch.Tensor) and item.is_floating_point()
+                else item
                 for item in value
             ]
         return value
@@ -414,7 +483,10 @@ class VisionChronos2LightningModule(LightningModule):
         self._last_loss = loss
         if self.trainer.is_global_zero and batch_idx == 0:
             ep = self.trainer.current_epoch
-            print(f"[train] epoch={ep} step={self.trainer.global_step} loss={loss.item():.4f}", flush=True)
+            print(
+                f"[train] epoch={ep} step={self.trainer.global_step} loss={loss.item():.4f}",
+                flush=True,
+            )
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -426,24 +498,35 @@ class VisionChronos2LightningModule(LightningModule):
         self._protocol_eval = ProtocolEvaluator(
             horizon=self.hparams.horizon,
             reference_path=self.hparams.sp_reference_path,
+            compute_marginal_gain=getattr(self.hparams, "compute_marginal_gain", False),
         )
 
     def test_step(self, batch, batch_idx):
+        # Pass 1: vision-on
         inputs, out = self._forward(batch)
         loss = out.loss
         if loss is not None and torch.isfinite(loss):
             self.log("test/loss", loss, on_epoch=True, prog_bar=True, sync_dist=True)
         if self._protocol_eval is not None and out.quantile_preds is not None:
-            self._accumulate_protocol(batch, inputs, out)
+            self._accumulate_protocol(batch, inputs, out, vision_off=False)
 
-    def _accumulate_protocol(self, batch, inputs, out):
+        # Pass 2: vision-off (W6 visual marginal gain). Same window, forced
+        # vision-masked forward; only run when marginal gain is requested.
+        if self._protocol_eval is not None and getattr(
+            self._protocol_eval, "compute_marginal_gain", False
+        ):
+            inputs_off, out_off = self._forward(batch, force_vision_off=True)
+            if out_off.quantile_preds is not None:
+                self._accumulate_protocol(batch, inputs_off, out_off, vision_off=True)
+
+    def _accumulate_protocol(self, batch, inputs, out, vision_off: bool = False):
         """Collect masked daylight predictions for NMAE/NRMSE/SS (protocol §5)."""
         H = self.hparams.horizon
-        q = out.quantile_preds.detach().float()          # [B, Q, H_out]
+        q = out.quantile_preds.detach().float()  # [B, Q, H_out]
         q50 = self.model.chronos.num_quantiles // 2
-        median = q[:, q50, :H]                            # [B, H]
-        quantiles = q[:, :, :H].permute(0, 2, 1)         # [B, H, Q]
-        y = inputs["future_target"][:, :H].float()       # [B, H]
+        median = q[:, q50, :H]  # [B, H]
+        quantiles = q[:, :, :H].permute(0, 2, 1)  # [B, H, Q]
+        y = inputs["future_target"][:, :H].float()  # [B, H]
         mask = inputs["future_target_mask"][:, :H].float()
         daylight = batch["daylight_future"].reshape(y.shape[0], -1)[:, :H].float()
         site_ids = [str(s) for s in batch["site_id"]]
@@ -453,6 +536,7 @@ class VisionChronos2LightningModule(LightningModule):
             median=median.cpu().numpy(),
             mask=(mask * daylight).cpu().numpy(),
             quantiles=quantiles.cpu().numpy(),
+            vision_off=vision_off,
         )
 
     def on_test_epoch_end(self):
@@ -460,20 +544,43 @@ class VisionChronos2LightningModule(LightningModule):
             return
         results = self._protocol_eval.finalize()
         overall = results.get("overall", {})
-        for k in ("nmae", "nrmse", "skill_score", "crps"):
+        for k in (
+            "nmae",
+            "nrmse",
+            "skill_score",
+            "crps",
+            "nmae_vision_on",
+            "nmae_vision_off",
+            "delta_nmae",
+            "nrmse_vision_on",
+            "nrmse_vision_off",
+            "delta_nrmse",
+        ):
             if k in overall:
                 self.log(f"test/{k}", float(overall[k]), rank_zero_only=True)
         try:
             from omegaconf import OmegaConf
 
-            run_cfg = {"seed": getattr(self.hparams, "seed", 42),
-                       "model": "mmtsfm", "quantile_levels": None}
+            run_cfg = {
+                "seed": getattr(self.hparams, "seed", 42),
+                "model": "mmtsfm",
+                "quantile_levels": None,
+            }
             path = self._protocol_eval.write(
                 self.hparams.results_dir, self.hparams.results_tag, run_cfg
             )
-            print(f"[protocol-eval] NMAE={overall.get('nmae'):.4f} "
-                  f"NRMSE={overall.get('nrmse'):.4f} "
-                  f"SS={overall.get('skill_score', float('nan')):.4f} → {path}", flush=True)
+            msg = (
+                f"[protocol-eval] NMAE={overall.get('nmae'):.4f} "
+                f"NRMSE={overall.get('nrmse'):.4f} "
+                f"SS={overall.get('skill_score', float('nan')):.4f}"
+            )
+            if "delta_nmae" in overall:
+                msg += (
+                    f" dNMAE={overall.get('delta_nmae'):.4f} "
+                    f"dNRMSE={overall.get('delta_nrmse'):.4f}"
+                )
+            msg += f" → {path}"
+            print(msg, flush=True)
         except Exception as e:  # never fail the run on a results-write hiccup
             print(f"[protocol-eval] results write skipped: {e}", flush=True)
 
@@ -482,12 +589,12 @@ class VisionChronos2LightningModule(LightningModule):
     # ------------------------------------------------------------------
 
     _GRAD_GROUPS: tuple[tuple[str, str], ...] = (
-        ("vision_adapter",          "model.cross_modal_adapter"),
-        ("latent_summarizer",       "model.latent_summarizer"),
-        ("multimodal_embed",        "model.multimodal_embed"),
-        ("output_patch_embedding",  "model.chronos.output_patch_embedding"),
-        ("input_patch_embedding",   "model.chronos.input_patch_embedding"),
-        ("shared",                  "model.chronos.shared"),
+        ("vision_adapter", "model.cross_modal_adapter"),
+        ("latent_summarizer", "model.latent_summarizer"),
+        ("multimodal_embed", "model.multimodal_embed"),
+        ("output_patch_embedding", "model.chronos.output_patch_embedding"),
+        ("input_patch_embedding", "model.chronos.input_patch_embedding"),
+        ("shared", "model.chronos.shared"),
     )
 
     def on_before_optimizer_step(self, optimizer):
@@ -520,20 +627,45 @@ class VisionChronos2LightningModule(LightningModule):
             if group is not None:
                 per_group_sq[group] += sq
 
-        grad_norm = total_sq ** 0.5
+        grad_norm = total_sq**0.5
 
         if self.trainer.global_step % 500 == 0:
-            loss_val = self._last_loss.item() if self._last_loss is not None else float("nan")
+            loss_val = (
+                self._last_loss.item() if self._last_loss is not None else float("nan")
+            )
             if self.trainer.is_global_zero:
-                print(f"[train] step={self.trainer.global_step} loss={loss_val:.4f} grad_norm={grad_norm:.4f}", flush=True)
-            self.log("train/loss_500", loss_val, on_step=True, on_epoch=False, prog_bar=False, sync_dist=True)
-            self.log("train/grad_norm_500", grad_norm, on_step=True, on_epoch=False, prog_bar=False, sync_dist=True)
+                print(
+                    f"[train] step={self.trainer.global_step} loss={loss_val:.4f} grad_norm={grad_norm:.4f}",
+                    flush=True,
+                )
+            self.log(
+                "train/loss_500",
+                loss_val,
+                on_step=True,
+                on_epoch=False,
+                prog_bar=False,
+                sync_dist=True,
+            )
+            self.log(
+                "train/grad_norm_500",
+                grad_norm,
+                on_step=True,
+                on_epoch=False,
+                prog_bar=False,
+                sync_dist=True,
+            )
 
-        self.log("train/grad_norm", grad_norm,
-                 on_step=True, on_epoch=False, prog_bar=False)
+        self.log(
+            "train/grad_norm", grad_norm, on_step=True, on_epoch=False, prog_bar=False
+        )
         for name, sq in per_group_sq.items():
-            self.log(f"train/grad_norm/{name}", sq ** 0.5,
-                     on_step=True, on_epoch=False, prog_bar=False)
+            self.log(
+                f"train/grad_norm/{name}",
+                sq**0.5,
+                on_step=True,
+                on_epoch=False,
+                prog_bar=False,
+            )
 
         # ---- NaN/Inf safety ------------------------------------------------
         # bf16 master + fp32 forward still occasionally emits non-finite grads
@@ -542,8 +674,9 @@ class VisionChronos2LightningModule(LightningModule):
         # subsequent steps), zero every grad on this rank for this step.
         # Lightning's gradient_clip_val=1.0 then clips a no-op vector.
         if not math.isfinite(grad_norm):
-            self.log("train/grad_skipped", 1.0,
-                     on_step=True, on_epoch=False, prog_bar=False)
+            self.log(
+                "train/grad_skipped", 1.0, on_step=True, on_epoch=False, prog_bar=False
+            )
             # Diagnostic: log ALL param groups that carry NaN/Inf grad.
             # Fires only on rank 0, at most once per epoch to avoid log spam.
             # Reading both the first offending param AND which high-level
@@ -551,8 +684,11 @@ class VisionChronos2LightningModule(LightningModule):
             # path (vision_adapter/latent_summarizer) or the encoder itself.
             if self.trainer.is_global_zero:
                 epoch = self.trainer.current_epoch
-                step  = self.trainer.global_step
-                if not hasattr(self, "_nan_logged_epoch") or self._nan_logged_epoch != epoch:
+                step = self.trainer.global_step
+                if (
+                    not hasattr(self, "_nan_logged_epoch")
+                    or self._nan_logged_epoch != epoch
+                ):
                     self._nan_logged_epoch = epoch
                     # Which high-level groups have NaN?
                     nan_groups = []
@@ -564,15 +700,21 @@ class VisionChronos2LightningModule(LightningModule):
                     # tell which sub-op (time_attn/group_attn/ffn) is the source.
                     enc_blocks = getattr(
                         getattr(getattr(self.model, "chronos", None), "encoder", None),
-                        "block", None,
+                        "block",
+                        None,
                     )
                     nan_blocks = []
                     if enc_blocks is not None:
                         for bi, blk in enumerate(enc_blocks):
                             for pname, p in blk.named_parameters():
-                                if p.grad is not None and not torch.isfinite(p.grad).all():
+                                if (
+                                    p.grad is not None
+                                    and not torch.isfinite(p.grad).all()
+                                ):
                                     n = (~torch.isfinite(p.grad)).sum().item()
-                                    nan_blocks.append(f"{bi}:{pname}({n}/{p.grad.numel()})")
+                                    nan_blocks.append(
+                                        f"{bi}:{pname}({n}/{p.grad.numel()})"
+                                    )
                                     break
                     print(
                         f"[NaN-grad] epoch={epoch} step={step} "
@@ -593,8 +735,9 @@ class VisionChronos2LightningModule(LightningModule):
                 if p.grad is not None:
                     p.grad.detach().zero_()
         else:
-            self.log("train/grad_skipped", 0.0,
-                     on_step=True, on_epoch=False, prog_bar=False)
+            self.log(
+                "train/grad_skipped", 0.0, on_step=True, on_epoch=False, prog_bar=False
+            )
 
     # ------------------------------------------------------------------
     # LR logging
@@ -615,7 +758,7 @@ class VisionChronos2LightningModule(LightningModule):
         "bias",
         "layer_norm",
         "LayerNorm",
-        "embed",          # modality_embed, segment_embed, token_type_embed, entity_embed
+        "embed",  # modality_embed, segment_embed, token_type_embed, entity_embed
         "null_visual_token",
         "latent_queries",
         "offset_weights",
@@ -623,18 +766,24 @@ class VisionChronos2LightningModule(LightningModule):
     )
 
     def configure_optimizers(self):
-        lr  = self.hparams.lr
-        wd  = self.hparams.weight_decay
+        lr = self.hparams.lr
+        wd = self.hparams.weight_decay
         blr = lr * self.hparams.backbone_lr_ratio
 
-        backbone_decay:   list[torch.Tensor] = []
+        backbone_decay: list[torch.Tensor] = []
         backbone_nodecay: list[torch.Tensor] = []
-        new_decay:        list[torch.Tensor] = []
-        new_nodecay:      list[torch.Tensor] = []
-        grassmann_decay:   list[torch.Tensor] = []
+        new_decay: list[torch.Tensor] = []
+        new_nodecay: list[torch.Tensor] = []
+        grassmann_decay: list[torch.Tensor] = []
         grassmann_nodecay: list[torch.Tensor] = []
 
-        grassmann_kws = ("W_red", "W_plu", "W_gate", "offset_weights", "modality_pair_bias")
+        grassmann_kws = (
+            "W_red",
+            "W_plu",
+            "W_gate",
+            "offset_weights",
+            "modality_pair_bias",
+        )
 
         for name, p in self.named_parameters():
             if not p.requires_grad:
@@ -653,27 +802,52 @@ class VisionChronos2LightningModule(LightningModule):
         param_groups: list[dict] = []
         if backbone_decay:
             param_groups.append(
-                {"params": backbone_decay,   "lr": blr, "weight_decay": wd,  "name": "backbone_decay"}
+                {
+                    "params": backbone_decay,
+                    "lr": blr,
+                    "weight_decay": wd,
+                    "name": "backbone_decay",
+                }
             )
         if backbone_nodecay:
             param_groups.append(
-                {"params": backbone_nodecay, "lr": blr, "weight_decay": 0.0, "name": "backbone_nodecay"}
+                {
+                    "params": backbone_nodecay,
+                    "lr": blr,
+                    "weight_decay": 0.0,
+                    "name": "backbone_nodecay",
+                }
             )
         if new_decay:
             param_groups.append(
-                {"params": new_decay,        "lr": lr,  "weight_decay": wd,  "name": "new_decay"}
+                {"params": new_decay, "lr": lr, "weight_decay": wd, "name": "new_decay"}
             )
         if new_nodecay:
             param_groups.append(
-                {"params": new_nodecay,      "lr": lr,  "weight_decay": 0.0, "name": "new_nodecay"}
+                {
+                    "params": new_nodecay,
+                    "lr": lr,
+                    "weight_decay": 0.0,
+                    "name": "new_nodecay",
+                }
             )
         if grassmann_decay:
             param_groups.append(
-                {"params": grassmann_decay,  "lr": lr,  "weight_decay": wd,  "name": "grassmann_decay"}
+                {
+                    "params": grassmann_decay,
+                    "lr": lr,
+                    "weight_decay": wd,
+                    "name": "grassmann_decay",
+                }
             )
         if grassmann_nodecay:
             param_groups.append(
-                {"params": grassmann_nodecay,"lr": lr,  "weight_decay": 0.0, "name": "grassmann_nodecay"}
+                {
+                    "params": grassmann_nodecay,
+                    "lr": lr,
+                    "weight_decay": 0.0,
+                    "name": "grassmann_nodecay",
+                }
             )
         if not param_groups:
             param_groups = [{"params": [], "lr": lr, "weight_decay": 0.0}]
@@ -681,8 +855,8 @@ class VisionChronos2LightningModule(LightningModule):
         optimizer = AdamW(param_groups)
 
         total_steps = self._total_steps
-        warmup    = self.hparams.warmup_steps
-        g_warmup  = self.grassmann_warmup_steps
+        warmup = self.hparams.warmup_steps
+        g_warmup = self.grassmann_warmup_steps
         min_ratio = self.hparams.min_lr_ratio
 
         def lr_schedule(step: int) -> float:
@@ -706,7 +880,10 @@ class VisionChronos2LightningModule(LightningModule):
 
         scheduler = LambdaLR(optimizer, lr_lambda=lambdas)
 
-        return {"optimizer": optimizer, "lr_scheduler": {"scheduler": scheduler, "interval": "step"}}
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {"scheduler": scheduler, "interval": "step"},
+        }
 
     # ------------------------------------------------------------------
     # Total steps (for cosine decay)

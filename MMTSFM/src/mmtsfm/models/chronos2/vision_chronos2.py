@@ -342,6 +342,7 @@ class VisionChronos2Model(nn.Module):
         visual_embeds: torch.Tensor,
         input_embeds_mm: torch.Tensor,
         future_embeds_mm: torch.Tensor,
+        force_vision_off: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """M3 fix — Asymmetric Bernoulli modality dropout.
 
@@ -366,6 +367,20 @@ class VisionChronos2Model(nn.Module):
         device = visual_embeds.device
         visual_active = torch.ones(B, dtype=torch.bool, device=device)
         numeric_active = torch.ones(B, dtype=torch.bool, device=device)
+
+        # W6: forced vision-off (eval-time visual-marginal-gain pass). Zero the
+        # visual stream and short-circuit so the result matches a manually
+        # visual-masked forward, independent of training-time dropout rates.
+        if force_vision_off:
+            visual_active = torch.zeros(B, dtype=torch.bool, device=device)
+            visual_embeds = visual_embeds * 0.0
+            return (
+                visual_embeds,
+                input_embeds_mm,
+                future_embeds_mm,
+                visual_active,
+                numeric_active,
+            )
 
         if self.training:
             # Visual dropout
@@ -403,6 +418,7 @@ class VisionChronos2Model(nn.Module):
         input_embeds_mm: torch.Tensor,
         future_embeds_mm: torch.Tensor,
         video_latents: Optional[torch.Tensor] = None,
+        force_vision_off: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """VidTok → Summarizer → Adapter → soft tokens.
 
@@ -493,7 +509,12 @@ class VisionChronos2Model(nn.Module):
 
         # Modality dropout on the visual window (M3 fix: pass numeric embeds through)
         vis_window, input_embeds_mm, future_embeds_mm, visual_active, numeric_active = (
-            self._modality_dropout(vis_window, input_embeds_mm, future_embeds_mm)
+            self._modality_dropout(
+                vis_window,
+                input_embeds_mm,
+                future_embeds_mm,
+                force_vision_off=force_vision_off,
+            )
         )
 
         # Cross-modal adapter on the visual window — [B, n_vis, N_soft, d_model]
@@ -539,6 +560,8 @@ class VisionChronos2Model(nn.Module):
         video_latents: Optional[torch.Tensor] = None,
         # Entity position indices [B] in [0, n_entities)
         entity_ids: Optional[torch.Tensor] = None,
+        # W6: force the visual stream off for the visual-marginal-gain eval pass.
+        force_vision_off: bool = False,
     ) -> VisionChronos2Output:
         """Forward pass.
 
@@ -767,7 +790,12 @@ class VisionChronos2Model(nn.Module):
                 future_embeds_mm,
                 visual_active,
                 numeric_active,
-            ) = self._modality_dropout(vis_summary, input_embeds_mm, future_embeds_mm)
+            ) = self._modality_dropout(
+                vis_summary,
+                input_embeds_mm,
+                future_embeds_mm,
+                force_vision_off=force_vision_off,
+            )
 
             # FIX F: same as late-fusion — restore vanilla embeddings for dropped samples
             if visual_active is not None:
@@ -907,6 +935,7 @@ class VisionChronos2Model(nn.Module):
                 input_embeds_mm=input_embeds_mm,
                 future_embeds_mm=future_embeds_mm,
                 video_latents=video_latents,
+                force_vision_off=force_vision_off,
             )
             # FIX F (late-fusion): restore vanilla Chronos-2 embeddings for samples
             # where the visual stream was dropped by modality dropout inside
