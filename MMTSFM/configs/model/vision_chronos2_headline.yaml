@@ -30,12 +30,10 @@ chronos_core_cfg:
 
 # ---- Vision modules (V-JEPA 2.1) ----
 vision_cfg:
-  visual_encoder_type: "vjepa2"
   visual_encoder_ckpt_path: ""     # V-JEPA 2.1 ckpt path
   freeze_visual_encoder: true
   skip_vision_stack: false
   fusion_mode: "interleaved"
-  d_video_latent: 1024          # V-JEPA 2.1 ViT-L latent size
   n_visual_context_steps: 3  # most-recent context patches given visual tokens; derived from
                              # visual_window_hours/cadence (goes 15-min: ceil(24/8)=3). Asserted <= T_ctx (W7).
   n_soft_tokens: 1

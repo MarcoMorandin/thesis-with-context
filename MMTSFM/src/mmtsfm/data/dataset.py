@@ -203,7 +203,7 @@ class MMTSFMDataset(Dataset):
         dataset_name:          str = "synthetic",
         split:                 str = "train",
         imagenet_norm:         bool = False,
-        vidtok_cache_dir:      Optional[str] = None,
+        vjepa_cache_dir:      Optional[str] = None,
         train_frac:            float = 0.70,
         val_frac:              float = 0.10,
         vis_cadence_multiplier: int = 1,
@@ -235,7 +235,7 @@ class MMTSFMDataset(Dataset):
         self.split                 = split
         self.imagenet_norm         = imagenet_norm
         self.window_size           = self.T + self.H
-        self._cache_dir            = Path(vidtok_cache_dir) if vidtok_cache_dir else None
+        self._cache_dir            = Path(vjepa_cache_dir) if vjepa_cache_dir else None
         self.vis_cadence_multiplier = max(1, vis_cadence_multiplier)
 
         if self.C_target != 1:

@@ -1,20 +1,25 @@
 _target_: mmtsfm.data.datamodule.MMTSFMDataModule
 data_dir: /leonardo_scratch/fast/IscrC_MTSFM/data
-dataset_name: skippd
-batch_size: 32
-num_workers: 0
-num_entities: 10
-# 12h of 1-min SKIPPD PV at input_patch_size=8 → T_ctx=90 patches.
-# Pure-TS macro = 87 patches; last n_visual_context_steps=3 patches get visual
-# refinement → decoupled-resolution architecture per proposal §1/§7.
-hist_steps: 720
+h5_path: null
+dataset_name: uk_pv
+batch_size: 16
+num_workers: 8
+num_entities: 4
+
+# Dataset-of-record defaults (BASELINE_PROTOCOL.md): 14-day history / 6-hour
+# horizon, resolved per dataset cadence by PVRecordDataset.
+history_days: 14.0
+horizon_hours: 6.0
+hist_steps: null
 horizon: 12
 target_dim: 1
-covariate_dim: 0
-video_frames: 17
+covariate_dim: 14
+video_frames: 8
+visual_window_hours: 6.0
 img_size: 224
 img_channels: 3
 imagenet_norm: true
+vjepa_cache_dir: null
 num_samples_train: 1000
 num_samples_val: 200
 num_samples_test: 200

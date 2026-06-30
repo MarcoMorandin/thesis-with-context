@@ -1,6 +1,6 @@
 """VisualEncoder: V-JEPA 2.1 spatiotemporal encoder wrapper.
 
-Replaces VidTokEncoder. Output shape [B, T_lat, P, D_v] is compatible
+Replaces the V-JEPA video encoder. Output shape [B, T_lat, P, D_v] is compatible
 with LatentSummarizer KV input.
 """
 from __future__ import annotations
@@ -74,7 +74,7 @@ class VisualEncoder(nn.Module):
         if not os.path.isdir(repo_dir):
             raise RuntimeError(
                 f"vjepa2 hub repo not found at {repo_dir}. "
-                "Run scripts/login_node_setup.sh from a login node first."
+                "Run scripts/precache_login.sh from a login node first."
             )
         # Apply in-memory patch to redirect localhost weights URL to the public CDN.
         # This prevents concurrency write races on shared file systems.

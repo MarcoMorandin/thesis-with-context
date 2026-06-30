@@ -125,10 +125,15 @@ class PVRecordDataset(Dataset):
         future_cov: str = "all",
         visual_window_hours: float = 6.0,
         num_entities: int = 1,
+        vjepa_cache_dir: str | None = None,
         **_ignored,
     ):
         super().__init__()
         self.dataset_name = dataset_name
+        # Pre-extracted V-JEPA 2.1 latent cache (scripts/extract_video_embeddings.py).
+        # When set, each window's [T_lat, P, D_v] latent is loaded and attached as
+        # ``Z`` so training skips the encoder forward (see _attach_latents).
+        self._cache_dir = Path(vjepa_cache_dir) if vjepa_cache_dir else None
         self.T_v = int(video_frames)
         self.img_size = int(img_size)
         self.C_img = int(img_channels)
@@ -363,4 +368,35 @@ class PVRecordDataset(Dataset):
         # protocol path unchanged); list[str] for N>1 cross-plant groups.
         site_ids = [e["site_id"] for e in entities]
         out["site_id"] = site_ids[0] if N == 1 else site_ids
+
+        self._attach_latents(out, win_indices)
         return out
+
+    def _entity_cache_key(self, win_item: dict) -> str:
+        """Stable per-(plant, window-origin) key for the V-JEPA latent cache.
+
+        Shared with scripts/extract_video_embeddings.py so the producer and the
+        training loader agree on file names. Origin = last history timestamp.
+        """
+        ts = np.asarray(win_item["timestamps"])
+        origin = int(ts[self.T - 1])
+        return f"{win_item['dataset']}_{win_item['site_id']}_{origin}"
+
+    def _attach_latents(self, out: dict, win_indices: list[int]) -> None:
+        """Attach pre-extracted V-JEPA latents as ``Z`` [N, T_lat, P, D_v].
+
+        No-op without a cache dir. Only attaches when *every* entity in the group
+        has a cached latent (a partial group would break the collate stack); a
+        miss falls back to encoding raw frames V at train time.
+        """
+        if self._cache_dir is None:
+            return
+        files = [
+            self._cache_dir / f"{self._entity_cache_key(self.win[w])}.pt"
+            for w in win_indices
+        ]
+        if all(f.exists() for f in files):
+            out["Z"] = torch.stack(
+                [torch.load(f, map_location="cpu", weights_only=True) for f in files],
+                dim=0,
+            )

@@ -1,6 +1,6 @@
 """W6 — visual marginal gain: forced vision-off + dual-pass test_step.
 
-CPU-only, tiny dims, fake VidTok (no real checkpoint / network).
+CPU-only, tiny dims, fake V-JEPA video encoder (no real weights / network).
 """
 
 from __future__ import annotations
@@ -43,24 +43,23 @@ def _make_chronos2(d_model: int = 32, context_length: int = 32):
     return Chronos2Model(cfg)
 
 
-def _make_fake_vidtok(d_v: int = 4, t_lat: int = 5, h_lat: int = 8, w_lat: int = 8):
-    class FakeVidTok(nn.Module):
+def _make_fake_video_encoder(
+    d_v: int = 4, t_lat: int = 5, h_lat: int = 8, w_lat: int = 8
+):
+    class FakeVideoEncoder(nn.Module):
         def __init__(self):
             super().__init__()
-            self._d_v = d_v
+            self.d_v = d_v
+            self.proj = nn.Linear(d_v, d_v)
 
-        def encode(self, x: torch.Tensor, return_reg_log: bool = False):
-            B = x.shape[0]
+        def forward(self, video: torch.Tensor) -> torch.Tensor:
+            B = video.shape[0]
             z = torch.randn(
-                B, self._d_v, t_lat, h_lat, w_lat, device=x.device, dtype=x.dtype
+                B, t_lat, h_lat * w_lat, d_v, device=video.device, dtype=video.dtype
             )
-            return z, {}
+            return self.proj(z)
 
-        def forward(self, x):
-            z, _ = self.encode(x)
-            return x, x, {}
-
-    return FakeVidTok()
+    return FakeVideoEncoder()
 
 
 def _make_vision_model(d_model: int = 32, d_v: int = 4):
@@ -68,7 +67,6 @@ def _make_vision_model(d_model: int = 32, d_v: int = 4):
 
     chronos = _make_chronos2(d_model=d_model)
     vcfg = VisionChronos2Config(
-        d_video_latent=d_v,
         n_visual_context_steps=4,
         n_soft_tokens=1,
         adapter_type="linear",
@@ -78,7 +76,7 @@ def _make_vision_model(d_model: int = 32, d_v: int = 4):
     return VisionChronos2Model(
         chronos_model=chronos,
         vision_config=vcfg,
-        vidtok_model=_make_fake_vidtok(d_v=d_v),
+        video_encoder=_make_fake_video_encoder(d_v=d_v),
     )
 
 

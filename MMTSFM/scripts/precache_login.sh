@@ -4,15 +4,13 @@
 # =============================================================================
 # Prepares every off-repo artifact the offline GPU run (scripts/run_all_mmtsfm.sh)
 # needs, so compute nodes run FULLY OFFLINE:
-#   1. uv sync   (torch / lightning / transformers / vjepa2 / h5py / pandas;
-#                 + the optional `vidtok` group when WITH_VIDTOK=1)
-#   2. V-JEPA 2.1 hub weights + Chronos-2 backbone  (delegates to login_node_setup.sh)
+#   1. uv sync   (torch / lightning / transformers / vjepa2 / h5py / pandas)
+#   2. V-JEPA 2.1 hub weights + Chronos-2 backbone
 #   3. verify the MMTSFM <-> baselines bridge: h5py/pandas, common importable,
 #      splits.json present, Chronos-2 config loads, PVRecordDataset imports
 #   4. data-staging checks (dataset_all.parquet + images_all.h5)
 #
 #   bash scripts/precache_login.sh
-#   WITH_VIDTOK=1 bash scripts/precache_login.sh   # also install the VidTok deps
 #   STAGE=verify  bash scripts/precache_login.sh   # skip sync/weights, only checks
 #
 # After it finishes, allocate a GPU node and run scripts/run_all_mmtsfm.sh.
@@ -25,7 +23,6 @@ REPO_ROOT="$(cd .. && pwd)"
 [[ -f "$REPO_ROOT/.env" ]] && { set -a; source "$REPO_ROOT/.env"; set +a; }
 
 STAGE="${STAGE:-all}"            # all | weights | verify | data
-WITH_VIDTOK="${WITH_VIDTOK:-0}"
 TEAM_SCRATCH="${TEAM_SCRATCH:-/leonardo_scratch/fast/IscrC_MTSFM}"
 export UV_CACHE_DIR="${UV_CACHE_DIR:-${TEAM_SCRATCH}/uv_cache}"
 export HF_HOME="${HF_HOME:-${TEAM_SCRATCH}/hf_cache}"
@@ -43,7 +40,7 @@ warn() { echo "[mmtsfm-precache][WARN] $*" >&2; }
 export PYTHONPATH="${MMTSFM_DIR}/src:${REPO_ROOT}/baselines:${PYTHONPATH:-}"
 
 echo "=============================================================="
-echo " MMTSFM PRECACHE   stage=$STAGE  with_vidtok=$WITH_VIDTOK"
+echo " MMTSFM PRECACHE   stage=$STAGE"
 echo " HF_HOME=$HF_HOME   TORCH_HUB_DIR=$TORCH_HUB_DIR"
 echo " DATA_DIR=$DATA_DIR"
 echo "=============================================================="
@@ -52,12 +49,26 @@ echo "=============================================================="
 if [[ "$STAGE" == "all" || "$STAGE" == "weights" ]]; then
     info "uv sync (main deps incl. vjepa2 / h5py / pandas)"
     uv sync || warn "uv sync failed — fix before submitting the GPU job"
-    if [[ "$WITH_VIDTOK" == "1" ]]; then
-        info "uv sync --group vidtok (decord / av — Linux only)"
-        uv sync --group vidtok || warn "vidtok group sync failed (only needed for the VidTok encoder)"
-    fi
-    info ">>> V-JEPA 2.1 hub weights + Chronos-2 backbone (login_node_setup.sh)"
-    bash scripts/login_node_setup.sh || warn "login_node_setup.sh had warnings"
+    info ">>> caching V-JEPA 2.1 hub repo + weights"
+    uv run python - <<'PY' || warn "V-JEPA cache warmup failed — check internet access on login node"
+import torch
+from mmtsfm.models.vision.visual_encoder import VisualEncoder
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
+enc = VisualEncoder(arch="vit_large", freeze=True).to(device)
+enc.eval()
+print(f"V-JEPA OK: arch={enc.arch} d_v={enc.d_v} hub={torch.hub.get_dir()}")
+PY
+
+    info ">>> caching Chronos-2 backbone"
+    uv run python - <<'PY' || warn "Chronos-2 cache warmup failed — check amazon/chronos-2 access"
+from mmtsfm.models.chronos2.config import Chronos2CoreConfig
+from mmtsfm.models.chronos2.modeling_chronos2 import Chronos2Model
+
+cfg = Chronos2CoreConfig.from_pretrained("amazon/chronos-2")
+Chronos2Model.from_pretrained("amazon/chronos-2", config=cfg, ignore_mismatched_sizes=True)
+print("Chronos-2 model OK")
+PY
 fi
 
 # --- 3: verify the MMTSFM <-> baselines protocol bridge ----------------------

@@ -5,7 +5,7 @@ defaults:
 # SLURM cluster overrides — tune per allocation
 devices: auto                   # CUDA_VISIBLE_DEVICES set by SLURM; auto = all visible GPUs
 num_nodes: 1                    # set to >1 for multi-node jobs (match --nodes in sbatch)
-strategy: ddp_find_unused_parameters_true   # frozen VidTok encoder + modality dropout → unused params
+strategy: ddp_find_unused_parameters_true   # frozen V-JEPA encoder + modality dropout → unused params
 accelerator: gpu
 
 # Logging cadence — SLURM jobs produce tty-less logs; flush often

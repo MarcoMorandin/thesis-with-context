@@ -27,7 +27,8 @@
 # TS-RAG / Cross-RAG (tier4) live in baselines/ and are evaluated there.
 #
 # Prereq: scripts/precache_login.sh has run on the login node (uv env, V-JEPA 2.1
-# + Chronos-2 weights, data staged to $DATA_DIR).
+# + Chronos-2 weights, data staged to $DATA_DIR). This script can also pre-extract
+# V-JEPA latents before training, so no separate extraction Slurm script is needed.
 #
 #   sbatch scripts/run_all_mmtsfm.sh
 #   DATASETS="uk_pv goes_pvdaq" sbatch scripts/run_all_mmtsfm.sh
@@ -61,7 +62,15 @@ RESULTS_DIR="${RESULTS_DIR:-${REPO_ROOT}/baselines/results}"
 SP_REF_UKPV="${SP_REF_UKPV:-${RESULTS_DIR}/smart_persistence_s2_ukpv.json}"
 
 DATASETS="${DATASETS:-uk_pv}"          # space list, e.g. "uk_pv goes_pvdaq"
-ENCODER="${ENCODER:-vjepa2}"           # vjepa2 | vidtok | skip (applied to vision ablations)
+ENCODER="${ENCODER:-vjepa2}"           # vjepa2 | skip (applied to vision ablations)
+PREEXTRACT_VJEPA="${PREEXTRACT_VJEPA:-1}"
+EXTRACT_SPLITS="${EXTRACT_SPLITS:-train val test}"
+VJEPA_ARCH="${VJEPA_ARCH:-vit_large}"
+VJEPA_CACHE_ROOT="${VJEPA_CACHE_ROOT:-${DATA_DIR}/vjepa_cache}"
+EXTRACT_BATCH_SIZE="${EXTRACT_BATCH_SIZE:-8}"
+EXTRACT_NUM_WORKERS="${EXTRACT_NUM_WORKERS:-4}"
+EXTRACT_VIDEO_FRAMES="${EXTRACT_VIDEO_FRAMES:-8}"
+EXTRACT_IMG_SIZE="${EXTRACT_IMG_SIZE:-224}"
 MAX_EPOCHS="${MAX_EPOCHS:-50}"
 BATCH_SIZE="${BATCH_SIZE:-16}"
 NUM_WORKERS="${NUM_WORKERS:-8}"        # per run; × GPUS ≤ --cpus-per-task
@@ -105,15 +114,54 @@ data_cfg() { case "$1" in uk_pv) echo ukpv;; goes_pvdaq) echo goespvdaq;; *) ech
 # dataset → short tag / Skill-Score reference
 short()    { case "$1" in uk_pv) echo ukpv;; goes_pvdaq) echo goes;; *) echo "$1";; esac; }
 sp_ref()   { case "$1" in uk_pv) echo "$SP_REF_UKPV";; *) echo "";; esac; }
+dataset_horizon() { case "$1" in uk_pv) echo 12;; goes_pvdaq) echo 24;; *) echo "";; esac; }
 # encoder → hydra vision override(s)
 vis_flags() {
     case "$1" in
         vjepa2) echo "model.vision_cfg.visual_encoder_type=vjepa2" ;;
-        vidtok) echo "model.vision_cfg.visual_encoder_type=vidtok" ;;
         skip)   echo "model.vision_cfg.skip_vision_stack=true" ;;
         *)      echo "" ;;
     esac
 }
+
+extract_vjepa_dataset() {
+    local ds="$1"
+    local horizon; horizon="$(dataset_horizon "$ds")"
+    [[ -n "$horizon" ]] || { echo "  SKIP V-JEPA extraction for unknown dataset '$ds'"; return 0; }
+    local cache_dir="${VJEPA_CACHE_ROOT}/${ds}"
+    mkdir -p "$cache_dir"
+    echo ""
+    echo ">>> pre-extract V-JEPA: dataset=$ds cache=$cache_dir"
+    for split in $EXTRACT_SPLITS; do
+        local log="logs/slurm/extract_vjepa_${ds}_${split}.log"
+        local -a CMD=(
+            python scripts/extract_video_embeddings.py
+            --encoder vjepa2
+            --vjepa-arch "$VJEPA_ARCH"
+            --dataset "$ds"
+            --split "$split"
+            --horizon "$horizon"
+            --video-frames "$EXTRACT_VIDEO_FRAMES"
+            --img-size "$EXTRACT_IMG_SIZE"
+            --imagenet-norm
+            --data-dir "$DATA_DIR"
+            --batch-size "$EXTRACT_BATCH_SIZE"
+            --num-workers "$EXTRACT_NUM_WORKERS"
+        )
+        echo "    $split → $log"
+        echo "    uv run ${CMD[*]}" > "$log"
+        CUDA_VISIBLE_DEVICES="${EXTRACT_GPU:-0}" uv run "${CMD[@]}" >> "$log" 2>&1 || {
+            echo "FATAL: V-JEPA extraction failed for dataset=$ds split=$split; see $log"
+            exit 1
+        }
+    done
+}
+
+if [[ "$PREEXTRACT_VJEPA" == "1" && "$ENCODER" == "vjepa2" ]]; then
+    for ds in $DATASETS; do
+        extract_vjepa_dataset "$ds"
+    done
+fi
 
 # ---- build the job list: datasets × ablations -------------------------------
 declare -a J_TAG J_DS J_DCFG J_OVR
@@ -148,6 +196,9 @@ launch_job() {
     [[ -n "$ref" && -f "$ref" ]] && CMD+=("model.sp_reference_path=$ref")
     local vf; vf="$(vis_flags "$ENCODER")"
     [[ -n "$vf" ]] && CMD+=($vf)
+    if [[ "$ENCODER" == "vjepa2" && -d "${VJEPA_CACHE_ROOT}/${ds}" ]]; then
+        CMD+=("data.vjepa_cache_dir=${VJEPA_CACHE_ROOT}/${ds}")
+    fi
     # shellcheck disable=SC2206  -- intentional word-split: $ovr is a list of overrides
     CMD+=($ovr)
     local log="logs/slurm/${tag}.log"

@@ -73,7 +73,7 @@ class VisionChronos2LightningModule(LightningModule):
         n_unfreeze_encoder_blocks: int = 1,
         backbone_lr_ratio: float = 0.1,
         grassmann_warmup_steps: int = 0,
-        vidtok_model: Optional[nn.Module] = None,
+        video_encoder: Optional[nn.Module] = None,
         pretrained_model_name_or_path: Optional[str] = "amazon/chronos-2",
         # Protocol evaluation (BASELINE_PROTOCOL.md §5): NMAE/NRMSE/SS written in
         # the baselines results schema so aggregate_all.py ingests MMTSFM too.
@@ -88,7 +88,7 @@ class VisionChronos2LightningModule(LightningModule):
         compute_marginal_gain: bool = False,
     ):
         super().__init__()
-        self.save_hyperparameters(ignore=["vidtok_model"])
+        self.save_hyperparameters(ignore=["video_encoder"])
         self._protocol_eval = None
         self.grassmann_warmup_steps = grassmann_warmup_steps
         self.n_unfreeze_encoder_blocks = n_unfreeze_encoder_blocks
@@ -145,7 +145,7 @@ class VisionChronos2LightningModule(LightningModule):
         self.model = VisionChronos2Model(
             chronos_model=chronos_model,
             vision_config=vcfg,
-            vidtok_model=vidtok_model,
+            video_encoder=video_encoder,
         )
 
         if freeze_chronos:
@@ -350,7 +350,7 @@ class VisionChronos2LightningModule(LightningModule):
             .reshape(BS * N)
         )
 
-        # Pre-computed VidTok latents (optional cache hit)
+        # Pre-computed V-JEPA latents (optional cache hit)
         # Z: [BS, N, T_lat, P, D_v] → flatten to [BS*N, T_lat, P, D_v]
         Z_raw = batch.get("Z")
         video_latents: Optional[torch.Tensor] = None
@@ -368,7 +368,7 @@ class VisionChronos2LightningModule(LightningModule):
             # Z_raw is now guaranteed [BS, N, T_lat, P, D_v]
             video_latents = Z_raw.reshape(BS * N, *Z_raw.shape[2:])
         else:
-            # Cache miss: pass raw frames to VidTokEncoder
+            # Cache miss: pass raw frames to the V-JEPA video encoder
             T_v = V.shape[2]
             C = V.shape[3]
             H_img = V.shape[4]

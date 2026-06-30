@@ -28,19 +28,12 @@ chronos_core_cfg:
     use_arcsinh: true
     max_output_patches: 4
 
-# ---- Vision modules (VidTok + adapter + summarizer) ----
+# ---- Vision modules (V-JEPA 2.1 + adapter + summarizer) ----
 vision_cfg:
-  visual_encoder_type: "vjepa2"
   visual_encoder_ckpt_path: ""
   freeze_visual_encoder: true
   skip_vision_stack: false
   fusion_mode: "late"
-  # VidTok checkpoint — set these before training on a real dataset
-  vidtok_cfg_path: ""
-  vidtok_ckpt_path: ""
-  vidtok_root: null          # path to cloned VidTok repo, or null if on PYTHONPATH
-  vidtok_is_causal: true
-  d_video_latent: 1024          # KL-4ch model or vjepa2 latent size
   n_visual_context_steps: 3  # last 3 TS patches get visual summary tokens (decoupled refinement window per proposal §1)
   n_soft_tokens: 1
   adapter_type: linear
