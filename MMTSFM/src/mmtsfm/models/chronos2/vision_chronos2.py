@@ -419,6 +419,7 @@ class VisionChronos2Model(nn.Module):
         future_embeds_mm: torch.Tensor,
         video_latents: Optional[torch.Tensor] = None,
         force_vision_off: bool = False,
+        video_delta_t: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """VidTok → Summarizer → Adapter → soft tokens.
 
@@ -501,6 +502,7 @@ class VisionChronos2Model(nn.Module):
             video_tokens=video_tokens,
             T_ts=n_vis,
             visual_mask=lat_mask,
+            frame_delta_t=video_delta_t,
         )
         # vis_window: [B, n_vis, d_model] — non-zero only here
 
@@ -562,6 +564,10 @@ class VisionChronos2Model(nn.Module):
         entity_ids: Optional[torch.Tensor] = None,
         # W6: force the visual stream off for the visual-marginal-gain eval pass.
         force_vision_off: bool = False,
+        # W5: seconds-before-origin per latent frame [B, T_lat]; when its length
+        # matches the latent temporal dim the summarizer builds its causal window
+        # from true spacing instead of assuming uniform frame spacing.
+        video_delta_t: Optional[torch.Tensor] = None,
     ) -> VisionChronos2Output:
         """Forward pass.
 
@@ -744,7 +750,10 @@ class VisionChronos2Model(nn.Module):
 
             # LatentSummarizer — [B, n_vis, d_model]  (T_ts=n_vis → no null tokens)
             vis_summary = self.latent_summarizer(
-                video_tokens=video_tokens, T_ts=n_vis, visual_mask=lat_mask
+                video_tokens=video_tokens,
+                T_ts=n_vis,
+                visual_mask=lat_mask,
+                frame_delta_t=video_delta_t,
             )
 
             # Multimodal embeddings for TS tokens
@@ -936,6 +945,7 @@ class VisionChronos2Model(nn.Module):
                 future_embeds_mm=future_embeds_mm,
                 video_latents=video_latents,
                 force_vision_off=force_vision_off,
+                video_delta_t=video_delta_t,
             )
             # FIX F (late-fusion): restore vanilla Chronos-2 embeddings for samples
             # where the visual stream was dropped by modality dropout inside

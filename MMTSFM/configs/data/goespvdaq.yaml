@@ -19,6 +19,7 @@ horizon: 24
 target_dim: 1
 covariate_dim: 14
 video_frames: 8
+visual_window_hours: 6.0     # W5: recency cap — only frames within 6h of origin
 img_size: 224
 img_channels: 3
 imagenet_norm: true

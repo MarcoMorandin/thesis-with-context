@@ -22,6 +22,7 @@ horizon: 12                  # resolved step horizon; model.horizon inherits thi
 target_dim: 1
 covariate_dim: 14            # len(common.config.COV_COLS) — protocol covariates incl. future weather
 video_frames: 8              # 8 frames over the recent window (§3 visual cadence)
+visual_window_hours: 6.0     # W5: recency cap — only frames within 6h of origin
 img_size: 224
 img_channels: 3
 imagenet_norm: true

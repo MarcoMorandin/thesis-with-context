@@ -81,7 +81,7 @@ class LatentSummarizer(nn.Module):
 
         # Learned latent queries — one per visual context step
         self.latent_queries = nn.Parameter(
-            torch.randn(1, n_vis_steps, d_model) * (d_model ** -0.5)
+            torch.randn(1, n_vis_steps, d_model) * (d_model**-0.5)
         )
 
         # Manual cross-attention projections.
@@ -93,12 +93,12 @@ class LatentSummarizer(nn.Module):
         # every attention backend entirely.
         assert d_model % n_heads == 0, "d_model must be divisible by n_heads"
         self.d_head = d_model // n_heads
-        self.q_proj  = nn.Linear(d_model, d_model, bias=True)
-        self.k_proj  = nn.Linear(d_model, d_model, bias=True)
-        self.v_proj  = nn.Linear(d_model, d_model, bias=True)
+        self.q_proj = nn.Linear(d_model, d_model, bias=True)
+        self.k_proj = nn.Linear(d_model, d_model, bias=True)
+        self.v_proj = nn.Linear(d_model, d_model, bias=True)
         self.out_proj = nn.Linear(d_model, d_model, bias=True)
-        self.attn_drop = nn.Dropout(dropout)   # applied to attention weights
-        self.dropout   = nn.Dropout(dropout)   # applied to attention output
+        self.attn_drop = nn.Dropout(dropout)  # applied to attention weights
+        self.dropout = nn.Dropout(dropout)  # applied to attention output
 
         self.layer_norm_q = nn.LayerNorm(d_model)
         self.layer_norm_kv = nn.LayerNorm(d_model)
@@ -107,7 +107,7 @@ class LatentSummarizer(nn.Module):
         # Prevents degenerate Plücker subspaces at macro/refinement boundary.
         # Init N(0, d^{-1/2}) to keep scale consistent with d_model embedding norms.
         self.null_visual_token = nn.Parameter(
-            torch.randn(1, 1, d_model) * (d_model ** -0.5)
+            torch.randn(1, 1, d_model) * (d_model**-0.5)
         )
 
     # ------------------------------------------------------------------
@@ -128,7 +128,7 @@ class LatentSummarizer(nn.Module):
         -------
         mask : ``[n_vis, T_lat * P]``  float tensor — 0 = attend, -1e4 = block.
         """
-        t_vis_idx = torch.arange(n_vis, device=device)                 # [n_vis]
+        t_vis_idx = torch.arange(n_vis, device=device)  # [n_vis]
         # ceil division: number of frames visible to query t_vis
         frame_limit = ((t_vis_idx + 1) * T_lat + n_vis - 1) // n_vis  # [n_vis]
         frame_limit = frame_limit.clamp(max=T_lat)
@@ -147,6 +147,45 @@ class LatentSummarizer(nn.Module):
         )
         return mask  # [n_vis, T_lat * P]
 
+    def _build_time_attn_mask(
+        self,
+        frame_delta_t: torch.Tensor,
+        n_vis: int,
+        T_lat: int,
+        P: int,
+    ) -> torch.Tensor:
+        """Build a per-sample causal mask ``[B, n_vis, T_lat * P]`` from true Δt.
+
+        Unlike :meth:`_build_causal_attn_mask` (which assumes uniformly spaced
+        frames), this maps each frame to a normalized time fraction in ``[0, 1]``
+        (oldest → 0, newest → 1) using ``frame_delta_t`` (seconds before the
+        forecast origin). Query ``t_vis`` may attend to a frame whose time
+        fraction is ``<= (t_vis + 1) / n_vis`` — i.e. progressively wider causal
+        windows that reflect the actual temporal spacing of the frames.
+        """
+        device = frame_delta_t.device
+        B = frame_delta_t.shape[0]
+        dt = frame_delta_t.float()  # [B, T_lat]
+        # Normalize to recency fraction per sample; oldest→0, newest→1.
+        dt_max = dt.amax(dim=1, keepdim=True)
+        dt_min = dt.amin(dim=1, keepdim=True)
+        span = (dt_max - dt_min).clamp(min=1e-6)
+        time_frac = (dt_max - dt) / span  # [B, T_lat]
+        # Per-spatial-patch expansion → [B, kv_len]
+        time_frac = time_frac.unsqueeze(-1).expand(B, T_lat, P).reshape(B, T_lat * P)
+
+        # Per-query thresholds (t_vis+1)/n_vis → [n_vis]
+        q_idx = torch.arange(n_vis, device=device, dtype=torch.float32)
+        thresholds = (q_idx + 1.0) / max(n_vis, 1)  # [n_vis]
+
+        visible = time_frac[:, None, :] <= (thresholds[None, :, None] + 1e-6)
+        mask = torch.where(
+            visible,
+            torch.zeros(1, device=device, dtype=torch.float32),
+            torch.full((1,), -1e4, device=device, dtype=torch.float32),
+        )
+        return mask  # [B, n_vis, T_lat * P]
+
     # ------------------------------------------------------------------
     # Forward
     # ------------------------------------------------------------------
@@ -156,6 +195,7 @@ class LatentSummarizer(nn.Module):
         video_tokens: torch.Tensor,
         T_ts: int,
         visual_mask: torch.Tensor | None = None,
+        frame_delta_t: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Compress video latents to causal visual summary tokens.
 
@@ -168,6 +208,12 @@ class LatentSummarizer(nn.Module):
         visual_mask:
             ``[B, T_lat]`` — 1 = frame available, 0 = missing/corrupt.
             If None, all frames are treated as available.
+        frame_delta_t:
+            ``[B, T_lat]`` — seconds before the forecast origin for each latent
+            frame (0 = now, larger = older). When provided, the causal
+            attention window is built from true temporal spacing rather than
+            assuming uniformly spaced frames (W5). Its length must equal
+            ``T_lat``; otherwise it is ignored and uniform spacing is used.
 
         Returns
         -------
@@ -193,14 +239,24 @@ class LatentSummarizer(nn.Module):
         kv = self.layer_norm_kv(kv)
         kv = torch.nan_to_num(kv, nan=0.0)
 
-        # Causal temporal-window mask: [n_vis, kv_len], values 0 or -1e4
-        causal_mask = self._build_causal_attn_mask(n_vis, T_lat, P, device, torch.float32)
-        # [1, 1, n_vis, kv_len] — broadcast over batch and heads in scores
-        mask = causal_mask[None, None, :, :]  # [1, 1, n_vis, kv_len]
+        # Causal temporal-window mask.
+        # Default: uniform-spacing boundary [n_vis, kv_len] → broadcast over batch.
+        # W5: when frame_delta_t is supplied (and matches T_lat), build the
+        # boundary from true temporal spacing instead → [B, n_vis, kv_len].
+        use_dt = frame_delta_t is not None and frame_delta_t.shape[-1] == T_lat
+        if use_dt:
+            time_mask = self._build_time_attn_mask(frame_delta_t, n_vis, T_lat, P)
+            mask = time_mask[:, None, :, :]  # [B, 1, n_vis, kv_len]
+        else:
+            causal_mask = self._build_causal_attn_mask(
+                n_vis, T_lat, P, device, torch.float32
+            )
+            # [1, 1, n_vis, kv_len] — broadcast over batch and heads in scores
+            mask = causal_mask[None, None, :, :]  # [1, 1, n_vis, kv_len]
         if visual_mask is not None:
             frame_exp = visual_mask.unsqueeze(-1).expand(B, T_lat, P).reshape(B, kv_len)
-            pad_penalty = (1.0 - frame_exp.float()) * -1e4   # [B, kv_len]
-            mask = mask + pad_penalty[:, None, None, :]       # [B, 1, n_vis, kv_len]
+            pad_penalty = (1.0 - frame_exp.float()) * -1e4  # [B, kv_len]
+            mask = mask + pad_penalty[:, None, None, :]  # [B, 1, n_vis, kv_len]
 
         # Learned queries: [B, n_vis, d_model]
         queries = self.latent_queries[:, :n_vis, :].expand(B, -1, -1)
@@ -211,18 +267,20 @@ class LatentSummarizer(nn.Module):
         # Flash Attention / MemEffAttn backends which produce NaN in backward
         # under bf16 autocast on A100 even with finite (-1e4) mask values.
         h, d_h = self.n_heads, self.d_head
-        Q = self.q_proj(queries).view(B, n_vis, h, d_h).transpose(1, 2)   # [B,h,n_vis,d_h]
-        K = self.k_proj(kv).view(B, kv_len, h, d_h).transpose(1, 2)       # [B,h,kv_len,d_h]
-        V = self.v_proj(kv).view(B, kv_len, h, d_h).transpose(1, 2)       # [B,h,kv_len,d_h]
+        Q = (
+            self.q_proj(queries).view(B, n_vis, h, d_h).transpose(1, 2)
+        )  # [B,h,n_vis,d_h]
+        K = self.k_proj(kv).view(B, kv_len, h, d_h).transpose(1, 2)  # [B,h,kv_len,d_h]
+        V = self.v_proj(kv).view(B, kv_len, h, d_h).transpose(1, 2)  # [B,h,kv_len,d_h]
 
-        scores = (Q @ K.transpose(-2, -1)) * (d_h ** -0.5)  # [B,h,n_vis,kv_len]
-        scores = scores + mask                                # add causal + pad mask
+        scores = (Q @ K.transpose(-2, -1)) * (d_h**-0.5)  # [B,h,n_vis,kv_len]
+        scores = scores + mask  # add causal + pad mask
         # Guard: replace any NaN/inf in scores before softmax (handles all-masked rows)
         scores = torch.nan_to_num(scores.float(), nan=0.0, neginf=-1e4)
-        attn_w = F.softmax(scores, dim=-1).to(Q.dtype)       # [B,h,n_vis,kv_len]
-        attn_w = torch.nan_to_num(attn_w, nan=0.0)           # zero out NaN rows
+        attn_w = F.softmax(scores, dim=-1).to(Q.dtype)  # [B,h,n_vis,kv_len]
+        attn_w = torch.nan_to_num(attn_w, nan=0.0)  # zero out NaN rows
         attn_w = self.attn_drop(attn_w)
-        attn_out = attn_w @ V                                 # [B,h,n_vis,d_h]
+        attn_out = attn_w @ V  # [B,h,n_vis,d_h]
         attn_out = torch.nan_to_num(attn_out, nan=0.0)
         attn_out = attn_out.transpose(1, 2).contiguous().view(B, n_vis, self.d_model)
         attn_out = self.out_proj(attn_out)

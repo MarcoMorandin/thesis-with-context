@@ -30,7 +30,9 @@ from common import config  # noqa: E402
 SPLITS = json.loads((_BL / "configs" / "splits.json").read_text())
 
 
-def _make_parquet(path: Path, sites: list[str], n_steps: int = 800, with_frames: bool = False):
+def _make_parquet(
+    path: Path, sites: list[str], n_steps: int = 800, with_frames: bool = False
+):
     rows = []
     start = pd.Timestamp("2020-01-01", tz="UTC")
     times = start + pd.to_timedelta(np.arange(n_steps) * 30, unit="m")
@@ -60,8 +62,12 @@ def test_numerical_schema_and_future_weather(tmp_path):
     from mmtsfm.data.pv_record import PVRecordDataset
 
     ds = PVRecordDataset(
-        split="train", dataset_name="uk_pv", data_path=str(parquet),
-        img_size=32, img_channels=3, video_frames=8,
+        split="train",
+        dataset_name="uk_pv",
+        data_path=str(parquet),
+        img_size=32,
+        img_channels=3,
+        video_frames=8,
     )
     assert ds.T == 672 and ds.H == 12  # 14 d / 6 h at 30-min cadence
     assert len(ds) > 0
@@ -99,7 +105,9 @@ def test_datamodule_config_wires_through(tmp_path):
     import yaml
 
     cfg = yaml.safe_load(
-        (Path(__file__).resolve().parents[1] / "configs" / "data" / "ukpv.yaml").read_text()
+        (
+            Path(__file__).resolve().parents[1] / "configs" / "data" / "ukpv.yaml"
+        ).read_text()
     )
     cfg.pop("_target_")
     parquet = tmp_path / "dataset_all.parquet"
@@ -130,10 +138,71 @@ def test_vision_frames_loaded(tmp_path):
     from mmtsfm.data.pv_record import PVRecordDataset
 
     ds = PVRecordDataset(
-        split="train", dataset_name="uk_pv", data_path=str(parquet),
-        h5_path=str(h5), img_size=32, img_channels=3, video_frames=8,
+        split="train",
+        dataset_name="uk_pv",
+        data_path=str(parquet),
+        h5_path=str(h5),
+        img_size=32,
+        img_channels=3,
+        video_frames=8,
     )
     item = ds[0]
     assert item["V"].shape == (1, 8, 3, 32, 32)
     assert float(item["mask_visual"].sum()) == 8.0  # all 8 recent frames present
     assert float(item["V"].abs().sum()) > 0.0
+
+
+def _make_frame_dataset(tmp_path, visual_window_hours):
+    h5py = pytest.importorskip("h5py")
+    sites = SPLITS["uk_pv"]["train"][:1]
+    parquet = tmp_path / "dataset_all.parquet"
+    h5 = tmp_path / "images_all.h5"
+    _make_parquet(parquet, sites, with_frames=True)
+    with h5py.File(h5, "w") as f:
+        g = f.create_group(f"uk_pv_{sites[0]}")
+        g.create_dataset("images", data=np.full((800, 128, 128), 200, np.uint8))
+
+    from mmtsfm.data.pv_record import PVRecordDataset
+
+    return PVRecordDataset(
+        split="train",
+        dataset_name="uk_pv",
+        data_path=str(parquet),
+        h5_path=str(h5),
+        img_size=32,
+        img_channels=3,
+        video_frames=8,
+        visual_window_hours=visual_window_hours,
+    )
+
+
+def test_visual_window_recency_bound(tmp_path):
+    """W5: only frames within visual_window_hours of the origin are selected."""
+    # 30-min cadence; a 1h window admits the origin + 2 prior steps = 3 frames.
+    ds = _make_frame_dataset(tmp_path, visual_window_hours=1.0)
+    item = ds[0]
+    window_sec = 1.0 * 3600
+
+    mask = item["mask_visual"][0]  # [Tv]
+    vdt = item["video_delta_t"][0]  # [Tv]
+    n_active = int(mask.sum().item())
+    # frames at every 30-min step → at most 3 within a 1h window, capped by Tv
+    assert 0 < n_active <= 3
+    # every active frame must lie within the recency window
+    active_dt = vdt[mask.bool()]
+    assert float(active_dt.max().item()) <= window_sec
+    # active frames are left-padded → occupy the trailing positions
+    assert mask[-n_active:].sum().item() == n_active
+
+
+def test_delta_t_keys_emitted(tmp_path):
+    """W5: per-frame and per-history Δt are emitted with the right shapes."""
+    ds = _make_frame_dataset(tmp_path, visual_window_hours=6.0)
+    item = ds[0]
+    T, Tv = ds.T, ds.T_v
+    assert item["video_delta_t"].shape == (1, Tv)
+    assert item["hist_delta_t"].shape == (1, T)
+    # hist Δt is seconds-before-origin: 0 at the origin, strictly larger earlier.
+    hist_dt = item["hist_delta_t"][0]
+    assert float(hist_dt[-1].item()) == 0.0
+    assert float(hist_dt[0].item()) > 0.0

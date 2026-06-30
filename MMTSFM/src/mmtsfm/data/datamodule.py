@@ -41,15 +41,18 @@ class MMTSFMDataModule(LightningDataModule):
         num_entities: int = 10,
         hist_steps: int = 24,
         horizon: int = 12,
-        history_days: float = 14.0,   # pv_record physical-time history (BASELINE_PROTOCOL §3)
-        horizon_hours: float = 6.0,   # pv_record physical-time horizon
-        h5_path: Optional[str] = None,  # pv_record frames; default <data_dir>/images_all.h5
+        history_days: float = 14.0,  # pv_record physical-time history (BASELINE_PROTOCOL §3)
+        horizon_hours: float = 6.0,  # pv_record physical-time horizon
+        h5_path: Optional[
+            str
+        ] = None,  # pv_record frames; default <data_dir>/images_all.h5
         target_dim: int = 1,
         covariate_dim: int = 5,
         video_frames: int = 8,
         img_channels: int = 3,
         img_size: int = 64,
         imagenet_norm: bool = False,
+        visual_window_hours: float = 6.0,  # W5: recency cap on candidate frames
         vidtok_cache_dir: Optional[str] = None,
         # num_samples_* only used by "synthetic"; real datasets compute their own length
         num_samples_train: int = 1000,
@@ -78,6 +81,7 @@ class MMTSFMDataModule(LightningDataModule):
                 img_size=self.hparams.img_size,
                 img_channels=self.hparams.img_channels,
                 imagenet_norm=self.hparams.imagenet_norm,
+                visual_window_hours=self.hparams.visual_window_hours,
                 h5_path=self.hparams.h5_path,
             )
         return MMTSFMDataset(
@@ -102,13 +106,19 @@ class MMTSFMDataModule(LightningDataModule):
 
     def setup(self, stage: Optional[str] = None):
         if stage in ("fit", None):
-            self.train_dataset = self._make_dataset("train", self.hparams.num_samples_train)
-            self.val_dataset   = self._make_dataset("val",   self.hparams.num_samples_val)
+            self.train_dataset = self._make_dataset(
+                "train", self.hparams.num_samples_train
+            )
+            self.val_dataset = self._make_dataset("val", self.hparams.num_samples_val)
 
         if stage in ("test", None):
-            self.test_dataset = self._make_dataset("test", self.hparams.num_samples_test)
+            self.test_dataset = self._make_dataset(
+                "test", self.hparams.num_samples_test
+            )
 
-    def _loader(self, dataset: MMTSFMDataset, shuffle: bool, drop_last: bool = False) -> DataLoader:
+    def _loader(
+        self, dataset: MMTSFMDataset, shuffle: bool, drop_last: bool = False
+    ) -> DataLoader:
         return DataLoader(
             dataset,
             batch_size=self.hparams.batch_size,

@@ -378,6 +378,18 @@ class VisionChronos2LightningModule(LightningModule):
             video = None
             video_latents = None
 
+        # W5: per-frame Δt (seconds before forecast origin). Threaded to the
+        # summarizer, which only uses it when its length matches the latent
+        # temporal dim; otherwise it falls back to uniform spacing.
+        vdt_raw = batch.get("video_delta_t")
+        video_delta_t: Optional[torch.Tensor] = None
+        if (
+            vdt_raw is not None
+            and vdt_raw.numel() > 0
+            and (video is not None or video_latents is not None)
+        ):
+            video_delta_t = vdt_raw.reshape(BS * N, -1)
+
         return dict(
             context=context,
             context_mask=context_mask,
@@ -393,6 +405,7 @@ class VisionChronos2LightningModule(LightningModule):
             if (video is not None or video_latents is not None)
             else None,
             video_latents=video_latents,
+            video_delta_t=video_delta_t,
             num_output_patches=self._num_output_patches,
         )
 

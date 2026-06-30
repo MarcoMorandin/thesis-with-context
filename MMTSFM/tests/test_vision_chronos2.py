@@ -10,10 +10,12 @@ Critical tests (per Notion roadmap Task 3.4):
 
 Run with: pytest tests/test_vision_chronos2.py -v
 """
+
 from __future__ import annotations
 
 import sys
 import os
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import pytest
@@ -24,6 +26,7 @@ import torch.nn as nn
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_chronos2(d_model: int = 64, num_layers: int = 2, context_length: int = 32):
     """Minimal Chronos2Model for fast CPU tests."""
@@ -64,8 +67,15 @@ def _make_fake_vidtok(d_v: int = 4, t_lat: int = 5, h_lat: int = 8, w_lat: int =
 
         def encode(self, x: torch.Tensor, return_reg_log: bool = False):
             B = x.shape[0]
-            z = torch.randn(B, self._d_v, self._t_lat, self._h_lat, self._w_lat,
-                            device=x.device, dtype=x.dtype)
+            z = torch.randn(
+                B,
+                self._d_v,
+                self._t_lat,
+                self._h_lat,
+                self._w_lat,
+                device=x.device,
+                dtype=x.dtype,
+            )
             return z, {}
 
         def forward(self, x):
@@ -75,9 +85,15 @@ def _make_fake_vidtok(d_v: int = 4, t_lat: int = 5, h_lat: int = 8, w_lat: int =
     return FakeVidTok()
 
 
-def _make_vision_model(d_model: int = 64, d_v: int = 4, n_vis_steps: int = 4,
-                       n_soft_tokens: int = 1, adapter_type: str = "linear"):
+def _make_vision_model(
+    d_model: int = 64,
+    d_v: int = 4,
+    n_vis_steps: int = 4,
+    n_soft_tokens: int = 1,
+    adapter_type: str = "linear",
+):
     from mmtsfm.models.chronos2 import VisionChronos2Model, VisionChronos2Config
+
     chronos = _make_chronos2(d_model=d_model)
     vcfg = VisionChronos2Config(
         d_video_latent=d_v,
@@ -98,19 +114,26 @@ def _make_vision_model(d_model: int = 64, d_v: int = 4, n_vis_steps: int = 4,
 # Unit tests: vision components
 # ---------------------------------------------------------------------------
 
+
 class TestCrossModalAdapter:
     @pytest.mark.parametrize("adapter_type", ["linear", "mlp", "cross_attention"])
     @pytest.mark.parametrize("n_soft", [1, 4])
     def test_output_shape(self, adapter_type, n_soft):
         from mmtsfm.models.vision import CrossModalAdapter
+
         B, T, D = 2, 10, 64
-        adapter = CrossModalAdapter(d_model=D, n_soft_tokens=n_soft, adapter_type=adapter_type)
+        adapter = CrossModalAdapter(
+            d_model=D, n_soft_tokens=n_soft, adapter_type=adapter_type
+        )
         x = torch.randn(B, T, D)
         out = adapter(x)
-        assert out.shape == (B, T, n_soft, D), f"Expected {(B, T, n_soft, D)}, got {out.shape}"
+        assert out.shape == (B, T, n_soft, D), (
+            f"Expected {(B, T, n_soft, D)}, got {out.shape}"
+        )
 
     def test_gradient_flows(self):
         from mmtsfm.models.vision import CrossModalAdapter
+
         adapter = CrossModalAdapter(d_model=32, n_soft_tokens=1, adapter_type="linear")
         x = torch.randn(2, 5, 32, requires_grad=True)
         out = adapter(x)
@@ -122,6 +145,7 @@ class TestCrossModalAdapter:
 class TestLatentSummarizer:
     def test_output_shape(self):
         from mmtsfm.models.vision import LatentSummarizer
+
         B, T_lat, P, D_v = 2, 5, 64, 4
         T_ts = 12
         n_vis = 4
@@ -133,9 +157,12 @@ class TestLatentSummarizer:
     def test_last_n_vis_nonzero(self):
         """Last n_vis_steps positions should be non-zero (cross-attn); earlier filled by null token."""
         from mmtsfm.models.vision import LatentSummarizer
+
         n_vis = 3
         T_ts = 10
-        summ = LatentSummarizer(d_v=4, d_model=16, n_vis_steps=n_vis, n_heads=4, dropout=0.0)
+        summ = LatentSummarizer(
+            d_v=4, d_model=16, n_vis_steps=n_vis, n_heads=4, dropout=0.0
+        )
         summ.eval()
         video_tokens = torch.randn(1, 5, 16, 4)
         out = summ(video_tokens, T_ts=T_ts)
@@ -143,12 +170,19 @@ class TestLatentSummarizer:
         early = out[0, : T_ts - n_vis, :]
         late = out[0, T_ts - n_vis :, :]
         # null_visual_token is N(0, d^{-1/2}) init — should be non-zero (not zeros padding)
-        assert early.abs().sum().item() > 0.0, "Early steps should use null_visual_token (non-zero)"
-        assert late.abs().sum().item() > 0.0, "Late steps should be non-zero (visual data present)"
+        assert early.abs().sum().item() > 0.0, (
+            "Early steps should use null_visual_token (non-zero)"
+        )
+        assert late.abs().sum().item() > 0.0, (
+            "Late steps should be non-zero (visual data present)"
+        )
 
     def test_visual_mask_applied(self):
         from mmtsfm.models.vision import LatentSummarizer
-        summ = LatentSummarizer(d_v=4, d_model=16, n_vis_steps=4, n_heads=4, dropout=0.0)
+
+        summ = LatentSummarizer(
+            d_v=4, d_model=16, n_vis_steps=4, n_heads=4, dropout=0.0
+        )
         summ.eval()
         video_tokens = torch.randn(1, 4, 16, 4)
         all_masked = torch.zeros(1, 4)
@@ -156,10 +190,48 @@ class TestLatentSummarizer:
         # With all frames masked, attention should still run (mask just changes weights)
         assert not torch.isnan(out).any()
 
+    def test_frame_delta_t_consumed(self):
+        """W5: frame_delta_t (true spacing) is plumbed in and alters the output."""
+        from mmtsfm.models.vision import LatentSummarizer
+
+        torch.manual_seed(0)
+        B, T_lat, P, D_v = 1, 5, 8, 4
+        summ = LatentSummarizer(
+            d_v=D_v, d_model=16, n_vis_steps=4, n_heads=4, dropout=0.0
+        )
+        summ.eval()
+        video_tokens = torch.randn(B, T_lat, P, D_v)
+
+        # Non-uniform spacing: most frames old, one very recent.
+        dt = torch.tensor([[20000.0, 18000.0, 16000.0, 14000.0, 10.0]])  # [B, T_lat]
+        out_uniform = summ(video_tokens, T_ts=8)
+        out_dt = summ(video_tokens, T_ts=8, frame_delta_t=dt)
+
+        assert out_dt.shape == out_uniform.shape == (B, 8, 16)
+        assert not torch.isnan(out_dt).any()
+        # True spacing must change the causal window → different summary.
+        assert not torch.allclose(out_dt, out_uniform, atol=1e-5)
+
+    def test_frame_delta_t_wrong_length_ignored(self):
+        """Δt whose length != T_lat is ignored (falls back to uniform)."""
+        from mmtsfm.models.vision import LatentSummarizer
+
+        torch.manual_seed(0)
+        summ = LatentSummarizer(
+            d_v=4, d_model=16, n_vis_steps=4, n_heads=4, dropout=0.0
+        )
+        summ.eval()
+        video_tokens = torch.randn(1, 5, 8, 4)
+        bad_dt = torch.tensor([[10.0, 20.0, 30.0]])  # length 3 != T_lat=5
+        out_uniform = summ(video_tokens, T_ts=8)
+        out_bad = summ(video_tokens, T_ts=8, frame_delta_t=bad_dt)
+        assert torch.allclose(out_bad, out_uniform, atol=1e-6)
+
 
 # ---------------------------------------------------------------------------
 # Integration tests: VisionChronos2
 # ---------------------------------------------------------------------------
+
 
 class TestVisionChronos2:
     def setup_method(self):
@@ -168,7 +240,11 @@ class TestVisionChronos2:
     # --- Zero-shot regression (Critical test 1) ---
     def test_numeric_only_matches_chronos2(self):
         """video=None output must equal vanilla Chronos-2 output."""
-        from mmtsfm.models.chronos2 import VisionChronos2Model, VisionChronos2Config, Chronos2Model
+        from mmtsfm.models.chronos2 import (
+            VisionChronos2Model,
+            VisionChronos2Config,
+            Chronos2Model,
+        )
 
         chronos = _make_chronos2()
         vcfg = VisionChronos2Config(
@@ -223,9 +299,7 @@ class TestVisionChronos2:
             nn.init.zeros_(p)
 
         # multimodal_embed params should NOT all be zero after normal init
-        mm_param_norm = sum(
-            p.norm().item() for p in vm.multimodal_embed.parameters()
-        )
+        mm_param_norm = sum(p.norm().item() for p in vm.multimodal_embed.parameters())
         assert mm_param_norm > 0.0, (
             "MultimodalEmbedding params are all zero — M1 embeddings not properly initialised"
         )
@@ -235,10 +309,12 @@ class TestVisionChronos2:
         video = torch.zeros(B, 3, 17, 64, 64)
         group_ids = torch.zeros(B, dtype=torch.long)
 
-        out_vis = vm.forward(context=context, group_ids=group_ids,
-                             num_output_patches=1, video=video)
-        out_num = vm.forward(context=context, group_ids=group_ids,
-                             num_output_patches=1, video=None)
+        out_vis = vm.forward(
+            context=context, group_ids=group_ids, num_output_patches=1, video=video
+        )
+        out_num = vm.forward(
+            context=context, group_ids=group_ids, num_output_patches=1, video=None
+        )
 
         # With zeroed adapter+summarizer the visual tokens are zero, but numeric
         # context tokens now carry modality/segment/token-type embeddings (added only
@@ -260,8 +336,9 @@ class TestVisionChronos2:
         video = torch.zeros(B, 3, 17, 64, 64)
         group_ids = torch.zeros(B, dtype=torch.long)
 
-        out = vm.forward(context=context, group_ids=group_ids,
-                         num_output_patches=2, video=video)
+        out = vm.forward(
+            context=context, group_ids=group_ids, num_output_patches=2, video=video
+        )
 
         assert out.quantile_preds is not None
         assert out.quantile_preds.shape[0] == B
@@ -276,8 +353,9 @@ class TestVisionChronos2:
         video = torch.rand(B, 3, 17, 64, 64)
         group_ids = torch.zeros(B, dtype=torch.long)
 
-        out = vm.forward(context=context, group_ids=group_ids,
-                         num_output_patches=1, video=video)
+        out = vm.forward(
+            context=context, group_ids=group_ids, num_output_patches=1, video=video
+        )
         assert not torch.isnan(out.quantile_preds).any()
         assert not torch.isinf(out.quantile_preds).any()
 
@@ -322,13 +400,15 @@ class TestVisionChronos2:
         video = torch.rand(B, 3, 17, 64, 64)
         group_ids = torch.zeros(B, dtype=torch.long)
 
-        out = vm.forward(context=context, group_ids=group_ids,
-                         num_output_patches=1, video=video)
+        out = vm.forward(
+            context=context, group_ids=group_ids, num_output_patches=1, video=video
+        )
         assert out.quantile_preds.shape[0] == B
 
     # --- Modality dropout ---
     def test_modality_dropout_training(self):
         from mmtsfm.models.chronos2 import VisionChronos2Model, VisionChronos2Config
+
         chronos = _make_chronos2()
         vcfg = VisionChronos2Config(
             d_video_latent=4,
@@ -343,8 +423,9 @@ class TestVisionChronos2:
         video = torch.rand(B, 3, 17, 64, 64)
         group_ids = torch.zeros(B, dtype=torch.long)
 
-        out = vm.forward(context=context, group_ids=group_ids,
-                         num_output_patches=1, video=video)
+        out = vm.forward(
+            context=context, group_ids=group_ids, num_output_patches=1, video=video
+        )
         # With dropout=1.0, visual_active should all be False
         assert out.visual_active is not None
         assert not out.visual_active.any()
@@ -360,6 +441,7 @@ class TestVisionChronos2:
     def test_modality_dropout_no_crash_with_video(self):
         """Regression: _build_visual_embeds must not crash with video input (M3 call-site fix)."""
         from mmtsfm.models.chronos2 import VisionChronos2Model, VisionChronos2Config
+
         chronos = _make_chronos2()
         vcfg = VisionChronos2Config(
             d_video_latent=4,
@@ -383,6 +465,7 @@ class TestVisionChronos2:
     def test_numeric_dropout_fires(self):
         """M3: numeric dropout must zero numeric stream independently of visual."""
         from mmtsfm.models.chronos2 import VisionChronos2Model, VisionChronos2Config
+
         chronos = _make_chronos2()
         vcfg = VisionChronos2Config(
             d_video_latent=4,
@@ -444,9 +527,13 @@ class TestVisionChronos2:
             video=None,
         )
 
-        assert not torch.isnan(out_with_cov.quantile_preds).any(), "NaN with covariate_channels"
+        assert not torch.isnan(out_with_cov.quantile_preds).any(), (
+            "NaN with covariate_channels"
+        )
         # Covariate tokens participate in Group Attention → output must differ
-        assert not torch.allclose(out_with_cov.quantile_preds, out_no_cov.quantile_preds), (
+        assert not torch.allclose(
+            out_with_cov.quantile_preds, out_no_cov.quantile_preds
+        ), (
             "Output identical with and without covariate_channels — "
             "N1 not fixed: covariate rows not reaching encoder"
         )
@@ -454,6 +541,7 @@ class TestVisionChronos2:
     def test_entity_ids_oob_raises_clear_error(self):
         """N5: entity_ids >= n_entities must raise AssertionError with clear message."""
         from mmtsfm.models.chronos2 import VisionChronos2Model, VisionChronos2Config
+
         chronos = _make_chronos2()
         vcfg = VisionChronos2Config(
             d_video_latent=4,
@@ -475,6 +563,7 @@ class TestVisionChronos2:
     def test_visual_mask_zeros_padded_positions(self):
         """N9: Group Attention must not attend to zero-padded visual context positions."""
         from mmtsfm.models.chronos2 import VisionChronos2Model, VisionChronos2Config
+
         chronos = _make_chronos2(context_length=32)
         # context patches = 32/8 = 4 total; n_visual_context_steps=2 → only last 2 have visual
         vcfg = VisionChronos2Config(
@@ -493,13 +582,16 @@ class TestVisionChronos2:
             num_output_patches=1,
             video=torch.rand(B, 3, 17, 64, 64),
         )
-        assert not torch.isnan(out.quantile_preds).any(), "NaN with zero-padded visual mask"
+        assert not torch.isnan(out.quantile_preds).any(), (
+            "NaN with zero-padded visual mask"
+        )
         assert not torch.isinf(out.quantile_preds).any()
 
 
 # ---------------------------------------------------------------------------
 # M4: CausalGrassmannMixing RoPE dimension parity tests
 # ---------------------------------------------------------------------------
+
 
 class TestVidTokEncoder:
     """M6: VidTokEncoder spatial shape fix tests."""
@@ -536,15 +628,24 @@ class TestCausalGrassmannMixing:
         """M4: grassmann_reduced_dim must be even for RoPE — assert fires on odd r."""
         from mmtsfm.models.chronos2.config import Chronos2CoreConfig
         from mmtsfm.models.chronos2.grassmann import CausalGrassmannMixing
+
         cfg = Chronos2CoreConfig(
-            d_model=64, d_kv=16, d_ff=128, num_layers=1, num_heads=4,
+            d_model=64,
+            d_kv=16,
+            d_ff=128,
+            num_layers=1,
+            num_heads=4,
             use_grassmann=True,
             grassmann_reduced_dim=3,
             chronos_config={
-                "context_length": 16, "output_patch_size": 4,
-                "input_patch_size": 4, "input_patch_stride": 4,
-                "quantiles": [0.5], "use_reg_token": False,
-                "use_arcsinh": False, "max_output_patches": 2,
+                "context_length": 16,
+                "output_patch_size": 4,
+                "input_patch_size": 4,
+                "input_patch_stride": 4,
+                "quantiles": [0.5],
+                "use_reg_token": False,
+                "use_arcsinh": False,
+                "max_output_patches": 2,
             },
         )
         with pytest.raises(AssertionError, match="even"):
@@ -554,15 +655,24 @@ class TestCausalGrassmannMixing:
         """M4: even grassmann_reduced_dim must instantiate without error."""
         from mmtsfm.models.chronos2.config import Chronos2CoreConfig
         from mmtsfm.models.chronos2.grassmann import CausalGrassmannMixing
+
         cfg = Chronos2CoreConfig(
-            d_model=64, d_kv=16, d_ff=128, num_layers=1, num_heads=4,
+            d_model=64,
+            d_kv=16,
+            d_ff=128,
+            num_layers=1,
+            num_heads=4,
             use_grassmann=True,
             grassmann_reduced_dim=4,
             chronos_config={
-                "context_length": 16, "output_patch_size": 4,
-                "input_patch_size": 4, "input_patch_stride": 4,
-                "quantiles": [0.5], "use_reg_token": False,
-                "use_arcsinh": False, "max_output_patches": 2,
+                "context_length": 16,
+                "output_patch_size": 4,
+                "input_patch_size": 4,
+                "input_patch_stride": 4,
+                "quantiles": [0.5],
+                "use_reg_token": False,
+                "use_arcsinh": False,
+                "max_output_patches": 2,
             },
         )
         layer = CausalGrassmannMixing(cfg)
@@ -574,14 +684,23 @@ class TestCausalGrassmannMixing:
         from mmtsfm.models.chronos2.grassmann import CausalGrassmannMixing
 
         cfg = Chronos2CoreConfig(
-            d_model=64, d_kv=16, d_ff=128, num_layers=1, num_heads=4,
-            use_grassmann=True, grassmann_reduced_dim=4,
+            d_model=64,
+            d_kv=16,
+            d_ff=128,
+            num_layers=1,
+            num_heads=4,
+            use_grassmann=True,
+            grassmann_reduced_dim=4,
             grassmann_window_offsets=[1],
             chronos_config={
-                "context_length": 8, "output_patch_size": 4,
-                "input_patch_size": 4, "input_patch_stride": 4,
-                "quantiles": [0.5], "use_reg_token": False,
-                "use_arcsinh": False, "max_output_patches": 2,
+                "context_length": 8,
+                "output_patch_size": 4,
+                "input_patch_size": 4,
+                "input_patch_stride": 4,
+                "quantiles": [0.5],
+                "use_reg_token": False,
+                "use_arcsinh": False,
+                "max_output_patches": 2,
             },
         )
         layer = CausalGrassmannMixing(cfg)
@@ -596,8 +715,12 @@ class TestCausalGrassmannMixing:
         pos = torch.arange(L).unsqueeze(0)
         layer(h, mask, pos)
 
-        assert layer._plucker_idx_i.data_ptr() == ptr_i_before, "_plucker_idx_i was reallocated"
-        assert layer._plucker_idx_j.data_ptr() == ptr_j_before, "_plucker_idx_j was reallocated"
+        assert layer._plucker_idx_i.data_ptr() == ptr_i_before, (
+            "_plucker_idx_i was reallocated"
+        )
+        assert layer._plucker_idx_j.data_ptr() == ptr_j_before, (
+            "_plucker_idx_j was reallocated"
+        )
 
     def test_plucker_output_deterministic(self):
         """M5: two identical forward passes must produce identical output."""
@@ -606,14 +729,23 @@ class TestCausalGrassmannMixing:
 
         torch.manual_seed(7)
         cfg = Chronos2CoreConfig(
-            d_model=64, d_kv=16, d_ff=128, num_layers=1, num_heads=4,
-            use_grassmann=True, grassmann_reduced_dim=4,
+            d_model=64,
+            d_kv=16,
+            d_ff=128,
+            num_layers=1,
+            num_heads=4,
+            use_grassmann=True,
+            grassmann_reduced_dim=4,
             grassmann_window_offsets=[1, 2],
             chronos_config={
-                "context_length": 8, "output_patch_size": 4,
-                "input_patch_size": 4, "input_patch_stride": 4,
-                "quantiles": [0.5], "use_reg_token": False,
-                "use_arcsinh": False, "max_output_patches": 2,
+                "context_length": 8,
+                "output_patch_size": 4,
+                "input_patch_size": 4,
+                "input_patch_stride": 4,
+                "quantiles": [0.5],
+                "use_reg_token": False,
+                "use_arcsinh": False,
+                "max_output_patches": 2,
             },
         )
         layer = CausalGrassmannMixing(cfg)
@@ -635,14 +767,17 @@ class TestCausalGrassmannMixing:
 # Task 2: VisualEncoder
 # ---------------------------------------------------------------------------
 
+
 class TestVisualEncoder:
     def test_d_v_property_vit_large(self):
         from mmtsfm.models.vision.visual_encoder import VisualEncoder
+
         enc = VisualEncoder(arch="vit_large")
         assert enc.d_v == 1024
 
     def test_d_v_property_vit_base(self):
         from mmtsfm.models.vision.visual_encoder import VisualEncoder
+
         enc = VisualEncoder(arch="vit_base")
         assert enc.d_v == 768
 
@@ -669,9 +804,11 @@ class TestVisualEncoder:
 # Task 3: LatentSummarizer null_visual_token
 # ---------------------------------------------------------------------------
 
+
 class TestLatentSummarizerNullToken:
     def test_null_token_param_exists(self):
         from mmtsfm.models.vision.latent_summarizer import LatentSummarizer
+
         ls = LatentSummarizer(d_v=16, d_model=32, n_vis_steps=4)
         assert hasattr(ls, "null_visual_token")
         assert isinstance(ls.null_visual_token, torch.nn.Parameter)
@@ -679,6 +816,7 @@ class TestLatentSummarizerNullToken:
 
     def test_null_token_fills_macro_positions(self):
         from mmtsfm.models.vision.latent_summarizer import LatentSummarizer
+
         ls = LatentSummarizer(d_v=16, d_model=32, n_vis_steps=4)
         with torch.no_grad():
             ls.null_visual_token.fill_(99.0)
@@ -692,32 +830,37 @@ class TestLatentSummarizerNullToken:
 
     def test_null_token_init_magnitude(self):
         from mmtsfm.models.vision.latent_summarizer import LatentSummarizer
+
         d_model = 512
         ls = LatentSummarizer(d_v=64, d_model=d_model, n_vis_steps=6)
         std = ls.null_visual_token.std().item()
-        expected_std = d_model ** -0.5
+        expected_std = d_model**-0.5
         assert abs(std - expected_std) < 0.1 * expected_std  # within 10%
 
 
 class TestConfigExtensions:
     def test_chronos2_config_has_grassmann_modality_pair_bias(self):
         from mmtsfm.models.chronos2.config import Chronos2CoreConfig
+
         cfg = Chronos2CoreConfig()
         assert hasattr(cfg, "grassmann_modality_pair_bias")
         assert cfg.grassmann_modality_pair_bias is True  # default
 
     def test_vision_config_fusion_mode_default(self):
         from mmtsfm.models.chronos2.vision_chronos2 import VisionChronos2Config
+
         cfg = VisionChronos2Config()
         assert cfg.fusion_mode == "late"
 
     def test_vision_config_accepts_interleaved(self):
         from mmtsfm.models.chronos2.vision_chronos2 import VisionChronos2Config
+
         cfg = VisionChronos2Config(fusion_mode="interleaved")
         assert cfg.fusion_mode == "interleaved"
 
     def test_vision_config_encoder_fields(self):
         from mmtsfm.models.chronos2.vision_chronos2 import VisionChronos2Config
+
         cfg = VisionChronos2Config(
             visual_encoder_type="vjepa2",
             visual_encoder_ckpt_path="/path/to/ckpt",
@@ -730,17 +873,19 @@ class TestConfigExtensions:
         assert cfg.skip_vision_stack is False
 
 
-
 # ---------------------------------------------------------------------------
 # Task 5: Grassmann modality-pair bias tests
 # ---------------------------------------------------------------------------
+
 
 class TestGrassmannModalityPairBias:
     def _make_grassmann(self, use_bias: bool = True):
         from mmtsfm.models.chronos2.config import Chronos2CoreConfig
         from mmtsfm.models.chronos2.grassmann import CausalGrassmannMixing
+
         cfg = Chronos2CoreConfig(
-            d_model=64, grassmann_reduced_dim=8,
+            d_model=64,
+            grassmann_reduced_dim=8,
             grassmann_modality_pair_bias=use_bias,
         )
         return CausalGrassmannMixing(cfg)
@@ -762,7 +907,7 @@ class TestGrassmannModalityPairBias:
         mask = (1.0 - torch.ones(B, 1, 1, L)) * torch.finfo(torch.float32).min
         pos_ids = torch.arange(L).unsqueeze(0).expand(B, -1)
         modality_mask = torch.zeros(B, L, dtype=torch.long)
-        modality_mask[:, L//2:] = 1
+        modality_mask[:, L // 2 :] = 1
         out = gm(h, mask, pos_ids, modality_mask=modality_mask)
         assert out.hidden_states.shape == (B, L, d)
 
@@ -780,6 +925,7 @@ class TestGrassmannModalityPairBias:
 class TestInterleaveSequences:
     def test_output_shape(self):
         from mmtsfm.models.chronos2.vision_chronos2 import interleave_sequences
+
         B, T_ctx, n_vis, d = 2, 12, 4, 32
         ts = torch.randn(B, T_ctx, d)
         vis = torch.randn(B, n_vis, d)
@@ -789,6 +935,7 @@ class TestInterleaveSequences:
 
     def test_macro_positions_unchanged(self):
         from mmtsfm.models.chronos2.vision_chronos2 import interleave_sequences
+
         B, T_ctx, n_vis, d = 2, 10, 3, 8
         ts = torch.randn(B, T_ctx, d)
         vis = torch.randn(B, n_vis, d)
@@ -799,6 +946,7 @@ class TestInterleaveSequences:
 
     def test_refinement_alternates_ts_vis(self):
         from mmtsfm.models.chronos2.vision_chronos2 import interleave_sequences
+
         B, T_ctx, n_vis, d = 1, 8, 4, 4
         T_M = T_ctx - n_vis  # = 4
         ts = torch.randn(B, T_ctx, d)
@@ -809,18 +957,23 @@ class TestInterleaveSequences:
             pos_vis = T_M + 2 * k + 1
             torch.testing.assert_close(out[:, pos_ts, :], ts[:, T_M + k, :])
             torch.testing.assert_close(out[:, pos_vis, :], vis[:, k, :])
-            assert mm[0, pos_ts].item() == 0   # TS
+            assert mm[0, pos_ts].item() == 0  # TS
             assert mm[0, pos_vis].item() == 1  # visual
 
     def test_position_ids_temporal(self):
-        from mmtsfm.models.chronos2.vision_chronos2 import build_interleaved_position_ids
+        from mmtsfm.models.chronos2.vision_chronos2 import (
+            build_interleaved_position_ids,
+        )
+
         T_M, n_vis, T_fut = 4, 3, 2
-        pos = build_interleaved_position_ids(T_M, n_vis, T_fut, device=torch.device("cpu"))
+        pos = build_interleaved_position_ids(
+            T_M, n_vis, T_fut, device=torch.device("cpu")
+        )
         assert pos.shape == (1, T_M + 2 * n_vis + T_fut)
         torch.testing.assert_close(pos[0, :T_M], torch.arange(T_M))
         expected_refine = torch.tensor([4, 4, 5, 5, 6, 6])
-        torch.testing.assert_close(pos[0, T_M:T_M + 2 * n_vis], expected_refine)
-        torch.testing.assert_close(pos[0, T_M + 2 * n_vis:], torch.tensor([7, 8]))
+        torch.testing.assert_close(pos[0, T_M : T_M + 2 * n_vis], expected_refine)
+        torch.testing.assert_close(pos[0, T_M + 2 * n_vis :], torch.tensor([7, 8]))
 
 
 class TestInterleavedFusionMode:
@@ -828,16 +981,22 @@ class TestInterleavedFusionMode:
         from mmtsfm.models.chronos2.config import Chronos2CoreConfig
         from mmtsfm.models.chronos2.model import Chronos2Model
         from mmtsfm.models.chronos2.vision_chronos2 import (
-            VisionChronos2Config, VisionChronos2Model
+            VisionChronos2Config,
+            VisionChronos2Model,
         )
+
         core_cfg = Chronos2CoreConfig(
-            d_model=64, num_layers=2,
+            d_model=64,
+            num_layers=2,
             chronos_config={
-                "context_length": 32, "input_patch_size": 4,
-                "input_patch_stride": 4, "output_patch_size": 4,
-                "quantiles": [0.1, 0.5, 0.9], "use_arcsinh": True,
+                "context_length": 32,
+                "input_patch_size": 4,
+                "input_patch_stride": 4,
+                "output_patch_size": 4,
+                "quantiles": [0.1, 0.5, 0.9],
+                "use_arcsinh": True,
                 "max_output_patches": 2,
-            }
+            },
         )
         chronos = Chronos2Model(core_cfg)
         vcfg = VisionChronos2Config(
@@ -873,7 +1032,12 @@ class TestInterleavedFusionMode:
         B, T, H = 2, 32, 8
         context = torch.randn(B, T)
         video = torch.randn(B, 3, 8, 32, 32)
-        out = model(context=context, video=video, future_target=torch.randn(B, H), num_output_patches=2)
+        out = model(
+            context=context,
+            video=video,
+            future_target=torch.randn(B, H),
+            num_output_patches=2,
+        )
         assert torch.isfinite(out.quantile_preds).all()
         assert torch.isfinite(out.loss)
 
@@ -882,22 +1046,35 @@ class TestInterleavedFusionMode:
 # Task 8: Stage Controls
 # ---------------------------------------------------------------------------
 
+
 class TestLightningModuleStageControls:
     def _make_module(self, warmup_steps=0, freeze_chronos=False):
-        from mmtsfm.models.chronos2.lightning_module import VisionChronos2LightningModule
-        
+        from mmtsfm.models.chronos2.lightning_module import (
+            VisionChronos2LightningModule,
+        )
+
         core_cfg = {
-            "d_model": 32, "d_kv": 8, "d_ff": 64, "num_layers": 2, "num_heads": 2,
-            "use_grassmann": True, "grassmann_reduced_dim": 4,
+            "d_model": 32,
+            "d_kv": 8,
+            "d_ff": 64,
+            "num_layers": 2,
+            "num_heads": 2,
+            "use_grassmann": True,
+            "grassmann_reduced_dim": 4,
             "chronos_config": {
-                "context_length": 16, "output_patch_size": 4,
-                "input_patch_size": 4, "input_patch_stride": 4,
-                "quantiles": [0.5], "use_reg_token": False,
-                "use_arcsinh": False, "max_output_patches": 2,
+                "context_length": 16,
+                "output_patch_size": 4,
+                "input_patch_size": 4,
+                "input_patch_stride": 4,
+                "quantiles": [0.5],
+                "use_reg_token": False,
+                "use_arcsinh": False,
+                "max_output_patches": 2,
             },
         }
         vision_cfg = {
-            "d_video_latent": 4, "n_visual_context_steps": 2,
+            "d_video_latent": 4,
+            "n_visual_context_steps": 2,
             "skip_vision_stack": True,
         }
         return VisionChronos2LightningModule(
@@ -922,22 +1099,43 @@ class TestLightningModuleStageControls:
         # Re-initialised layers (size mismatch with checkpoint) are also kept
         # trainable by lightning_module.py and must be excluded from the
         # frozen-check below.
-        reinit_substrings = ("input_patch_embedding", "output_patch_embedding", "shared")
+        reinit_substrings = (
+            "input_patch_embedding",
+            "output_patch_embedding",
+            "shared",
+        )
 
         grassmann_found = False
         standard_found = False
         for name, p in mod.model.chronos.named_parameters():
-            if any(k in name for k in ("W_red", "W_plu", "W_gate", "offset_weights", "modality_pair_bias")):
-                assert p.requires_grad is True, f"Grassmann parameter {name} should be trainable"
+            if any(
+                k in name
+                for k in (
+                    "W_red",
+                    "W_plu",
+                    "W_gate",
+                    "offset_weights",
+                    "modality_pair_bias",
+                )
+            ):
+                assert p.requires_grad is True, (
+                    f"Grassmann parameter {name} should be trainable"
+                )
                 grassmann_found = True
             elif id(p) in last_block_param_ids:
                 # Stage 2a unfreeze — covered by test_freeze_chronos_unfreezes_last_encoder_block
-                assert p.requires_grad is True, f"Last-block parameter {name} should be trainable"
+                assert p.requires_grad is True, (
+                    f"Last-block parameter {name} should be trainable"
+                )
             elif any(k in name for k in reinit_substrings):
                 # Re-init layers — must stay trainable to learn from scratch.
-                assert p.requires_grad is True, f"Re-init parameter {name} should be trainable"
+                assert p.requires_grad is True, (
+                    f"Re-init parameter {name} should be trainable"
+                )
             else:
-                assert p.requires_grad is False, f"Standard parameter {name} should be frozen"
+                assert p.requires_grad is False, (
+                    f"Standard parameter {name} should be frozen"
+                )
                 standard_found = True
 
         assert grassmann_found, "No Grassmann parameters found to test"
@@ -947,15 +1145,16 @@ class TestLightningModuleStageControls:
         mod = self._make_module(warmup_steps=5)
         # Use a dummy trainer to satisfy configure_optimizers
         from unittest.mock import Mock
+
         mod.trainer = Mock()
         mod.trainer.estimated_stepping_batches = 100
-        
+
         opt_dict = mod.configure_optimizers()
         scheduler = opt_dict["lr_scheduler"]["scheduler"]
         optimizer = opt_dict["optimizer"]
-        
+
         lrs = scheduler.lr_lambdas
-        
+
         standard_lr = None
         grassmann_lr = None
         for group, lr_lambda in zip(optimizer.param_groups, lrs):
@@ -965,8 +1164,9 @@ class TestLightningModuleStageControls:
             else:
                 if standard_lr is None:
                     standard_lr = lr_lambda(2)
-        
+
         import pytest
+
         assert standard_lr == pytest.approx(0.2)
         assert grassmann_lr == pytest.approx(0.4)
 
@@ -977,7 +1177,9 @@ class TestLightningModuleStageControls:
         inserts (which are trainable in every block by design)."""
         mod = self._make_module(freeze_chronos=True)
         block_layers = list(mod.model.chronos.encoder.block)
-        assert len(block_layers) >= 2, "fixture must have at least 2 encoder blocks for this assertion"
+        assert len(block_layers) >= 2, (
+            "fixture must have at least 2 encoder blocks for this assertion"
+        )
 
         last = block_layers[-1]
         earlier = block_layers[:-1]
@@ -985,10 +1187,17 @@ class TestLightningModuleStageControls:
         # Standard (non-Grassmann) attention/FFN params in the last block must
         # be trainable. Without this, the Stage 2a cross-row attention has no
         # learnable degree of freedom to attend to visual rows.
-        grassmann_substrings = ("W_red", "W_plu", "W_gate", "offset_weights", "modality_pair_bias")
+        grassmann_substrings = (
+            "W_red",
+            "W_plu",
+            "W_gate",
+            "offset_weights",
+            "modality_pair_bias",
+        )
 
         last_standard_trainable = [
-            name for name, p in last.named_parameters()
+            name
+            for name, p in last.named_parameters()
             if p.requires_grad and not any(k in name for k in grassmann_substrings)
         ]
         assert last_standard_trainable, (
@@ -1010,29 +1219,42 @@ class TestLightningModuleStageControls:
 # Task 9: Proposal Training Configs (Integration Tests)
 # ---------------------------------------------------------------------------
 
+
 class TestProposalTrainingConfigs:
     def _make_module(self, stage=1, fusion_mode="late"):
-        from mmtsfm.models.chronos2.lightning_module import VisionChronos2LightningModule
-        
+        from mmtsfm.models.chronos2.lightning_module import (
+            VisionChronos2LightningModule,
+        )
+
         core_cfg = {
-            "d_model": 32, "d_kv": 8, "d_ff": 64, "num_layers": 2, "num_heads": 2,
-            "use_grassmann": True, "grassmann_reduced_dim": 4,
+            "d_model": 32,
+            "d_kv": 8,
+            "d_ff": 64,
+            "num_layers": 2,
+            "num_heads": 2,
+            "use_grassmann": True,
+            "grassmann_reduced_dim": 4,
             "chronos_config": {
-                "context_length": 16, "output_patch_size": 4,
-                "input_patch_size": 4, "input_patch_stride": 4,
-                "quantiles": [0.5], "use_reg_token": False,
-                "use_arcsinh": False, "max_output_patches": 2,
+                "context_length": 16,
+                "output_patch_size": 4,
+                "input_patch_size": 4,
+                "input_patch_stride": 4,
+                "quantiles": [0.5],
+                "use_reg_token": False,
+                "use_arcsinh": False,
+                "max_output_patches": 2,
             },
         }
         vision_cfg = {
-            "d_video_latent": 4, "n_visual_context_steps": 2,
+            "d_video_latent": 4,
+            "n_visual_context_steps": 2,
             "fusion_mode": fusion_mode,
             "skip_vision_stack": (stage == 1),
         }
         vidtok_model = None
         if stage > 1:
             vidtok_model = _make_fake_vidtok(d_v=4, t_lat=5, h_lat=4, w_lat=4)
-        freeze_chronos = (stage == 3)
+        freeze_chronos = stage == 3
         mod = VisionChronos2LightningModule(
             chronos_core_cfg=core_cfg,
             vision_cfg=vision_cfg,
@@ -1044,6 +1266,7 @@ class TestProposalTrainingConfigs:
             vidtok_model=vidtok_model,
         )
         from unittest.mock import Mock
+
         mod.trainer = Mock()
         mod.trainer.is_global_zero = True
         mod.trainer.estimated_stepping_batches = 100
@@ -1059,7 +1282,7 @@ class TestProposalTrainingConfigs:
             "V": torch.randn(2, 1, 4, 3, 32, 32),
             "mask_target": torch.ones(2, 1, 16, 1),
             "mask_future": torch.ones(2, 1, 4, 1),
-            "mask_visual": torch.zeros(2, 1, 4), # no video
+            "mask_visual": torch.zeros(2, 1, 4),  # no video
             "daylight_future": torch.ones(2, 1, 4, 1),
             "site_id": torch.zeros(2, 1, dtype=torch.long),
         }
@@ -1077,7 +1300,7 @@ class TestProposalTrainingConfigs:
             "V": torch.randn(2, 1, 4, 3, 32, 32),
             "mask_target": torch.ones(2, 1, 16, 1),
             "mask_future": torch.ones(2, 1, 4, 1),
-            "mask_visual": torch.zeros(2, 1, 4), # no video
+            "mask_visual": torch.zeros(2, 1, 4),  # no video
             "daylight_future": torch.ones(2, 1, 4, 1),
             "site_id": torch.zeros(2, 1, dtype=torch.long),
         }
@@ -1090,18 +1313,31 @@ class TestProposalTrainingConfigs:
             if not p.requires_grad:
                 continue
             if p.grad is not None and p.grad.abs().sum() > 0:
-                if any(k in name for k in ("W_red", "W_plu", "W_gate", "offset_weights", "modality_pair_bias")):
+                if any(
+                    k in name
+                    for k in (
+                        "W_red",
+                        "W_plu",
+                        "W_gate",
+                        "offset_weights",
+                        "modality_pair_bias",
+                    )
+                ):
                     grassmann_grad = True
                 else:
                     standard_grad = True
-        
-        assert grassmann_grad, "Expected gradients to flow to Grassmann parameters in Stage 1"
-        assert standard_grad, "Expected gradients to flow to standard parameters in Stage 1"
+
+        assert grassmann_grad, (
+            "Expected gradients to flow to Grassmann parameters in Stage 1"
+        )
+        assert standard_grad, (
+            "Expected gradients to flow to standard parameters in Stage 1"
+        )
 
     def test_interleaved_mode_full_forward(self):
         mod = self._make_module(stage=2, fusion_mode="interleaved")
         mod.eval()
-        
+
         # Test 1: With video
         batch_video = {
             "Y": torch.randn(2, 1, 16, 1),
@@ -1110,7 +1346,7 @@ class TestProposalTrainingConfigs:
             "V": torch.randn(2, 1, 4, 3, 32, 32),
             "mask_target": torch.ones(2, 1, 16, 1),
             "mask_future": torch.ones(2, 1, 4, 1),
-            "mask_visual": torch.ones(2, 1, 4), # video active
+            "mask_visual": torch.ones(2, 1, 4),  # video active
             "daylight_future": torch.ones(2, 1, 4, 1),
             "site_id": torch.zeros(2, 1, dtype=torch.long),
         }
@@ -1125,7 +1361,7 @@ class TestProposalTrainingConfigs:
             "V": torch.randn(2, 1, 4, 3, 32, 32),
             "mask_target": torch.ones(2, 1, 16, 1),
             "mask_future": torch.ones(2, 1, 4, 1),
-            "mask_visual": torch.zeros(2, 1, 4), # no video
+            "mask_visual": torch.zeros(2, 1, 4),  # no video
             "daylight_future": torch.ones(2, 1, 4, 1),
             "site_id": torch.zeros(2, 1, dtype=torch.long),
         }
