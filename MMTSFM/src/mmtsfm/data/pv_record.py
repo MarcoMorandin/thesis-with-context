@@ -121,6 +121,7 @@ class PVRecordDataset(Dataset):
         imagenet_norm: bool = True,
         stride: int | None = None,
         future_cov: str = "all",
+        visual_window_hours: float = 6.0,
         **_ignored,
     ):
         super().__init__()
@@ -129,6 +130,7 @@ class PVRecordDataset(Dataset):
         self.img_size = int(img_size)
         self.C_img = int(img_channels)
         self.imagenet_norm = bool(imagenet_norm)
+        self.visual_window_hours = float(visual_window_hours)
 
         # Resolve a data directory (the run_all_baselines.sh DATA_DIR convention)
         # to the canonical parquet + h5; an explicit *.parquet path is used as-is.
@@ -192,29 +194,49 @@ class PVRecordDataset(Dataset):
             self._h5 = h5py.File(self.h5_path, "r")
         return self._h5[f"{dataset}_{site}"]
 
-    def _load_vision(self, item: dict) -> tuple[torch.Tensor, torch.Tensor]:
+    def _load_vision(self, item: dict) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         T, Tv, S, C = self.T, self.T_v, self.img_size, self.C_img
         key = (str(item["dataset"]), str(item["site_id"]))
         fmap = self.frame_maps.get(key, {})
         hist_ts = item["timestamps"][:T]
-        present = [int(t) for t in hist_ts.tolist() if int(t) in fmap]
-        sel = sorted(present[-Tv:])  # most recent Tv frame-bearing steps
+        t_now = int(hist_ts[-1])
+        window_sec = int(self.visual_window_hours * 3600)
+
+        # Candidate frame timestamps within visual_window_hours
+        present = [
+            int(t) for t in hist_ts.tolist()
+            if int(t) in fmap and (t_now - window_sec <= int(t) <= t_now)
+        ]
+
+        # Most recent Tv frame-bearing steps
+        sel = sorted(present)[-Tv:]
 
         V = torch.zeros(1, Tv, C, S, S)
         mask_v = torch.zeros(1, Tv)
-        if sel:
+        video_delta_t = torch.zeros(1, Tv)
+
+        # Left-pad: place active frames at the end if we have fewer than Tv
+        pad_len = Tv - len(sel)
+        if len(sel) > 0:
             g = self._group(*key)
             images = g["images"]
-            for j, t in enumerate(sel):
+            for idx_sel, t in enumerate(sel):
+                j = pad_len + idx_sel
                 V[0, j] = _prep_frame(images[fmap[t]], S, C, self.imagenet_norm)
                 mask_v[0, j] = 1.0
-        return V, mask_v
+                video_delta_t[0, j] = float(t_now - t)
+
+        return V, mask_v, video_delta_t
 
     def __getitem__(self, idx: int) -> dict:
         item = self.win[idx]
         T, H = self.T, self.H
         cov = np.asarray(item["cov"], dtype=np.float32)  # (T+H, C) future weather known
-        V, mask_visual = self._load_vision(item)
+        hist_ts = item["timestamps"][:T]
+        t_now = int(hist_ts[-1])
+        V, mask_visual, video_delta_t = self._load_vision(item)
+        hist_delta_t = torch.from_numpy(t_now - hist_ts.astype(np.float32)).view(1, T)
+
         return {
             "Y": torch.from_numpy(np.asarray(item["y_hist"], np.float32)).view(1, T, 1),
             "Y_future": torch.from_numpy(
@@ -238,6 +260,8 @@ class PVRecordDataset(Dataset):
                 np.asarray(item["mask_future"], np.float32)
             ).view(1, H, 1),
             "mask_visual": mask_visual,
+            "video_delta_t": video_delta_t,
+            "hist_delta_t": hist_delta_t,
             "mask_modality_dropout": torch.tensor([[1.0, float(mask_visual.any())]]),
             "adj_matrix": torch.eye(1),
             # plant id for per-plant macro-averaging in the protocol metrics
