@@ -122,7 +122,7 @@ PVTSFM narrows MMTSFM to PV-only:
 
 | MMTSFM (general) | PVTSFM (this repo) |
 |------------------|-------------------|
-| Multi-domain datasets | `/Volumes/SSD/thesis-dataset/` (`dataset_all.parquet` + `images_all.h5`) only |
+| Multi-domain datasets | `/leonardo_scratch/fast/IscrC_MTSFM/data/` (`dataset_all.parquet` + `images_all.h5`) only |
 | `scripts/meteorology/` | Removed |
 | `scripts/solar/` refactor | Out of scope (data external) |
 | Cross-entity GroupAttention | Cross-**plant** context tokens |

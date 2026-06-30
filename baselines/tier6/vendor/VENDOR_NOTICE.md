@@ -115,6 +115,6 @@ validation against the real dataset.
 
 Both models train from scratch on uk_pv — no pretrained weights. The data
 (`dataset_all.parquet` + `images_all.h5`) lives on the read-only dataset of record
-(`/Volumes/SSD/thesis-dataset/`) / staged to `$TEAM_SCRATCH` on the cluster; checkpoints
+(`/leonardo_scratch/fast/IscrC_MTSFM/data/`) / staged to `$TEAM_SCRATCH` on the cluster; checkpoints
 (`*_best.pt`, `repetition_*/`) and the dumped `*_pred.npz` are run outputs, not
 committed. See `docs/experiments/TIER6_INTEGRATION.md`.

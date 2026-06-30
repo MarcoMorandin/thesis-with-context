@@ -8,14 +8,14 @@ No ETL or raw data processing code should be present in the model or baseline co
 
 ## 1. Physical Location and Directory Structure
 
-### 1.0 Experiment dataset of record — `/Volumes/SSD/thesis-dataset/`
+### 1.0 Experiment dataset of record — `/leonardo_scratch/fast/IscrC_MTSFM/data/`
 
 All experiments run against the **consolidated, experiment-ready dataset**: one
 flat numerical table plus one packed image archive covering **both** numerical-track
 datasets (`uk_pv` and `goes_pvdaq` — `goes_pvdaq` is now fully present, see §1.0a):
 
 ```
-/Volumes/SSD/thesis-dataset/
+/leonardo_scratch/fast/IscrC_MTSFM/data/
 ├── dataset_all.parquet     # 1,337,654 rows × 35 cols (uk_pv + goes_pvdaq); see §1bis
 └── images_all.h5           # 27 GB, 110 per-site HDF5 groups <dataset>_<site>
 ```
@@ -40,7 +40,7 @@ and **`goes_pvdaq` 1283, 51**; `outage_flag` 15,486; `stuck_flag` 1,318;
 `baselines/configs/splits.json` predates these bad-site flags and still lists
 `1283`/`51` — reconcile before running `goes_pvdaq`.)
 
-`/Volumes/SSD/thesis-dataset/` is the **only** dataset volume — `dataset_all.parquet`
+`/leonardo_scratch/fast/IscrC_MTSFM/data/` is the **only** dataset volume — `dataset_all.parquet`
 (numerical) + `images_all.h5` (frames), covering both `uk_pv` and `goes_pvdaq`. There
 is no separate source/ETL volume.
 

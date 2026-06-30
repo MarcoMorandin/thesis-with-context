@@ -5,7 +5,7 @@ Implements the Tier 0–2 baseline suite from
 on the disjoint cross-plant protocol
 ([BASELINE_PROTOCOL.md](../docs/experiments/BASELINE_PROTOCOL.md)).
 
-Data source (dataset of record): `/Volumes/SSD/thesis-dataset/dataset_all.parquet`
+Data source (dataset of record): `/leonardo_scratch/fast/IscrC_MTSFM/data/dataset_all.parquet`
 (+ frames `images_all.h5`, canonical pointer `image_h5_index`). Native 30-min
 `uk_pv` (100 plants, 128px gray) and 15-min `goes_pvdaq` (10 plants, 256px RGB)
 grids, capacity-normalized `norm_power` target. Both datasets fully present

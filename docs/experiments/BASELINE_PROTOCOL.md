@@ -22,7 +22,7 @@ We use a **Disjoint Cross-Plant Protocol** rather than a few-shot context-matchi
 * **Val Plants**: Disjoint from Train; used for hyperparameter tuning and early stopping.
 * **Test Plants**: Disjoint from both Train and Val; used strictly for final reporting.
 
-Numerical track data of record: `/Volumes/SSD/thesis-dataset/dataset_all.parquet` (+ frames `images_all.h5`, pointer `image_h5_index`) — both `uk_pv` and `goes_pvdaq` are now fully present (DATASET_CONTRACT.md §1.0). For the numerical track the split is generated once (seed 42, per-dataset 70/15/15, `bad_site_flag` sites excluded) and committed to `baselines/configs/splits.json`; disjointness is asserted at every load (`baselines/common/splits.py`). **`goes_pvdaq` (10 plants) must additionally be evaluated leave-one-plant-out** — its 15 % test share is 1-2 plants and per-plant variance would dominate a fixed split (see BASELINE_COMPARISON §4.1).
+Numerical track data of record: `/leonardo_scratch/fast/IscrC_MTSFM/data/dataset_all.parquet` (+ frames `images_all.h5`, pointer `image_h5_index`) — both `uk_pv` and `goes_pvdaq` are now fully present (DATASET_CONTRACT.md §1.0). For the numerical track the split is generated once (seed 42, per-dataset 70/15/15, `bad_site_flag` sites excluded) and committed to `baselines/configs/splits.json`; disjointness is asserted at every load (`baselines/common/splits.py`). **`goes_pvdaq` (10 plants) must additionally be evaluated leave-one-plant-out** — its 15 % test share is 1-2 plants and per-plant variance would dominate a fixed split (see BASELINE_COMPARISON §4.1).
 
 ### Committed plant assignment — `uk_pv` (numerical track)
 

@@ -28,7 +28,7 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 sns.set_theme(style="whitegrid")
 plt.rcParams["figure.dpi"] = 110
 
-DATA_DIR = "/Volumes/SSD/thesis-dataset"
+DATA_DIR = "/leonardo_scratch/fast/IscrC_MTSFM/data"
 NUMERIC_PATH = os.path.join(DATA_DIR, "dataset_all.parquet")
 IMAGES_H5 = os.path.join(DATA_DIR, "images_all.h5")
 OUTPUT_DIR = "."

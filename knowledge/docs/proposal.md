@@ -497,7 +497,7 @@ fusion_mode = "interleaved"
 ### Running
 
 All commands run from within `MMTSFM/`. The default Hydra config is now the PV
-dataset of record (`data=ukpv`, `data_dir=/Volumes/SSD/thesis-dataset`); pass
+dataset of record (`data=ukpv`, `data_dir=/leonardo_scratch/fast/IscrC_MTSFM/data`); pass
 `data=goespvdaq` for the satellite track.
 
 The four curriculum stages are chained **manually** by passing the previous
@@ -551,7 +551,7 @@ DATASETS="uk_pv goes_pvdaq" sbatch scripts/run_all_mmtsfm.sh
 ## Datasets
 
 PV forecasting is the sole scope. All experiments of record use the consolidated
-**dataset of record** at `/Volumes/SSD/thesis-dataset/` (`dataset_all.parquet` +
+**dataset of record** at `/leonardo_scratch/fast/IscrC_MTSFM/data/` (`dataset_all.parquet` +
 `images_all.h5`, frame pointer `image_h5_index`), under the disjoint cross-plant
 protocol (see *Evaluation Protocol*). Additional public PV datasets are listed as
 **optional pretraining / external-validation** sources, not as the reporting

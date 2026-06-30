@@ -3,7 +3,7 @@
 import json
 import sys
 
-PROTECTED = "/Volumes/SSD/thesis-dataset"
+PROTECTED = "/leonardo_scratch/fast/IscrC_MTSFM/data"
 
 data = json.load(sys.stdin)
 tool_input = data.get("tool_input", {})

@@ -81,6 +81,6 @@ SPLIT_FRACTIONS = {"train": 0.7, "val": 0.15, "test": 0.15}
 
 # Dataset of record (DATASET_CONTRACT.md §1.0): one flat numerical table +
 # packed frames, covering both uk_pv and goes_pvdaq.
-DEFAULT_DATA_PATH = "/Volumes/SSD/thesis-dataset/dataset_all.parquet"
-DEFAULT_IMAGES_H5 = "/Volumes/SSD/thesis-dataset/images_all.h5"
+DEFAULT_DATA_PATH = "/leonardo_scratch/fast/IscrC_MTSFM/data/dataset_all.parquet"
+DEFAULT_IMAGES_H5 = "/leonardo_scratch/fast/IscrC_MTSFM/data/images_all.h5"
 FRAME_INDEX_COL = "image_h5_index"   # canonical local-to-group frame pointer
