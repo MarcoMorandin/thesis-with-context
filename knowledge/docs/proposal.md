@@ -7,12 +7,13 @@
 **Scope:** This proposal targets **photovoltaic (PV) power forecasting**. The
 primary scientific objective is **zero-shot cross-plant generalization** —
 forecasting power on disjoint, never-seen PV plants from a short history,
-without sacrificing point-forecast quality. The architecture is sensor-agnostic
-by construction (it admits RGB sky cameras and multi-band geostationary
-satellite imagery alike), but the model, its training curriculum, and its
-evaluation are all scoped to PV. (An earlier revision framed MMTSFM as a general
-multi-domain physical-world forecaster; that framing is retired — PV is the sole
-target of record.)\
+without sacrificing point-forecast quality. The model, its training curriculum,
+and its evaluation are all scoped to PV; the only visual input is the RGB
+sky/satellite frames stored in the dataset-of-record `.h5` archive (already
+delivered as uniform 3-channel tensors by the loader — no per-sensor channel
+projection). (An earlier revision framed MMTSFM as a general multi-domain
+physical-world forecaster with a learned multi-sensor projection; that framing is
+retired — PV is the sole target of record.)\
 \
 **References:** [Notion bibliography](https://www.notion.so/c43ccbe3627344e4ba201e1f8262a57e?pvs=21)
 
@@ -39,7 +40,7 @@ The architecture has three primary contributions:
 
 **2. Selective Temporal Interleaving.** Rather than injecting visual tokens only at the group attention layer (late fusion), the model interleaves visual summary tokens with TS tokens *exclusively in the visual refinement window*, feeding the joint sequence directly into the temporal mixing layer. The macro-history processes as pure TS, preserving its temporal geometry. This enables the Grassmann flow layer to track cross-modal state transitions in the recent window while maintaining O(L) complexity over the full long-context sequence. The cost increase is proportional only to $n_{\text{vis}}$ (~2% of $T_{\text{ctx}}$), not to the full context length.
 
-**3. Sensor-Agnostic Visual Encoding.** A pretrained V-JEPA 2.1 spatiotemporal encoder (frozen, then progressively fine-tuned) acts as the visual backbone across all PV imaging modalities. A learned per-sensor `SensorProjection` module maps native multi-channel observations (e.g. GOES geostationary multi-band imagery) to 3-channel RGB before encoding, so a single backbone serves both ground-based RGB sky cameras and satellite imagery without architecture changes. This matters for PV because the two dominant PV-forecasting visual sources — fisheye sky cameras (native RGB) and geostationary satellites (multi-band IR/visible) — must share one model to enable cross-plant, cross-source generalization.
+**3. Pretrained Spatiotemporal Visual Encoding.** A pretrained V-JEPA 2.1 spatiotemporal encoder (frozen, then progressively fine-tuned) acts as the visual backbone for the RGB sky/satellite frames. Domain specialization is carried entirely by the learned `LatentSummarizer` queries on top of the frozen backbone (CLIP-style adapter recycling) — no per-sensor channel projection is used, since the `.h5` loader already delivers uniform 3-channel frames for every plant and source.
 
 Additional components: Chronos-2 time-series tokenization (arcsinh normalization, patch segmentation), Perceiver-style latent summarization, a two-level attention backbone (**Time Grassmann Flow → Group**), and non-autoregressive multi-token probabilistic forecasting.
 
@@ -51,7 +52,7 @@ Given a set of $N$ PV plants (the project default is a single plant per window, 
 
 - **Historical PV power** $Y \in \mathbb{R}^{N \times T \times C_y}$ — the plant power output to forecast ($C_y = 1$)
 - **Historical and future-known covariates** $X \in \mathbb{R}^{N \times (T+H) \times C_x}$ — protocol covariates including known future numerical weather (treated as available over the horizon, per `baselines/common.config.COV_COLS`)
-- **Recent visual observations** $V \in \mathbb{R}^{N \times T_v \times C_{\text{sensor}} \times H_{\text{px}} \times W_{\text{px}}}$ — frames from the last $n_{\text{vis}}$ context steps over a short recent window (cloud-advection horizon), at higher temporal frequency than the TS cadence; $C_{\text{sensor}}$ is source-specific (3 for RGB fisheye sky cameras; multi-band for geostationary satellite, projected to 3)
+- **Recent visual observations** $V \in \mathbb{R}^{N \times T_v \times 3 \times H_{\text{px}} \times W_{\text{px}}}$ — RGB frames from the dataset-of-record `.h5` archive, from the last $n_{\text{vis}}$ context steps over a short recent window (cloud-advection horizon), at higher temporal frequency than the TS cadence. Frames arrive as uniform 3-channel tensors (the loader normalizes gray/multi-band sources to RGB)
 
 The model outputs probabilistic forecasts (quantiles) $\hat{Y} \in \mathbb{R}^{N \times H \times Q}$ of PV power for each plant over the forecast horizon $H$. Per the evaluation protocol (see *Evaluation Protocol* below): 14-day physical-time history, 6-hour horizon, native per-dataset cadence (`uk_pv` 30-min → 672/12 steps; `goes_pvdaq` 15-min → 1344/24 steps).
 
@@ -63,11 +64,10 @@ Each training batch produced by `MMTSFMDataset` contains:
 {
   "Y":          (num_entities, T, C_target),        # target time series
   "X_cov":      (num_entities, T+H, C_cov),         # covariates (incl. forecast horizon)
-  "V":          (num_entities, T_v, C_sensor, H, W), # raw sensor frames (pre-projection)
+  "V":          (num_entities, T_v, 3, H, W),       # RGB frames from the .h5 archive
   "timestamps": (T+H,),                             # unix timestamps
   "entity_ids": (num_entities,),
   "masks":      per-modality visibility masks,
-  "sensor_type": str,                               # routes to correct SensorProjection
 }
 ```
 
@@ -78,9 +78,7 @@ Each training batch produced by `MMTSFMDataset` contains:
 ### Overview: data flow
 
 ```text
-Raw sensor frames [B, T_v, C_sensor, H, W]
-        │
-        ▼ SensorProjection (learned C_sensor → 3)
+RGB frames from .h5 [B, T_v, 3, H, W]
         │
         ▼ VisualEncoder: V-JEPA 2.1 (high-cadence)
         │  → [B, T_lat, P, D_v=1024]  spatial patch tokens per frame
@@ -123,26 +121,11 @@ The `MMTSFMDataLoader` generates aligned sliding windows across both streams, ma
 
 ***
 
-### 2. Sensor Projection
+### 2. Visual Encoding
 
-PV forecasting draws on visual sources in heterogeneous spectral configurations: ground fisheye sky cameras (3-channel RGB), and geostationary satellites — GOES-16/18 ABI (up to 16 bands), which dominate utility-scale and distributed PV nowcasting. The `VisualEncoder` backbone (V-JEPA 2.1) expects 3-channel RGB input.
-
-A lightweight `SensorProjection` module maps each source's native channels to 3:
-
-```text
-SensorProjection(in_channels: int)
-  → nn.Conv2d(in_channels, 3, kernel_size=1, bias=True)
-```
-
-One `SensorProjection` per source type, applied per frame before the visual backbone. Initialization: identity mapping for the first 3 channels (or channel replication for $C_{\text{sensor}} < 3$), so training starts from a meaningful RGB approximation.
-
-The learned projection is not a fixed pseudocolor mapping — it is trained jointly in Stage 2a and learns the **optimal 3-channel compression for discriminative feature extraction** per source. For GOES multi-band imagery the network can learn to emphasize the IR/water-vapor bands that carry cloud-optical-depth and advection signal over raw visible, if those are more PV-forecasting-relevant. RGB sky cameras pass through the identity-initialized projection unchanged.
-
-This approach is strictly superior to fixed pseudocolor mappings and lets a single backbone serve ground and satellite PV sources without architecture changes.
-
-***
-
-### 3. Visual Encoding
+> Frames are consumed directly from the dataset-of-record `.h5` archive as
+> uniform 3-channel RGB (the loader normalizes gray uk_pv frames and RGB
+> goes_pvdaq frames to 3 channels). No per-sensor channel projection is applied.
 
 #### V-JEPA 2.1
 
@@ -159,7 +142,7 @@ Output shape: `[B, T_lat, P, D_v=1024]` (ViT-L) — directly compatible with `La
 
 ***
 
-### 4. Time-Series Tokenization (Chronos-2)
+### 3. Time-Series Tokenization (Chronos-2)
 
 1. **Instance normalization** via arcsinh scaling: $\tilde{y}_t = \sinh^{-1}\!\left(\frac{y_t - \mu}{\sigma}\right)$ — stabilizes heavy-tailed and sparse physical distributions without clipping.
 2. **Non-overlapping patch segmentation**: contiguous windows of `input_patch_size` timesteps flattened into patch vectors.
@@ -167,7 +150,7 @@ Output shape: `[B, T_lat, P, D_v=1024]` (ViT-L) — directly compatible with `La
 
 ***
 
-### 5. Embedding Layer
+### 4. Embedding Layer
 
 All tokens are projected into a shared geometric space via a unified embedding schema applied additively:
 
@@ -183,7 +166,7 @@ All embeddings use `std=0.02` initialization to avoid saturating the pretrained 
 
 ***
 
-### 6. Latent Summarization
+### 5. Latent Summarization
 
 `LatentSummarizer` bridges the visual backbone output and the TS forecasting cadence via Perceiver-style causal cross-attention. It acts as a **spatial compressor** — collapsing $P$ spatial patches per refinement step into a single summary token, since V-JEPA already encodes temporal dynamics across the clip.
 
@@ -200,7 +183,7 @@ All embeddings use `std=0.02` initialization to avoid saturating the pretrained 
 
 ***
 
-### 7. Selective Temporal Interleaving
+### 6. Selective Temporal Interleaving
 
 > Full documentation: `docs/temporal-interleaving.md`
 
@@ -244,7 +227,7 @@ Total context length: $T_{\text{ctx}} + n_{\text{vis}}$ — only $n_{\text{vis}}
 
 ***
 
-### 8. Attention Backbone
+### 7. Attention Backbone
 
 Each `Chronos2EncoderBlock` applies three operations in sequence:
 
@@ -252,7 +235,7 @@ Each `Chronos2EncoderBlock` applies three operations in sequence:
 Time Grassmann Flow  →  Group Self-Attention  →  FeedForward
 ```
 
-#### 8.1 Time Grassmann Flow (`CausalGrassmannMixing`)
+#### 7.1 Time Grassmann Flow (`CausalGrassmannMixing`)
 
 Replaces O($L^2$) temporal self-attention with an O($L$) attention-free layer. For each position $i$ and offset $\delta \in \{1, 2, 4, 8, 12, 16\}$:
 
@@ -282,19 +265,19 @@ Offset 1 is the *only* offset producing genuinely cross-modal Plücker subspaces
 
 **Config** (`Chronos2CoreConfig`): `grassmann_reduced_dim` (default 32, must be even), `grassmann_window_offsets` (default `[1,2,4,8,12,16]`), `grassmann_plucker_eps` (default 1e-8), `use_grassmann` (bool), `grassmann_modality_pair_bias` (bool, default `true` when `fusion_mode="interleaved"`).
 
-#### 8.2 Group Self-Attention
+#### 7.2 Group Self-Attention
 
 Computes self-attention *across the batch axis* at each sequence position over all tokens sharing the same `group_id`. Fuses: target TS tokens from different entities, covariate tokens, visual soft tokens (late-fusion mode). RoPE is not applied (no natural ordering along the batch/entity axis). The `group_time_mask` is the outer product of the group identity mask and the temporal padding mask.
 
 With selective interleaving, group attention at refinement positions $T_M + 2k$ and $T_M + 2k + 1$ fuses visual tokens cross-entity.
 
-#### 8.3 FeedForward
+#### 7.3 FeedForward
 
 Position-wise MLP with residual: $\mathbf{h}' = \mathbf{h} + \text{Dropout}(W_2 \cdot \text{act}(W_1 \cdot \text{LayerNorm}(\mathbf{h})))$. Default activation: ReLU.
 
 ***
 
-### 9. Multi-Token Prediction
+### 8. Multi-Token Prediction
 
 All $H$ future timesteps are predicted in a **single forward pass** (non-autoregressive). The encoder receives full context plus future-covariate patches; the last $T_{\text{fut}}$ output embeddings are decoded in parallel:
 
@@ -306,7 +289,7 @@ Benefits: no temporal error accumulation, reduced inference latency, naturally p
 
 ***
 
-### 10. Output Head
+### 9. Output Head
 
 1. **Quantile projection** (ResidualBlock): $d_{\text{model}} \to Q \times p_{\text{out}}$, where $p_{\text{out}}$ is the output patch size (timesteps decoded per output embedding). With $T_{\text{fut}}$ output embeddings, total horizon coverage is $H = T_{\text{fut}} \cdot p_{\text{out}}$.
 2. **Instance norm inversion**: rescale from normalized space to operational units using stored $(loc, scale)$.
@@ -357,10 +340,7 @@ MMTSFM is built on two pretrained models — Chronos-2 and V-JEPA 2.1 — whose 
 | V-JEPA 2.1 spatiotemporal encoder | ✅ fully (frozen → fine-tune) | General motion + structure useful across domains; domain semantics learned via LatentSummarizer queries |
 | VidTok decoder / KL-4ch latents   | ❌ not used                   | Replaced entirely by V-JEPA 2.1                                                                         |
 
-**Critical constraint:** V-JEPA 2.1 was pretrained on general internet video (humans, objects, indoor/outdoor). Its features encode general spatiotemporal patterns but **not** domain-specific physical semantics (cloud optical depth, storm propagation, crop stress signals). All domain adaptation happens via two mechanisms:
-
-1. `SensorProjection` — learns to emphasize domain-relevant channels before encoding
-2. `LatentSummarizer` learned queries — act as domain-specific feature extractors on top of general V-JEPA features
+**Critical constraint:** V-JEPA 2.1 was pretrained on general internet video (humans, objects, indoor/outdoor). Its features encode general spatiotemporal patterns but **not** domain-specific physical semantics (cloud optical depth, storm propagation, crop stress signals). All domain adaptation happens via the `LatentSummarizer` learned queries, which act as PV-specific feature extractors on top of the general V-JEPA features.
 
 This is analogous to CLIP's frozen visual encoder repurposed via learned adapters: the backbone provides strong generic features; the adapter specializes them.
 
@@ -368,7 +348,6 @@ This is analogous to CLIP's frozen visual encoder repurposed via learned adapter
 
 | Component                                                  | Parameters (approx.) | Training starts  |
 | ---------------------------------------------------------- | -------------------- | ---------------- |
-| `SensorProjection` (per sensor)                            | ~few thousand        | Stage 2a         |
 | `LatentSummarizer` (kv_proj + cross-attn + null token)     | ~5M                  | Stage 2a         |
 | `CrossModalAdapter` (late-fusion path only)                | ~2M                  | Stage 2a         |
 | `MultimodalEmbedding` (modality/segment/token-type)        | ~4M                  | Stage 2a         |
@@ -390,15 +369,15 @@ Training proceeds in four stages designed around the pretrained weight recycling
 
 Load Chronos-2 pretrained weights for all components except `CausalGrassmannMixing`. Apply 0.1× LR multiplier to Grassmann parameters for the first 2,000 warmup steps, then restore normal LR. Train on PV power TS — the train-plant numeric streams (and optionally external PV TS, e.g. SKIPP'D/SolarNet) with 100% visual masking. This produces a Grassmann layer that has learned to encode meaningful PV temporal subspaces before encountering visual tokens.
 
-> **Vision-module skip:** with `data.visual_mask_prob = 1.0` no visual tensor reaches the encoder, so `VisualEncoder`, `SensorProjection`, `LatentSummarizer`, and `CrossModalAdapter` should not be instantiated in Stage 1 — guard them behind a `model.skip_vision_stack=true` flag rather than loading and freezing ~300M of V-JEPA weights into GPU memory unused. Stage 2a constructs the full multimodal stack from scratch (or from a Stage 0 vision warmup checkpoint) and resumes the Chronos-2 weights from the Stage 1 checkpoint.
+> **Vision-module skip:** with `data.visual_mask_prob = 1.0` no visual tensor reaches the encoder, so `VisualEncoder`, `LatentSummarizer`, and `CrossModalAdapter` should not be instantiated in Stage 1 — guard them behind a `model.skip_vision_stack=true` flag rather than loading and freezing ~300M of V-JEPA weights into GPU memory unused. Stage 2a constructs the full multimodal stack from scratch (or from a Stage 0 vision warmup checkpoint) and resumes the Chronos-2 weights from the Stage 1 checkpoint.
 
 #### Stage 2a — Visual Alignment (Late Fusion)
 
 | Frozen                             | Trainable                                                                                                                           | Data                             | Purpose                                                                                                      |
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| Full Chronos-2 encoder + Grassmann | V-JEPA 2.1 (partial unfreeze last 4 layers) + `SensorProjection` + `LatentSummarizer` + `CrossModalAdapter` + `MultimodalEmbedding` | Multimodal datasets, $p_v = 0.7$ | Align visual embedding space to Chronos-2 numeric space; train sensor projections; keep `fusion_mode="late"` |
+| Full Chronos-2 encoder + Grassmann | V-JEPA 2.1 (partial unfreeze last 4 layers) + `LatentSummarizer` + `CrossModalAdapter` + `MultimodalEmbedding` | Multimodal datasets, $p_v = 0.7$ | Align visual embedding space to Chronos-2 numeric space; keep `fusion_mode="late"` |
 
-Partial V-JEPA 2.1 unfreeze (last 4 transformer layers) allows domain adaptation without disrupting the full pretrained backbone. `SensorProjection` learns optimal spectral compression per sensor type. `LatentSummarizer` queries learn to extract domain-relevant features from V-JEPA's general representations. `fusion_mode="late"` is used throughout — the Grassmann layer must not encounter cross-modal pairs until it is explicitly trained for them.
+Partial V-JEPA 2.1 unfreeze (last 4 transformer layers) allows domain adaptation without disrupting the full pretrained backbone. `LatentSummarizer` queries learn to extract PV-relevant features from V-JEPA's general representations. `fusion_mode="late"` is used throughout — the Grassmann layer must not encounter cross-modal pairs until it is explicitly trained for them.
 
 #### Stage 2b — Grassmann Cross-Modal Alignment (Interleaved)
 
@@ -462,7 +441,6 @@ Solar-VLM, TS-RAG, …). Key rules:
 | `MMTSFM/src/mmtsfm/models/vision/latent_summarizer.py` | `LatentSummarizer` — Perceiver compressor with causal mask + null token                                            |
 | `MMTSFM/src/mmtsfm/models/vision/cross_modal_adapter.py` | `CrossModalAdapter` — N_soft soft tokens *(late-fusion path only)*                                                 |
 | `MMTSFM/src/mmtsfm/models/vision/vidtok_encoder.py` | `VidTokEncoder` → **to be replaced by** `VisualEncoder` wrapping V-JEPA 2.1                                        |
-| `MMTSFM/src/mmtsfm/models/vision/sensor_projection.py` | `SensorProjection` — per-sensor learned C_sensor → 3 projection *(to be implemented)*                              |
 | `MMTSFM/src/mmtsfm/data/dataset.py`               | `MMTSFMDataset` — synthetic + legacy loaders                                                                       |
 | `MMTSFM/src/mmtsfm/data/pv_record.py`             | `PVRecordDataset` — dataset-of-record (`uk_pv`/`goes_pvdaq`) loader; reuses `baselines/` splits + windows          |
 | `MMTSFM/src/eval/protocol_eval.py`                | `ProtocolEvaluator` — NMAE/NRMSE/Skill-Score in the baselines results schema                                       |
@@ -477,7 +455,6 @@ Solar-VLM, TS-RAG, …). Key rules:
 | `vision_cfg.vidtok_ckpt_path`         | VidTok checkpoint   | *(removed)*                                          |
 | `vision_cfg.visual_encoder_type`      | *(missing)*         | `"vjepa2"`                                           |
 | `vision_cfg.visual_encoder_ckpt_path` | *(missing)*         | Path to V-JEPA 2.1 checkpoint                        |
-| `vision_cfg.sensor_type`              | *(missing)*         | `"rgb"`                                              |
 | `vision_cfg.freeze_visual_encoder`    | *(missing)*         | `true` (Stage 1-2a), `"partial"` (2b), `false` (3)   |
 | `vision_cfg.fusion_mode`              | `"late"`            | `"late"` (Stage 1-2a) → `"interleaved"` (Stage 2b-3) |
 
@@ -559,10 +536,10 @@ benchmark.
 
 ### Datasets of record (reporting benchmark)
 
-| Dataset       | Plants | Cadence | Visual source              | SensorProjection | Window (T/H)     | Role                                           |
-| ------------- | :----: | :-----: | -------------------------- | ---------------- | ---------------- | ---------------------------------------------- |
-| **`uk_pv`**   | 98 (69/15/14) | 30-min | residential frames (RGB)   | None             | 672 / 12 steps   | Primary cross-plant benchmark                  |
-| **`goes_pvdaq`** | 10 (LOPO) | 15-min | GOES geostationary RGB (256²) | None / N→3   | 1344 / 24 steps  | Secondary; leave-one-plant-out (small test set) |
+| Dataset       | Plants | Cadence | Visual source (RGB from `.h5`) | Window (T/H)     | Role                                           |
+| ------------- | :----: | :-----: | ------------------------------ | ---------------- | ---------------------------------------------- |
+| **`uk_pv`**   | 98 (69/15/14) | 30-min | residential frames (128² gray → RGB) | 672 / 12 steps   | Primary cross-plant benchmark                  |
+| **`goes_pvdaq`** | 10 (LOPO) | 15-min | GOES geostationary RGB (256²) | 1344 / 24 steps  | Secondary; leave-one-plant-out (small test set) |
 
 Both are scored on NMAE / NRMSE / Skill-Score vs Smart Persistence; splits are
 committed to `baselines/configs/splits.json` (seed 42, `bad_site_flag` sites
@@ -574,10 +551,10 @@ split membership.
 These provide diverse PV TS (Stage 1) and held-out climate zones for zero-shot
 external validation; none are part of the headline benchmark.
 
-| Dataset                      | Sensor type             | SensorProjection | Modalities                                              | Notes                                       |
-| ---------------------------- | ----------------------- | ---------------- | ------------------------------------------------------- | ------------------------------------------- |
-| **SKIPP'D**                  | Fisheye RGB             | None             | Visual: sky camera · TS: PV power (1 min)               | Literature reference / sky-camera baseline. |
-| **SolarNet**                 | RGB sky camera          | None             | Visual: cloud images · TS: pyranometer irradiance       | Sky-camera external validation.             |
-| **SolarBench (SkyImageNet)** | RGB sky camera          | None             | Visual: harmonized sky cameras · TS: irradiance + power  | ICLR 2024 Climate Change AI.                |
-| **SIRTA & DEWA**             | RGB sky camera          | None             | Visual: sky images (France + UAE) · TS: local irradiance | Distinct climate zones for generalization.  |
-| **GOES-16/18 ABI + NSRDB**   | Geostationary satellite | 16→3             | Visual: 5-15 min satellite · TS: GHI/DNI + weather       | Satellite multi-band → SensorProjection.    |
+| Dataset                      | Sensor type             | Modalities                                              | Notes                                       |
+| ---------------------------- | ----------------------- | ------------------------------------------------------- | ------------------------------------------- |
+| **SKIPP'D**                  | Fisheye RGB             | Visual: sky camera · TS: PV power (1 min)               | Literature reference / sky-camera baseline. |
+| **SolarNet**                 | RGB sky camera          | Visual: cloud images · TS: pyranometer irradiance       | Sky-camera external validation.             |
+| **SolarBench (SkyImageNet)** | RGB sky camera          | Visual: harmonized sky cameras · TS: irradiance + power  | ICLR 2024 Climate Change AI.                |
+| **SIRTA & DEWA**             | RGB sky camera          | Visual: sky images (France + UAE) · TS: local irradiance | Distinct climate zones for generalization.  |
+| **GOES-16/18 ABI + NSRDB**   | Geostationary satellite | Visual: 5-15 min satellite · TS: GHI/DNI + weather       | Multi-band; normalized to RGB by the loader. |
