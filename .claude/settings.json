@@ -67,9 +67,9 @@
           },
           {
             "type": "command",
-            "command": "bash -c 'git diff --name-only HEAD | grep -qE \"^knowledge/\" && graphify update . || true'",
+            "command": "bash -c 'git diff --name-only HEAD | grep -vE \"^knowledge/graphify-out/\" | grep -qE \"^knowledge/\" && graphify update knowledge/ || true'",
             "timeout": 120,
-            "statusMessage": "Refreshing Graphify wiki..."
+            "statusMessage": "Refreshing Graphify literature graph (knowledge/ only)..."
           }
         ]
       }

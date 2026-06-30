@@ -1,131 +1,115 @@
 # Context Engineering Guide (2026)
 
-A brief guide for building AI-agent-native research codebases. Tailored to PVTSFM.
+A guide for building AI-agent-native research codebases. Tailored to this repo (MMTSFM / PV forecasting).
 
 ## What is context engineering?
 
-Context engineering is the deliberate design of **what an AI agent sees, when, and in what order**  -  so it can work reliably on complex research code without hallucinating architecture or breaking dependencies.
-
-It is not prompt engineering. It is **repository design**: files, rules, graphs, and workflows that compound across sessions.
+The deliberate design of **what an AI agent sees, when, and in what order** — so it works reliably on complex research code without hallucinating architecture or breaking dependencies. Not prompt engineering: **repository design** — files, rules, graphs, and workflows that compound across sessions.
 
 ## The 2026 stack (four layers)
 
 ```
-???????????????????????????????????????????????????????????
-?  Layer 4: Skills (superpowers, caveman, ars-plan, )    ?
-???????????????????????????????????????????????????????????
-?  Layer 3: Knowledge graphs (GitNexus + Graphify)        ?
-???????????????????????????????????????????????????????????
-?  Layer 2: Rules (.cursor/rules/, AGENTS.md, CLAUDE.md)?
-???????????????????????????????????????????????????????????
-?  Layer 1: Code structure (modular, short, tested)     ?
-???????????????????????????????????????????????????????????
++---------------------------------------------------------+
+|  Layer 4: Skills (superpowers, gitnexus suite, ARS, ...) |
++---------------------------------------------------------+
+|  Layer 3: Knowledge graphs (GitNexus=code, Graphify=lit)|
++---------------------------------------------------------+
+|  Layer 2: Rules (AGENTS.md = source of truth, CLAUDE.md) |
++---------------------------------------------------------+
+|  Layer 1: Code structure (modular, short, tested)       |
++---------------------------------------------------------+
 ```
 
-### Layer 1  -  Code structure
+### Layer 1 — Code structure
 
-**Principle**: Agents read files; they do not hold your architecture in memory.
+Agents read files; they do not hold your architecture in memory.
 
 | Practice | Why |
 |----------|-----|
 | One class per file | Agent edits one concern; tests map 1:1 |
-| Files <150 lines | Fits in context window; forces decomposition |
+| Files <150 lines | Fits context; forces decomposition |
 | Predictable naming | Agent guesses correct path without search |
-| Hydra configs | Agent changes behavior without touching code |
-| Tests per module | Agent verifies edits without full training run |
+| Hydra configs (`MMTSFM/configs/`) | Behavior change without touching code |
+| Tests per module (`MMTSFM/tests/`) | Verify edits without a full training run |
 
-### Layer 2  -  Rules and entry docs
+**Real layout:**
+- `MMTSFM/src/mmtsfm/` — main package (`mmtsfm`): `data/`, `models/{base.py,chronos2/,vision/}`, `train.py`. Run `uv run python -m mmtsfm.train`.
+- `MMTSFM/{configs,tests,scripts}/` — Hydra configs, tests, SLURM scripts.
+- `baselines/` — `tier0..tier6`, `run_eval.py` (canonical runner), `scripts/`, `results/`, `common/`. Vendored third-party baselines under `baselines/tier6/vendor/` (e.g. `solar_vlm/`, `crossvivit/`, `sunset/`) — excluded from the code graph.
+- `knowledge/` — literature corpus: `papers/` (PDFs), `docs/`, `proposal`. **Graphify domain.**
+- `docs/` — `architecture/`, `context/`, `experiments/` (ABLATION_REGISTRY, BASELINE_PROTOCOL).
+
+### Layer 2 — Rules and entry docs
 
 | File | Role |
 |------|------|
-| `AGENTS.md` | Single source of truth: mission, constraints, read order |
-| `CLAUDE.md` | Claude-specific hooks (graphify, gitnexus) |
-| `.cursor/rules/*.mdc` | Scoped rules (Python, research, configs) |
+| `AGENTS.md` | **Single source of truth**: mission, non-negotiables, conventions, testing, ablation, git. |
+| `CLAUDE.md` | Claude-specific deltas only: commands, tool routing, GWS. Points to AGENTS.md. (Guard-protected — edit manually.) |
 
-**Rule of thumb**: If you explain it twice in chat, put it in `AGENTS.md`.
+**Rule of thumb**: if you explain it twice in chat, put it in `AGENTS.md`. Do not duplicate AGENTS.md content into CLAUDE.md.
 
-### Layer 3  -  Knowledge graphs (dual system)
+### Layer 3 — Knowledge graphs (strict split)
 
-Use **two** graphs  -  they solve different problems:
+Two graphs, **never crossed**:
 
-| Tool | Best for | Stars (Jun 2026) | Integration |
-|------|----------|------------------|-------------|
-| **GitNexus** | Code structure, call chains, blast radius | ~42k | MCP native, `npx gitnexus analyze` |
-| **Graphify** | Papers, proposals, cross-document synthesis | growing | `/graphify`, MCP, wiki output |
-| Understand Anything | General doc Q&A | smaller | Skip for this project |
-
-**Recommendation**: GitNexus for `src/` + Graphify for `knowledge/papers/baselines/`, `knowledge/papers/related/`, `knowledge/docs/`, `MMTSFM/`.
+| Tool | Domain | Index | Refresh |
+|------|--------|-------|---------|
+| **GitNexus** | **Code** — call chains, blast radius, "how does X work" | `.gitnexus/` (~158 files, no vendor) | `node .gitnexus/run.cjs analyze` (Stop hook auto-runs on `.py` edits) |
+| **Graphify** | **Literature** — `knowledge/` papers + proposal | `graphify-out/` | `graphify update knowledge/` (cheap) / `graphify knowledge/ --wiki` (full rebuild) |
 
 ```bash
 # Code graph
-npx gitnexus analyze
-npx gitnexus setup   # MCP for Cursor/Claude
+node .gitnexus/run.cjs analyze
 
-# Research graph
-/graphify knowledge/ --wiki --watch
+# Literature graph — knowledge/ ONLY, never repo root
+graphify knowledge/ --wiki
 ```
 
-### Layer 4  -  Skills
+**Critical anti-pattern:** never `graphify update .` / `graphify .` over the repo root — it pollutes the literature graph with thousands of code files (the misrouting bug). Graphify input is always `knowledge/`.
 
-Install and invoke explicitly:
+### Layer 4 — Skills & agents
 
-| Skill | Use |
+Custom (this repo, in `.claude/`):
+
+| Asset | Use |
 |-------|-----|
-| `superpowers` | Plans, TDD, verification gates |
-| `caveman` | Dense status during long runs |
-| `ars-plan` | Experiment design |
-| `deep-research` | Literature (filter: 2026 ? late 2025) |
-| `academic-paper` | Writing pipeline |
-| `systematic-debugging` | Training bugs |
-| `verification-before-completion` | Never claim success without pytest/logs |
+| `/new-baseline` | Scaffold a tier baseline (dir, config, SLURM, registry stub) |
+| `/register-experiment` | Register an ablation (registry row + config diff + `exp/` branch) |
+| `experiment-reviewer` (agent) | Pre-flight an ablation for protocol compliance |
+| `result-aggregator` (agent) | Validate baseline result JSONs before trusting numbers |
+| `slurm-log-triager` (agent) | Classify failed SLURM jobs → minimal fix |
+| `gitnexus-*` skills | Explore / impact / debug / refactor via the code graph |
 
-**Also consider** (high GitHub traction, research-relevant):
-
-- `lean-ctx`  -  token-efficient reads (you already use this)
-- `academic-research-skills`  -  paper/review pipeline
-- `graphify`  -  research corpus graph
+Plugins: `superpowers` (plans/TDD/verification), `academic-research-skills` (paper pipeline), `caveman` (dense status), `lean-ctx` (token-efficient I/O).
 
 ## Session workflow for Claude Code
 
 ```
-1. Agent reads AGENTS.md + RESEARCH_SCOPE.md
-2. GitNexus: impact analysis on target module
-3. Graphify: check related papers / prior decisions
-4. Branch: exp/<name>
-5. Edit ONE module + matching test + hydra config
-6. uv run pytest tests/models/test_<module>.py
-7. graphify update . ; git commit
-8. (optional) uv run pvtsfm-train for integration
+1. Read AGENTS.md (+ docs/context/RESEARCH_SCOPE.md)
+2. Code Q?  -> gitnexus query/context/impact on the target module
+   Lit  Q?  -> graphify query "<question>"
+3. Branch: exp/<name>
+4. Edit ONE module + matching test + Hydra config
+5. uv run pytest MMTSFM/tests/test_<module>.py
+6. git commit  (Stop hook refreshes the code graph)
+7. (optional) uv run python -m mmtsfm.train  for integration
 ```
 
-## Context budgeting tips
+## Context budgeting
 
-1. **Point, don't paste**  -  reference `docs/architecture/OVERVIEW.md` instead of dumping proposal
-2. **Registry pattern**  -  `ABLATION_REGISTRY.md` tracks experiments; agent does not re-read all logs
-3. **Fn refs**  -  lean-ctx caches files; prefer `ctx_read` over re-reading large files
-4. **Exclude noise**  -  `.gitignore` artifacts; never let agent index `logs/` or checkpoints
-5. **Staged context**  -  `AGENTS.md` read order prevents loading everything at once
+1. **Point, don't paste** — reference `docs/architecture/OVERVIEW.md`, not the raw proposal.
+2. **Registry pattern** — `docs/experiments/ABLATION_REGISTRY.md` tracks experiments; agent does not re-read all logs.
+3. **Graph-first** — gitnexus/graphify return scoped subgraphs far smaller than raw grep.
+4. **lean-ctx** — `ctx_read` caches; prefer over re-reading large files.
+5. **Exclude noise** — `.gitignore` artifacts; never index `logs/`, checkpoints, `graphify-out/`, `.gitnexus/`.
 
 ## Anti-patterns
 
 | Anti-pattern | Fix |
 |--------------|-----|
-| Monolithic `model.py` (800 lines) | Split into `models/fusion/`, `models/vision/` |
-| Secrets in repo | `.env` gitignored; Hydra env resolver |
-| Data in repo | External SSD + `data_root` in config |
-| Undocumented ablations | `ABLATION_REGISTRY.md` |
-| Agent invents baselines | `baselines/*.md` + thin wrappers in `src/pvtsfm/baselines/` |
-
-## Migration from MMTSFM
-
-PVTSFM narrows MMTSFM to PV-only:
-
-| MMTSFM (general) | PVTSFM (this repo) |
-|------------------|-------------------|
-| Multi-domain datasets | `/leonardo_scratch/fast/IscrC_MTSFM/data/` (`dataset_all.parquet` + `images_all.h5`) only |
-| `scripts/meteorology/` | Removed |
-| `scripts/solar/` refactor | Out of scope (data external) |
-| Cross-entity GroupAttention | Cross-**plant** context tokens |
-| MeteoNet, traffic eval | PV baselines only (Solar-VLM, SPIRIT, Chronos-2+RAG) |
-
-Port modules from MMTSFM incrementally; one file per PR.
+| `graphify update .` (root) | `graphify update knowledge/` — graphify is literature-only |
+| Using graphify for code questions | Use GitNexus; graphify = `knowledge/` |
+| Monolithic `model.py` | Split under `models/{chronos2,vision}/` |
+| Duplicating AGENTS.md into CLAUDE.md | CLAUDE.md = deltas only |
+| Data/checkpoints in repo | External path + `data_dir` config |
+| Undocumented ablations | `ABLATION_REGISTRY.md` + `/register-experiment` |

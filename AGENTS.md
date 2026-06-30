@@ -42,18 +42,19 @@ Build a **research-grade AI foundation model** for PV power forecasting. Primary
 * `lightning_{stage}.py` (e.g., `lightning_stage2a.py`) — Contains one Lightning module variant.
 
 ### Import Rules
-* Use relative imports within the `pvtsfm` package only.
-* No circular imports (specifically between `models/chronos2/` and `models/vision/`).
-* Keep shared types in `pvtsfm/types.py`.
+* Main package is `mmtsfm`, rooted at `MMTSFM/src/mmtsfm/` (run as `python -m mmtsfm.train`).
+* Use relative imports within the `mmtsfm` package only.
+* No circular imports (specifically between `MMTSFM/src/mmtsfm/models/chronos2/` and `MMTSFM/src/mmtsfm/models/vision/`).
+* Keep shared types in the package (e.g. a `types.py` module) rather than duplicating across files.
 
 ### Hydra Integration
-* All hyperparameters must live in `configs/`. Do not hardcode magic numbers in model code.
+* All hyperparameters must live in `MMTSFM/configs/`. Do not hardcode magic numbers in model code.
 * Use `@dataclass` + `instantiate` pattern for complex submodules.
 
 ---
 
 ## 3. Testing & Verification Rules
-* Mirror the `src/pvtsfm/models/` structure under `tests/models/`.
+* Tests live in `MMTSFM/tests/` (mirror the `MMTSFM/src/mmtsfm/` module layout). Baseline tests live in `baselines/tests/`.
 * Each module file must have a corresponding `test_<module>.py` containing shape and gradient smoke tests.
 * **Verification**: Run `uv run pytest` before claiming a fix works. Never claim a fix works without running tests and reviewing logs.
 
@@ -63,7 +64,7 @@ Build a **research-grade AI foundation model** for PV power forecasting. Primary
 
 Every experiment must define:
 1. **Hypothesis**: A single-sentence statement of what you are testing.
-2. **Config Diff**: A config diff file under `configs/ablation/` (or within baseline-specific configs).
+2. **Config Diff**: A Hydra override/config under `MMTSFM/configs/` (or within the baseline-specific `baselines/configs/`).
 3. **Registry Entry**: Register the run in `docs/experiments/ABLATION_REGISTRY.md`.
 4. **Baseline Comparison**: Compare against the standard baselines defined in `docs/experiments/BASELINE_PROTOCOL.md`.
 
@@ -92,10 +93,22 @@ Every experiment must define:
 
 ## 6. Knowledge Graphs & Tools
 
-* **Code Graph (GitNexus)**: Run `npx gitnexus analyze` and `npx gitnexus setup` to analyze call chains and blast radius. Use `impact` before editing shared modules.
-* **Research Graph (Graphify)**: Run `/graphify knowledge/ --wiki --update` to compile background literature (papers and proposals).
-* Before answering architecture or codebase questions, read `graphify-out/GRAPH_REPORT.md` if present.
-* After code changes, run `graphify update .` and re-index `gitnexus`.
+**Two graphs, strict split — never cross them:**
+
+| Question is about… | Use | Index location |
+|--------------------|-----|----------------|
+| **Code** (any source file, call chains, blast radius, "how does X work") | **GitNexus** | `.gitnexus/` |
+| **Literature / docs** (papers, proposal, `knowledge/`) | **Graphify** | `graphify-out/` (indexes `knowledge/` only) |
+
+**Canonical exploration order for CODE** (cheapest-correct first):
+1. `gitnexus` MCP — `query({query})`, `context({name})`, `impact` before edits.
+2. `lean-ctx` `ctx_read` / `ctx_search` for the specific files GitNexus surfaced.
+3. Native grep/Read only for targeted line-level reads or edits.
+
+**Canonical order for LITERATURE/DOCS:** `graphify query "<question>"` → `graphify explain` / `path` → read the specific file.
+
+* Refresh code graph: `node .gitnexus/run.cjs analyze` (Stop hook runs this automatically after `.py` edits).
+* Refresh literature graph: `graphify update knowledge/` (AST/cheap) or rebuild with `graphify knowledge/ --wiki`. **Never** run `graphify` over the repo root — that pollutes the literature graph with code.
 
 ---
 
@@ -165,10 +178,10 @@ This project is indexed by GitNexus as **thesis-with-context** (2118 symbols, 37
 
 ## graphify
 
-This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+Graphify is the **literature/docs** graph at `graphify-out/`, built from `knowledge/` (papers + proposal). It is NOT a code graph — for code use GitNexus (see §6).
 
 Rules:
-- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
-- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
-- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
-- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+- For **literature/proposal/background** questions, run `graphify query "<question>"` when `graphify-out/graph.json` exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, smaller than GRAPH_REPORT.md or raw reads.
+- If `graphify-out/wiki/index.md` exists, use it for broad navigation of the literature.
+- Read `graphify-out/GRAPH_REPORT.md` only for a broad literature overview.
+- Keep it current with `graphify update knowledge/` (AST-only, no API cost). Never `graphify update .` (root) — it pollutes the literature graph with code.
