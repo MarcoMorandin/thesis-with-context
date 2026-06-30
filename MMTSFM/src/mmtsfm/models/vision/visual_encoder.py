@@ -7,6 +7,8 @@ from __future__ import annotations
 from typing import Optional
 import torch
 import torch.nn as nn
+import torch.hub
+import torch.utils.model_zoo
 
 
 _ARCH_D_V = {
@@ -74,18 +76,15 @@ class VisualEncoder(nn.Module):
                 f"vjepa2 hub repo not found at {repo_dir}. "
                 "Run scripts/login_node_setup.sh from a login node first."
             )
-
-        # Patch the testing leftover: backbones.py ships with localhost:8300.
-        backbones = os.path.join(repo_dir, "src", "hub", "backbones.py")
-        with open(backbones) as f:
-            _src = f.read()
-        _patched = _src.replace(
-            'VJEPA_BASE_URL = "http://localhost:8300"',
-            'VJEPA_BASE_URL = "https://dl.fbaipublicfiles.com/vjepa2"',
-        )
-        if _patched != _src:
-            with open(backbones, "w") as f:
-                f.write(_patched)
+        # Apply in-memory patch to redirect localhost weights URL to the public CDN.
+        # This prevents concurrency write races on shared file systems.
+        orig_hub_load = torch.hub.load_state_dict_from_url
+        def patched_load(url, *args, **kwargs):
+            if "localhost:8300" in url:
+                url = url.replace("http://localhost:8300", "https://dl.fbaipublicfiles.com/vjepa2")
+            return orig_hub_load(url, *args, **kwargs)
+        torch.hub.load_state_dict_from_url = patched_load
+        torch.utils.model_zoo.load_url = patched_load
 
         # Pin sys.modules['src'] to the hub repo's src/ directory so that
         # src.utils.tensors (and all other src.* imports inside the hub) resolve

@@ -31,8 +31,6 @@ def lit_module(monkeypatch):
         visual_encoder_ckpt_path="",
         freeze_visual_encoder=True,
         skip_vision_stack=True,  # fast — bypass V-JEPA stack
-        sensor_type="rgb",
-        sensor_in_channels=3,
         fusion_mode="late",
         d_video_latent=32,
         n_visual_context_steps=4,

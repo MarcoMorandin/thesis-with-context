@@ -631,13 +631,21 @@ class VisionChronos2LightningModule(LightningModule):
         backbone_nodecay: list[torch.Tensor] = []
         new_decay:        list[torch.Tensor] = []
         new_nodecay:      list[torch.Tensor] = []
+        grassmann_decay:   list[torch.Tensor] = []
+        grassmann_nodecay: list[torch.Tensor] = []
+
+        grassmann_kws = ("W_red", "W_plu", "W_gate", "offset_weights", "modality_pair_bias")
 
         for name, p in self.named_parameters():
             if not p.requires_grad:
                 continue
             is_no_decay = any(kw in name for kw in self._NO_DECAY_KWS)
+            is_grassmann = any(kw in name for kw in grassmann_kws)
             is_backbone = name.startswith("model.chronos.")
-            if is_backbone:
+
+            if is_grassmann:
+                (grassmann_nodecay if is_no_decay else grassmann_decay).append(p)
+            elif is_backbone:
                 (backbone_nodecay if is_no_decay else backbone_decay).append(p)
             else:
                 (new_nodecay if is_no_decay else new_decay).append(p)
@@ -659,6 +667,14 @@ class VisionChronos2LightningModule(LightningModule):
             param_groups.append(
                 {"params": new_nodecay,      "lr": lr,  "weight_decay": 0.0, "name": "new_nodecay"}
             )
+        if grassmann_decay:
+            param_groups.append(
+                {"params": grassmann_decay,  "lr": lr,  "weight_decay": wd,  "name": "grassmann_decay"}
+            )
+        if grassmann_nodecay:
+            param_groups.append(
+                {"params": grassmann_nodecay,"lr": lr,  "weight_decay": 0.0, "name": "grassmann_nodecay"}
+            )
         if not param_groups:
             param_groups = [{"params": [], "lr": lr, "weight_decay": 0.0}]
 
@@ -666,6 +682,7 @@ class VisionChronos2LightningModule(LightningModule):
 
         total_steps = self._total_steps
         warmup    = self.hparams.warmup_steps
+        g_warmup  = self.grassmann_warmup_steps
         min_ratio = self.hparams.min_lr_ratio
 
         def lr_schedule(step: int) -> float:
@@ -674,7 +691,19 @@ class VisionChronos2LightningModule(LightningModule):
             progress = (step - warmup) / max(1, total_steps - warmup)
             return max(min_ratio, 0.5 * (1.0 + math.cos(math.pi * progress)))
 
-        lambdas = [lr_schedule for _ in param_groups]
+        def grassmann_lr_schedule(step: int) -> float:
+            if step < g_warmup:
+                return step / max(1, g_warmup)
+            progress = (step - g_warmup) / max(1, total_steps - g_warmup)
+            return max(min_ratio, 0.5 * (1.0 + math.cos(math.pi * progress)))
+
+        lambdas = []
+        for g in param_groups:
+            if "grassmann" in g.get("name", ""):
+                lambdas.append(grassmann_lr_schedule)
+            else:
+                lambdas.append(lr_schedule)
+
         scheduler = LambdaLR(optimizer, lr_lambda=lambdas)
 
         return {"optimizer": optimizer, "lr_scheduler": {"scheduler": scheduler, "interval": "step"}}

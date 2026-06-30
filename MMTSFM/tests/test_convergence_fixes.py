@@ -11,7 +11,7 @@ import torch.nn as nn
 # ---------------------------------------------------------------------------
 
 def _make_chronos_config(d_model=64, d_kv=16, d_ff=128, num_layers=2):
-    from src.mmtsfm.models.chronos2.config import Chronos2CoreConfig
+    from mmtsfm.models.chronos2.config import Chronos2CoreConfig
     return Chronos2CoreConfig(
         d_model=d_model, d_kv=d_kv, d_ff=d_ff, num_layers=num_layers,
         num_heads=4, dropout_rate=0.0, use_grassmann=False,
@@ -31,7 +31,7 @@ def _make_chronos_config(d_model=64, d_kv=16, d_ff=128, num_layers=2):
 class TestSDPAScale:
     def test_sdpa_and_eager_produce_close_outputs(self):
         """After fix: SDPA and eager must produce outputs within 1e-3."""
-        from src.mmtsfm.models.chronos2.layers import MHA
+        from mmtsfm.models.chronos2.layers import MHA
         cfg = _make_chronos_config()
         torch.manual_seed(0)
         mha_eager = MHA(cfg, use_rope=False)
@@ -65,7 +65,7 @@ class TestSDPAScale:
 class TestCausalMaskDtype:
     def test_causal_mask_is_float32_regardless_of_input_dtype(self):
         """Causal mask must always be float32 — bf16 -inf is finite (-65504)."""
-        from src.mmtsfm.models.vision.latent_summarizer import LatentSummarizer
+        from mmtsfm.models.vision.latent_summarizer import LatentSummarizer
         ls = LatentSummarizer(d_v=4, d_model=64, n_vis_steps=3, n_heads=4)
 
         for dtype in (torch.float32, torch.float16, torch.bfloat16):
@@ -78,8 +78,8 @@ class TestCausalMaskDtype:
                 f"Causal mask dtype={mask.dtype} for input dtype={dtype}; "
                 "must always be float32."
             )
-            # Masked positions must be true -inf, not just a large negative
-            assert torch.isinf(mask[mask < 0]).all(), "Masked positions must be -inf."
+            # Masked positions must be -10000.0 (numerical stability change)
+            assert (mask[mask < 0] == -10000.0).all(), "Masked positions must be -10000.0."
 
 # ---------------------------------------------------------------------------
 # Bug H: masked mean over horizon (not plain mean including padding zeros)
@@ -88,8 +88,8 @@ class TestCausalMaskDtype:
 class TestMaskedLoss:
     def test_loss_equals_masked_mean_not_padded_mean(self):
         """Loss must average only over unmasked horizon positions."""
-        from src.mmtsfm.models.chronos2.model import Chronos2Model
-        from src.mmtsfm.models.chronos2.config import Chronos2CoreConfig
+        from mmtsfm.models.chronos2.model import Chronos2Model
+        from mmtsfm.models.chronos2.config import Chronos2CoreConfig
 
         cfg = Chronos2CoreConfig(
             d_model=64, d_kv=16, d_ff=128, num_layers=1, num_heads=4,
@@ -127,8 +127,8 @@ class TestMaskedLoss:
 
     def test_fully_masked_future_gives_zero_loss(self):
         """If all future positions are masked, loss contribution must be 0."""
-        from src.mmtsfm.models.chronos2.model import Chronos2Model
-        from src.mmtsfm.models.chronos2.config import Chronos2CoreConfig
+        from mmtsfm.models.chronos2.model import Chronos2Model
+        from mmtsfm.models.chronos2.config import Chronos2CoreConfig
 
         cfg = Chronos2CoreConfig(
             d_model=64, d_kv=16, d_ff=128, num_layers=1, num_heads=4,
@@ -165,9 +165,9 @@ class TestMaskedLoss:
 
 class TestNoGradientKillingClamps:
     def _make_vision_model(self):
-        from src.mmtsfm.models.chronos2.config import Chronos2CoreConfig
-        from src.mmtsfm.models.chronos2.model import Chronos2Model
-        from src.mmtsfm.models.chronos2.vision_chronos2 import (
+        from mmtsfm.models.chronos2.config import Chronos2CoreConfig
+        from mmtsfm.models.chronos2.model import Chronos2Model
+        from mmtsfm.models.chronos2.vision_chronos2 import (
             VisionChronos2Model, VisionChronos2Config,
         )
 
@@ -223,7 +223,7 @@ class TestNoGradientKillingClamps:
 class TestInternalOverflowProtection:
     def test_mha_internal_nan_gradient_protection(self):
         """NaN gradients from attention shouldn't corrupt q/k/v weights."""
-        from src.mmtsfm.models.chronos2.layers import MHA
+        from mmtsfm.models.chronos2.layers import MHA
         cfg = _make_chronos_config()
         torch.manual_seed(0)
         mha = MHA(cfg, use_rope=False)
@@ -247,7 +247,7 @@ class TestInternalOverflowProtection:
 
     def test_mlp_internal_nan_gradient_protection(self):
         """NaN gradients from MLP outputs shouldn't corrupt wi/wo weights."""
-        from src.mmtsfm.models.chronos2.layers import MLP
+        from mmtsfm.models.chronos2.layers import MLP
         cfg = _make_chronos_config()
         torch.manual_seed(0)
         mlp = MLP(cfg)
@@ -288,9 +288,9 @@ class TestInternalOverflowProtection:
 class TestConditionalMultimodalEmbeddings:
     def _make_vision_model_with_video(self):
         import torch.nn as nn
-        from src.mmtsfm.models.chronos2.config import Chronos2CoreConfig
-        from src.mmtsfm.models.chronos2.model import Chronos2Model
-        from src.mmtsfm.models.chronos2.vision_chronos2 import (
+        from mmtsfm.models.chronos2.config import Chronos2CoreConfig
+        from mmtsfm.models.chronos2.model import Chronos2Model
+        from mmtsfm.models.chronos2.vision_chronos2 import (
             VisionChronos2Model, VisionChronos2Config,
         )
 

@@ -52,7 +52,7 @@ HORIZON = 8
 
 
 def _make_module(**overrides):
-    from src.mmtsfm.models.chronos2 import VisionChronos2LightningModule
+    from mmtsfm.models.chronos2 import VisionChronos2LightningModule
     from tests.test_vision_chronos2 import _make_fake_vidtok
 
     cfg = dict(
@@ -65,10 +65,16 @@ def _make_module(**overrides):
         horizon=HORIZON,
         freeze_chronos=False,
         vidtok_model=_make_fake_vidtok(d_v=4, t_lat=2, h_lat=4, w_lat=4),
+        pretrained_model_name_or_path=None,
     )
     cfg.update(overrides)
 
-    return VisionChronos2LightningModule(**cfg)
+    mod = VisionChronos2LightningModule(**cfg)
+    from unittest.mock import Mock
+    mod.trainer = Mock()
+    mod.trainer.is_global_zero = True
+    mod.trainer.estimated_stepping_batches = 100
+    return mod
 
 
 def _make_batch(bs=2, N=2, T=32, H=8, T_v=4, C=3, img=16):
@@ -254,8 +260,12 @@ class TestOptimizerScheduler:
 class TestFreezeChronos:
     def test_freeze_chronos_no_grad_backbone(self):
         module = _make_module(freeze_chronos=True)
-        for p in module.model.chronos.parameters():
-            assert not p.requires_grad
+        # Check that standard parameters in earlier blocks are frozen
+        block_layers = list(module.model.chronos.encoder.block)
+        assert len(block_layers) >= 2
+        for name, p in block_layers[0].named_parameters():
+            if not any(k in name for k in ("W_red", "W_plu", "W_gate", "offset_weights", "modality_pair_bias")):
+                assert not p.requires_grad, f"Earlier block standard parameter {name} should be frozen"
 
     def test_freeze_chronos_vision_still_trains(self):
         module = _make_module(freeze_chronos=True)

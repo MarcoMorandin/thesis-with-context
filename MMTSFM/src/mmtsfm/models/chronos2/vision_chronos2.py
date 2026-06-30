@@ -294,7 +294,7 @@ class VisionChronos2Model(nn.Module):
                     arch="vit_large",
                     freeze=vision_config.freeze_visual_encoder,
                 )
-                _d_v = vision_config.d_video_latent
+                _d_v = self.video_encoder.d_v
             else:
                 # default: VidTok (backward compat)
                 self.video_encoder = VidTokEncoder(
@@ -695,6 +695,23 @@ class VisionChronos2Model(nn.Module):
             if visual_mask is not None:
                 T_v = visual_mask.shape[1]
                 stride = max(1, T_v // T_lat)
+                if T_v < T_lat:
+                    # Pad visual_mask to ensure we have enough elements for proper reshaping
+                    pad_length = T_lat * stride - T_v
+                    if pad_length > 0:
+                        visual_mask = torch.cat(
+                            [
+                                visual_mask,
+                                torch.zeros(
+                                    B_,
+                                    pad_length,
+                                    device=visual_mask.device,
+                                    dtype=visual_mask.dtype,
+                                ),
+                            ],
+                            dim=1,
+                        )
+                        T_v = visual_mask.shape[1]
                 lat_mask = (
                     visual_mask[:, : T_lat * stride]
                     .reshape(B_, T_lat, stride)
@@ -999,7 +1016,7 @@ class VisionChronos2Model(nn.Module):
         # can overflow → NaN, which then flows backward to input_patch_embedding
         # and the visual adapter.  Intercepting d_all_embeds here and zeroing NaN
         # blocks that cascade without affecting learning for finite-gradient steps.
-        if self.training:
+        if self.training and all_embeds.requires_grad:
             all_embeds.register_hook(
                 lambda g: torch.nan_to_num(g, nan=0.0, posinf=0.0, neginf=0.0)
             )

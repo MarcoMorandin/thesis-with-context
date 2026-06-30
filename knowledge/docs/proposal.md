@@ -446,17 +446,15 @@ Solar-VLM, TS-RAG, …). Key rules:
 | `MMTSFM/src/eval/protocol_eval.py`                | `ProtocolEvaluator` — NMAE/NRMSE/Skill-Score in the baselines results schema                                       |
 | `MMTSFM/src/mmtsfm/train.py`                      | Hydra entry point                                                                                                  |
 
-### Key config changes vs. current implementation
+### Key config changes (Headline configuration)
 
-| Config field                          | Current             | Updated                                              |
-| ------------------------------------- | ------------------- | ---------------------------------------------------- |
-| `vision_cfg.d_video_latent`           | `4` (VidTok KL-4ch) | `1024` (V-JEPA 2.1 ViT-L) or `768` (ViT-B)           |
-| `vision_cfg.vidtok_cfg_path`          | VidTok YAML         | *(removed)*                                          |
-| `vision_cfg.vidtok_ckpt_path`         | VidTok checkpoint   | *(removed)*                                          |
-| `vision_cfg.visual_encoder_type`      | *(missing)*         | `"vjepa2"`                                           |
-| `vision_cfg.visual_encoder_ckpt_path` | *(missing)*         | Path to V-JEPA 2.1 checkpoint                        |
-| `vision_cfg.freeze_visual_encoder`    | *(missing)*         | `true` (Stage 1-2a), `"partial"` (2b), `false` (3)   |
-| `vision_cfg.fusion_mode`              | `"late"`            | `"late"` (Stage 1-2a) → `"interleaved"` (Stage 2b-3) |
+| Config field                          | Value                                                |
+| ------------------------------------- | ---------------------------------------------------- |
+| `vision_cfg.d_video_latent`           | `1024` (V-JEPA 2.1 ViT-L) or `768` (ViT-B)           |
+| `vision_cfg.visual_encoder_type`      | `"vjepa2"`                                           |
+| `vision_cfg.visual_encoder_ckpt_path` | Path to V-JEPA 2.1 checkpoint                        |
+| `vision_cfg.freeze_visual_encoder`    | `true` (Stage 1-2a), `"partial"` (2b), `false` (3)   |
+| `vision_cfg.fusion_mode`              | `"late"` (Stage 1-2a) → `"interleaved"` (Stage 2b-3) |
 
 ### Fusion mode routing
 
