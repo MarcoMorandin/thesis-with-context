@@ -3,7 +3,7 @@
 Architecture (Phase 3 implementation)
 --------------------------------------
 1. TS context → Chronos-2 tokenization → input_embeds [B, T_ctx, d_model]
-2. Video frames → VidTokEncoder → latent tokens [B, T_lat, P, D_v]
+2. Video frames → V-JEPA 2.1 VisualEncoder → latent tokens [B, T_lat, P, D_v]
 3. LatentSummarizer → visual summary [B, T_ctx, d_model]  (Perceiver)
 4. CrossModalAdapter → soft tokens [B, T_ctx, N_soft, d_model]
 5. Batch-dim concat: encoder sees [B + B*N_soft, T_full, d_model]
@@ -28,7 +28,6 @@ import torch.nn as nn
 from einops import rearrange
 
 from .model import Chronos2Model
-from ..vision.vidtok_encoder import VidTokEncoder
 from ..vision.latent_summarizer import LatentSummarizer
 from ..vision.cross_modal_adapter import CrossModalAdapter
 
@@ -136,16 +135,6 @@ class VisionChronos2Config:
 
     Attributes
     ----------
-    vidtok_cfg_path:
-        Path to VidTok YAML config.
-    vidtok_ckpt_path:
-        Path to VidTok checkpoint (``.ckpt``).
-    vidtok_root:
-        Optional VidTok repo root added to sys.path.
-    vidtok_is_causal:
-        True for causal 4x8x8 variants (17-frame input).
-    d_video_latent:
-        D_v channel dim of VidTok continuous latents (4 for KL-4ch).
     n_visual_context_steps:
         TS context patch-steps covered by the visual window.
         These are the *last* n positions of the context sequence.
@@ -171,11 +160,6 @@ class VisionChronos2Config:
         Dropout for adapter and summarizer.
     """
 
-    vidtok_cfg_path: str = ""
-    vidtok_ckpt_path: str = ""
-    vidtok_root: Optional[str] = None
-    vidtok_is_causal: bool = True
-    d_video_latent: int = 4
     n_visual_context_steps: int = 24
     n_soft_tokens: int = 1
     adapter_type: str = "linear"
@@ -194,10 +178,6 @@ class VisionChronos2Config:
     fusion_mode: str = "late"
     # "late"        → existing CrossModalAdapter path (batch-dim concat)
     # "interleaved" → selective temporal interleaving (refinement window only)
-
-    visual_encoder_type: str = "vidtok"
-    # "vidtok"  → existing VidTokEncoder
-    # "vjepa2"  → new VisualEncoder wrapping V-JEPA 2.1
 
     visual_encoder_ckpt_path: str = ""
     freeze_visual_encoder: bool = True
@@ -299,7 +279,7 @@ class MultimodalEmbedding(nn.Module):
 
 
 class VisionChronos2Model(nn.Module):
-    """Chronos-2 with VidTok video soft covariates (Phase 3).
+    """Chronos-2 with V-JEPA 2.1 video soft covariates (Phase 3).
 
     Parameters
     ----------
@@ -308,15 +288,18 @@ class VisionChronos2Model(nn.Module):
         training unless manually frozen.
     vision_config:
         Vision hyper-parameters.
-    vidtok_model:
-        Pre-built VidTok model (for testing without checkpoint files).
+    video_encoder:
+        Optional pre-built video encoder injected for testing (avoids loading
+        real V-JEPA 2.1 weights). Must expose ``.d_v`` and a ``forward(video)``
+        returning ``[B, T_lat, P, D_v]``. When ``None`` a frozen V-JEPA 2.1
+        ``VisualEncoder`` is constructed.
     """
 
     def __init__(
         self,
         chronos_model: Chronos2Model,
         vision_config: VisionChronos2Config,
-        vidtok_model: Optional[nn.Module] = None,
+        video_encoder: Optional[nn.Module] = None,
     ):
         super().__init__()
         self.chronos = chronos_model
@@ -333,24 +316,17 @@ class VisionChronos2Model(nn.Module):
             )
 
         if not vision_config.skip_vision_stack:
-            if vision_config.visual_encoder_type == "vjepa2":
+            if video_encoder is not None:
+                # Injected encoder (tests) — bypass real V-JEPA 2.1 weight load.
+                self.video_encoder: Optional[nn.Module] = video_encoder
+            else:
                 from ..vision.visual_encoder import VisualEncoder
 
-                self.video_encoder: Optional[nn.Module] = VisualEncoder(
+                self.video_encoder = VisualEncoder(
                     arch="vit_large",
                     freeze=vision_config.freeze_visual_encoder,
                 )
-                _d_v = self.video_encoder.d_v
-            else:
-                # default: VidTok (backward compat)
-                self.video_encoder = VidTokEncoder(
-                    cfg_path=vision_config.vidtok_cfg_path,
-                    ckpt_path=vision_config.vidtok_ckpt_path,
-                    vidtok_root=vision_config.vidtok_root,
-                    is_causal=vision_config.vidtok_is_causal,
-                    model=vidtok_model,
-                )
-                _d_v = vision_config.d_video_latent
+            _d_v = self.video_encoder.d_v
 
             self.latent_summarizer: Optional[nn.Module] = LatentSummarizer(
                 d_v=_d_v,
@@ -467,7 +443,7 @@ class VisionChronos2Model(nn.Module):
         force_vision_off: bool = False,
         video_delta_t: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-        """VidTok → Summarizer → Adapter → soft tokens.
+        """Video encoder → Summarizer → Adapter → soft tokens.
 
         Parameters
         ----------
@@ -476,8 +452,8 @@ class VisionChronos2Model(nn.Module):
         visual_mask :
             ``[B, T_v]`` frame availability mask (1=available). Optional.
         video_latents:
-            Pre-computed VidTok latents ``[B, T_lat, P, D_v]``.
-            When provided, VidTokEncoder is skipped entirely.
+            Pre-computed V-JEPA latents ``[B, T_lat, P, D_v]``.
+            When provided, the video encoder is bypassed.
         input_embeds_mm:
             Numeric context token embeddings ``[B, T_ctx, d_model]``.
         future_embeds_mm:
@@ -492,10 +468,10 @@ class VisionChronos2Model(nn.Module):
         numeric_active   : ``[B]`` bool
         """
         if video_latents is not None:
-            # Use pre-computed latents — skip VidTok (saves ~90% of visual compute)
+            # Use pre-computed latents — skip the encoder (saves ~90% of visual compute)
             video_tokens = video_latents
         else:
-            # VidTok encode — [B, T_lat, P, D_v]
+            # V-JEPA encode — [B, T_lat, P, D_v]
             video_tokens = self.video_encoder(video)
         # Guard: video encoder (random-init ViT or bf16 encoder) may produce NaN
         # which enters LatentSummarizer KV and makes backward NaN even after the
@@ -634,8 +610,8 @@ class VisionChronos2Model(nn.Module):
         output_attentions : return attention weights.
         video : ``[B, C, T_v, H, W]`` in [0, 1]. None → pure TS (identical to Chronos-2).
         visual_mask : ``[B, T_v]`` 1=available.
-        video_latents : ``[B, T_lat, P, D_v]`` pre-computed VidTok latents.
-            Mutually exclusive with ``video``. When provided VidTokEncoder is bypassed.
+        video_latents : ``[B, T_lat, P, D_v]`` pre-computed V-JEPA latents.
+            Mutually exclusive with ``video``. When provided the video encoder is bypassed.
         """
         B = context.shape[0]
         device = context.device

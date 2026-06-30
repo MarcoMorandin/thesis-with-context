@@ -1,4 +1,5 @@
 """Verify per-param-group grad-norm logging in VisionChronos2LightningModule."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock
@@ -14,25 +15,37 @@ def lit_module(monkeypatch):
     # Build a tiny module without loading pretrained weights.
     monkeypatch.setenv("HF_HUB_OFFLINE", "1")
     chronos_cfg = dict(
-        d_model=32, d_kv=8, d_ff=64, num_layers=1, num_heads=2,
-        dropout_rate=0.0, layer_norm_epsilon=1e-6, initializer_factor=0.05,
-        feed_forward_proj="relu", rope_theta=10000.0,
-        use_grassmann=False, grassmann_reduced_dim=4,
-        grassmann_window_offsets=[1], grassmann_modality_pair_bias=False,
+        d_model=32,
+        d_kv=8,
+        d_ff=64,
+        num_layers=1,
+        num_heads=2,
+        dropout_rate=0.0,
+        layer_norm_epsilon=1e-6,
+        initializer_factor=0.05,
+        feed_forward_proj="relu",
+        rope_theta=10000.0,
+        use_grassmann=False,
+        grassmann_reduced_dim=4,
+        grassmann_window_offsets=[1],
+        grassmann_modality_pair_bias=False,
         attn_implementation="eager",
         chronos_config=dict(
-            context_length=64, input_patch_size=8, input_patch_stride=8,
-            output_patch_size=8, quantiles=[0.1, 0.5, 0.9],
-            use_reg_token=False, use_arcsinh=True, max_output_patches=2,
+            context_length=64,
+            input_patch_size=8,
+            input_patch_stride=8,
+            output_patch_size=8,
+            quantiles=[0.1, 0.5, 0.9],
+            use_reg_token=False,
+            use_arcsinh=True,
+            max_output_patches=2,
         ),
     )
     vision_cfg = dict(
-        visual_encoder_type="vjepa2",
         visual_encoder_ckpt_path="",
         freeze_visual_encoder=True,
         skip_vision_stack=True,  # fast — bypass V-JEPA stack
         fusion_mode="late",
-        d_video_latent=32,
         n_visual_context_steps=4,
         n_soft_tokens=1,
         adapter_type="linear",

@@ -53,7 +53,7 @@ class MMTSFMDataModule(LightningDataModule):
         img_size: int = 64,
         imagenet_norm: bool = False,
         visual_window_hours: float = 6.0,  # W5: recency cap on candidate frames
-        vidtok_cache_dir: Optional[str] = None,
+        vjepa_cache_dir: Optional[str] = None,
         # num_samples_* only used by "synthetic"; real datasets compute their own length
         num_samples_train: int = 1000,
         num_samples_val: int = 200,
@@ -86,6 +86,7 @@ class MMTSFMDataModule(LightningDataModule):
                 # N=1 so per-plant protocol metrics + site_id collate are unchanged.
                 num_entities=self.hparams.num_entities if split == "train" else 1,
                 h5_path=self.hparams.h5_path,
+                vjepa_cache_dir=self.hparams.vjepa_cache_dir,
             )
         return MMTSFMDataset(
             num_samples=num_samples,
@@ -101,7 +102,7 @@ class MMTSFMDataModule(LightningDataModule):
             img_channels=self.hparams.img_channels,
             img_size=self.hparams.img_size,
             imagenet_norm=self.hparams.imagenet_norm,
-            vidtok_cache_dir=self.hparams.vidtok_cache_dir,
+            vjepa_cache_dir=self.hparams.vjepa_cache_dir,
             train_frac=self.hparams.train_frac,
             val_frac=self.hparams.val_frac,
             vis_cadence_multiplier=self.hparams.vis_cadence_multiplier,

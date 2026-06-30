@@ -54,35 +54,37 @@ def _make_chronos2(d_model: int = 64, num_layers: int = 2, context_length: int =
     return Chronos2Model(cfg)
 
 
-def _make_fake_vidtok(d_v: int = 4, t_lat: int = 5, h_lat: int = 8, w_lat: int = 8):
-    """Fake VidTok model for tests (no real checkpoint needed)."""
+def _make_fake_video_encoder(
+    d_v: int = 4, t_lat: int = 5, h_lat: int = 8, w_lat: int = 8
+):
+    """Fake V-JEPA-style video encoder for tests (no real weights / network).
 
-    class FakeVidTok(nn.Module):
+    Matches the injected-encoder contract used by VisionChronos2Model: exposes
+    ``.d_v`` and a ``forward(video[B,C,T_v,H,W]) -> [B, T_lat, P, D_v]``.
+    """
+
+    class FakeVideoEncoder(nn.Module):
         def __init__(self):
             super().__init__()
-            self._d_v = d_v
+            self.d_v = d_v
             self._t_lat = t_lat
-            self._h_lat = h_lat
-            self._w_lat = w_lat
+            self._p = h_lat * w_lat
+            # Real trainable param so gradient smoke-tests see encoder params.
+            self.proj = nn.Linear(d_v, d_v)
 
-        def encode(self, x: torch.Tensor, return_reg_log: bool = False):
-            B = x.shape[0]
+        def forward(self, video: torch.Tensor) -> torch.Tensor:
+            B = video.shape[0]
             z = torch.randn(
                 B,
-                self._d_v,
                 self._t_lat,
-                self._h_lat,
-                self._w_lat,
-                device=x.device,
-                dtype=x.dtype,
+                self._p,
+                self.d_v,
+                device=video.device,
+                dtype=video.dtype,
             )
-            return z, {}
+            return self.proj(z)
 
-        def forward(self, x):
-            z, _ = self.encode(x)
-            return x, x, {}
-
-    return FakeVidTok()
+    return FakeVideoEncoder()
 
 
 def _make_vision_model(
@@ -96,7 +98,6 @@ def _make_vision_model(
 
     chronos = _make_chronos2(d_model=d_model)
     vcfg = VisionChronos2Config(
-        d_video_latent=d_v,
         n_visual_context_steps=n_vis_steps,
         n_soft_tokens=n_soft_tokens,
         adapter_type=adapter_type,
@@ -106,7 +107,7 @@ def _make_vision_model(
     return VisionChronos2Model(
         chronos_model=chronos,
         vision_config=vcfg,
-        vidtok_model=_make_fake_vidtok(d_v=d_v),
+        video_encoder=_make_fake_video_encoder(d_v=d_v),
     )
 
 
@@ -248,11 +249,12 @@ class TestVisionChronos2:
 
         chronos = _make_chronos2()
         vcfg = VisionChronos2Config(
-            d_video_latent=4,
             n_visual_context_steps=4,
             visual_dropout_prob=0.0,
         )
-        vm = VisionChronos2Model(chronos, vcfg, vidtok_model=_make_fake_vidtok())
+        vm = VisionChronos2Model(
+            chronos, vcfg, video_encoder=_make_fake_video_encoder()
+        )
         vm.eval()
 
         B, L = 2, 32
@@ -411,11 +413,12 @@ class TestVisionChronos2:
 
         chronos = _make_chronos2()
         vcfg = VisionChronos2Config(
-            d_video_latent=4,
             n_visual_context_steps=4,
             visual_dropout_prob=1.0,  # always drop
         )
-        vm = VisionChronos2Model(chronos, vcfg, vidtok_model=_make_fake_vidtok())
+        vm = VisionChronos2Model(
+            chronos, vcfg, video_encoder=_make_fake_video_encoder()
+        )
         vm.train()
 
         B = 2
@@ -444,12 +447,13 @@ class TestVisionChronos2:
 
         chronos = _make_chronos2()
         vcfg = VisionChronos2Config(
-            d_video_latent=4,
             n_visual_context_steps=4,
             visual_dropout_prob=1.0,
             numeric_dropout_prob=0.0,
         )
-        vm = VisionChronos2Model(chronos, vcfg, vidtok_model=_make_fake_vidtok())
+        vm = VisionChronos2Model(
+            chronos, vcfg, video_encoder=_make_fake_video_encoder()
+        )
         vm.train()
         B = 2
         out = vm.forward(
@@ -468,12 +472,13 @@ class TestVisionChronos2:
 
         chronos = _make_chronos2()
         vcfg = VisionChronos2Config(
-            d_video_latent=4,
             n_visual_context_steps=4,
             visual_dropout_prob=0.0,
             numeric_dropout_prob=1.0,
         )
-        vm = VisionChronos2Model(chronos, vcfg, vidtok_model=_make_fake_vidtok())
+        vm = VisionChronos2Model(
+            chronos, vcfg, video_encoder=_make_fake_video_encoder()
+        )
         vm.train()
         B = 2
         out = vm.forward(
@@ -544,11 +549,12 @@ class TestVisionChronos2:
 
         chronos = _make_chronos2()
         vcfg = VisionChronos2Config(
-            d_video_latent=4,
             n_visual_context_steps=4,
             n_entities=2,  # only 2 entities in embedding table
         )
-        vm = VisionChronos2Model(chronos, vcfg, vidtok_model=_make_fake_vidtok())
+        vm = VisionChronos2Model(
+            chronos, vcfg, video_encoder=_make_fake_video_encoder()
+        )
         vm.eval()
 
         with pytest.raises(AssertionError, match="n_entities"):
@@ -567,12 +573,13 @@ class TestVisionChronos2:
         chronos = _make_chronos2(context_length=32)
         # context patches = 32/8 = 4 total; n_visual_context_steps=2 → only last 2 have visual
         vcfg = VisionChronos2Config(
-            d_video_latent=4,
             n_visual_context_steps=2,
             visual_dropout_prob=0.0,
             dropout=0.0,
         )
-        vm = VisionChronos2Model(chronos, vcfg, vidtok_model=_make_fake_vidtok())
+        vm = VisionChronos2Model(
+            chronos, vcfg, video_encoder=_make_fake_video_encoder()
+        )
         vm.eval()
 
         B = 1
@@ -591,36 +598,6 @@ class TestVisionChronos2:
 # ---------------------------------------------------------------------------
 # M4: CausalGrassmannMixing RoPE dimension parity tests
 # ---------------------------------------------------------------------------
-
-
-class TestVidTokEncoder:
-    """M6: VidTokEncoder spatial shape fix tests."""
-
-    def test_spatial_patches_reflects_actual_input_size(self):
-        """M6: spatial_patches must match actual forward input dims, not hard-coded 256×256."""
-        from mmtsfm.models.vision.vidtok_encoder import VidTokEncoder
-
-        fake = _make_fake_vidtok(d_v=4, t_lat=2, h_lat=4, w_lat=4)
-        enc = VidTokEncoder(model=fake)
-
-        video = torch.zeros(1, 3, 17, 64, 64)
-        enc(video)
-
-        assert enc.spatial_patches == 4 * 4, (
-            f"Expected spatial_patches=16, got {enc.spatial_patches}"
-        )
-        assert enc.d_v == 4
-
-    def test_probe_latent_shape_accepts_img_size(self):
-        """M6: probe_latent_shape must accept img_size param."""
-        from mmtsfm.models.vision.vidtok_encoder import VidTokEncoder
-
-        fake = _make_fake_vidtok(d_v=4, t_lat=3, h_lat=8, w_lat=8)
-        enc = VidTokEncoder(model=fake)
-        enc.probe_latent_shape(device=torch.device("cpu"), img_size=64)
-
-        assert enc.spatial_patches == 8 * 8
-        assert enc.d_v == 4
 
 
 class TestCausalGrassmannMixing:
@@ -862,12 +839,10 @@ class TestConfigExtensions:
         from mmtsfm.models.chronos2.vision_chronos2 import VisionChronos2Config
 
         cfg = VisionChronos2Config(
-            visual_encoder_type="vjepa2",
             visual_encoder_ckpt_path="/path/to/ckpt",
             freeze_visual_encoder=True,
             skip_vision_stack=False,
         )
-        assert cfg.visual_encoder_type == "vjepa2"
         assert cfg.visual_encoder_ckpt_path == "/path/to/ckpt"
         assert cfg.freeze_visual_encoder is True
         assert cfg.skip_vision_stack is False
@@ -1001,13 +976,11 @@ class TestInterleavedFusionMode:
         chronos = Chronos2Model(core_cfg)
         vcfg = VisionChronos2Config(
             fusion_mode="interleaved",
-            visual_encoder_type="vidtok",
-            d_video_latent=4,
             n_visual_context_steps=n_vis,
             skip_vision_stack=False,
         )
-        fake_vidtok = _make_fake_vidtok(d_v=4, t_lat=5, h_lat=4, w_lat=4)
-        return VisionChronos2Model(chronos, vcfg, vidtok_model=fake_vidtok)
+        fake_encoder = _make_fake_video_encoder(d_v=4, t_lat=5, h_lat=4, w_lat=4)
+        return VisionChronos2Model(chronos, vcfg, video_encoder=fake_encoder)
 
     def test_interleaved_forward_shape(self):
         model = self._make_model_interleaved(n_vis=4)
@@ -1073,7 +1046,6 @@ class TestLightningModuleStageControls:
             },
         }
         vision_cfg = {
-            "d_video_latent": 4,
             "n_visual_context_steps": 2,
             "skip_vision_stack": True,
         }
@@ -1246,14 +1218,13 @@ class TestProposalTrainingConfigs:
             },
         }
         vision_cfg = {
-            "d_video_latent": 4,
             "n_visual_context_steps": 2,
             "fusion_mode": fusion_mode,
             "skip_vision_stack": (stage == 1),
         }
-        vidtok_model = None
+        fake_encoder = None
         if stage > 1:
-            vidtok_model = _make_fake_vidtok(d_v=4, t_lat=5, h_lat=4, w_lat=4)
+            fake_encoder = _make_fake_video_encoder(d_v=4, t_lat=5, h_lat=4, w_lat=4)
         freeze_chronos = stage == 3
         mod = VisionChronos2LightningModule(
             chronos_core_cfg=core_cfg,
@@ -1263,7 +1234,7 @@ class TestProposalTrainingConfigs:
             grassmann_warmup_steps=10,
             freeze_chronos=freeze_chronos,
             pretrained_model_name_or_path=None,
-            vidtok_model=vidtok_model,
+            video_encoder=fake_encoder,
         )
         from unittest.mock import Mock
 
@@ -1442,8 +1413,8 @@ class TestVisualContextDerivation:
         from mmtsfm.models.chronos2 import VisionChronos2Model, VisionChronos2Config
 
         chronos = _make_chronos2(d_model=32, context_length=16)  # patch 8 → T_ctx=2
-        vcfg = VisionChronos2Config(d_video_latent=4, n_visual_context_steps=9)
+        vcfg = VisionChronos2Config(n_visual_context_steps=9)
         with pytest.raises(
             ValueError, match="exceeds the number of TS context patches"
         ):
-            VisionChronos2Model(chronos, vcfg, vidtok_model=_make_fake_vidtok())
+            VisionChronos2Model(chronos, vcfg, video_encoder=_make_fake_video_encoder())

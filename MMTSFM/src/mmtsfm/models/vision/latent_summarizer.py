@@ -1,7 +1,7 @@
 """Latent Summarization module for Vision-Time FM.
 
 Resolves the frequency mismatch between the dense video latent stream
-(T_lat × P spatial-temporal tokens from VidTok) and the forecasting
+(T_lat × P spatial-temporal tokens from V-JEPA 2.1) and the forecasting
 cadence (T_ts TS timesteps).
 
 Architecture: Causal Perceiver-per-timestep cross-attention compressor.
@@ -16,7 +16,7 @@ injected into Group Attention in VisionChronos2.
 
 Input shapes (one entity / one sample)
 ---------------------------------------
-video_tokens  : [B, T_lat, P, D_v]   from VidTokEncoder
+video_tokens  : [B, T_lat, P, D_v]   from the V-JEPA video encoder
 T_ts          : int                   number of TS context patches (encoder input)
 n_vis_steps   : int                   how many recent TS steps have visual coverage
 
@@ -50,7 +50,7 @@ class LatentSummarizer(nn.Module):
     Parameters
     ----------
     d_v:
-        Dimension of VidTok latent tokens (D_v, e.g. 4 for KL-4ch).
+        Dimension of V-JEPA latent tokens (D_v, e.g. 4 for KL-4ch).
     d_model:
         Chronos-2 hidden dimension.
     n_vis_steps:
@@ -76,7 +76,7 @@ class LatentSummarizer(nn.Module):
         self.n_vis_steps = n_vis_steps
         self.n_heads = n_heads
 
-        # Project VidTok latent dim → d_model (K, V projection)
+        # Project V-JEPA latent dim → d_model (K, V projection)
         self.kv_proj = nn.Linear(d_v, d_model, bias=False)
 
         # Learned latent queries — one per visual context step
@@ -202,7 +202,7 @@ class LatentSummarizer(nn.Module):
         Parameters
         ----------
         video_tokens:
-            ``[B, T_lat, P, D_v]`` — output of VidTokEncoder.
+            ``[B, T_lat, P, D_v]`` — output of the V-JEPA video encoder.
         T_ts:
             Number of TS context patches (encoder sequence length).
         visual_mask:

@@ -301,3 +301,46 @@ def test_num_entities_one_is_legacy(tmp_path):
     item = ds[0]
     assert item["Y"].shape[0] == 1
     assert isinstance(item["site_id"], str)
+
+
+def test_vjepa_cache_emits_Z(tmp_path):
+    """Pre-extracted V-JEPA latents in the cache dir are attached as ``Z``.
+
+    Mirrors the MMTSFMDataset cache contract: when a window's latent .pt exists
+    it is loaded and stacked into ``Z`` [N, T_lat, P, D_v]; a cache miss attaches
+    nothing (the model falls back to encoding raw frames V).
+    """
+    import torch
+
+    ds = _make_frame_dataset(tmp_path, visual_window_hours=6.0)
+    parquet = tmp_path / "dataset_all.parquet"
+    h5 = tmp_path / "images_all.h5"
+
+    # Cache miss: no Z attached.
+    assert "Z" not in ds[0]
+
+    # Write a dummy latent for window 0 under its stable key.
+    cache_dir = tmp_path / "vjepa_cache"
+    cache_dir.mkdir()
+    win0 = ds.win[ds.groups[0][0]]
+    key = ds._entity_cache_key(win0)
+    dummy = torch.randn(4, 9, 16)  # [T_lat, P, D_v]
+    torch.save(dummy, cache_dir / f"{key}.pt")
+
+    from mmtsfm.data.pv_record import PVRecordDataset
+
+    cached = PVRecordDataset(
+        split="train",
+        dataset_name="uk_pv",
+        data_path=str(parquet),
+        h5_path=str(h5),
+        img_size=32,
+        img_channels=3,
+        video_frames=8,
+        visual_window_hours=6.0,
+        vjepa_cache_dir=str(cache_dir),
+    )
+    item = cached[0]
+    assert "Z" in item
+    assert item["Z"].shape == (1, 4, 9, 16)
+    assert torch.allclose(item["Z"][0], dummy)

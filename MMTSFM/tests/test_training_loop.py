@@ -39,7 +39,6 @@ _CHRONOS_CFG = dict(
 )
 
 _VISION_CFG = dict(
-    d_video_latent=4,
     n_visual_context_steps=4,
     n_soft_tokens=1,
     adapter_type="linear",
@@ -53,7 +52,7 @@ HORIZON = 8
 
 def _make_module(**overrides):
     from mmtsfm.models.chronos2 import VisionChronos2LightningModule
-    from tests.test_vision_chronos2 import _make_fake_vidtok
+    from tests.test_vision_chronos2 import _make_fake_video_encoder
 
     cfg = dict(
         chronos_core_cfg=_CHRONOS_CFG,
@@ -64,7 +63,7 @@ def _make_module(**overrides):
         min_lr_ratio=0.1,
         horizon=HORIZON,
         freeze_chronos=False,
-        vidtok_model=_make_fake_vidtok(d_v=4, t_lat=2, h_lat=4, w_lat=4),
+        video_encoder=_make_fake_video_encoder(d_v=4, t_lat=2, h_lat=4, w_lat=4),
         pretrained_model_name_or_path=None,
     )
     cfg.update(overrides)

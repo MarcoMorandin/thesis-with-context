@@ -16,7 +16,7 @@ Usage
         --base-chronos2 \
         --pretrained-model amazon/chronos-2 \
         --data-dir /path/to/data \
-        --dataset skippd \
+        --dataset uk_pv \
         --horizon 12 \
         --output-dir eval_results/base
 
@@ -524,14 +524,14 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--data-dir",          required=True, type=Path, help="Root data directory")
     p.add_argument("--dataset",    default="synthetic",       help="dataset_name passed to MMTSFMDataModule")
     p.add_argument("--split",      default="test",            help="Split to evaluate: test | val")
-    p.add_argument("--horizon",    default=12,     type=int,  help="Forecast horizon H")
+    p.add_argument("--horizon",    default=None,   type=int,  help="Forecast horizon H")
     p.add_argument("--batch-size", default=16,     type=int)
     p.add_argument("--num-workers",default=0,      type=int)
     p.add_argument("--output-dir", default="eval_results", type=Path)
     p.add_argument("--device",     default="auto",            help="auto | cpu | cuda | mps")
     p.add_argument("--n-samples",  default=12,     type=int,  help="Number of forecast panels to plot")
     p.add_argument("--num-entities", default=10,   type=int)
-    p.add_argument("--hist-steps",   default=24,   type=int)
+    p.add_argument("--hist-steps",   default=None, type=int)
     args = p.parse_args()
     if not args.base_chronos2 and args.ckpt is None:
         p.error("--ckpt is required unless --base-chronos2 is set")

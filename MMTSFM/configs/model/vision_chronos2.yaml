@@ -30,21 +30,13 @@ chronos_core_cfg:
 
 # ---- Vision modules ----
 vision_cfg:
-  # --- Visual encoder backend ---
-  visual_encoder_type: "vidtok"    # "vidtok" | "vjepa2"
-  visual_encoder_ckpt_path: ""     # V-JEPA 2.1 ckpt path (used when vjepa2)
+  # --- Visual encoder (V-JEPA 2.1 ViT-L, D_v=1024) ---
+  visual_encoder_ckpt_path: ""     # V-JEPA 2.1 ckpt path
   freeze_visual_encoder: true      # Stage 1/2a: frozen; Stage 3: false
   skip_vision_stack: false         # Stage 1: set true to skip 300M V-JEPA weights
 
   # --- Fusion mode ---
   fusion_mode: "late"              # "late" (Stage 1/2a) | "interleaved" (Stage 2b/3)
-
-  # --- VidTok (legacy / backward compat) ---
-  vidtok_cfg_path: ""
-  vidtok_ckpt_path: ""
-  vidtok_root: null
-  vidtok_is_causal: true
-  d_video_latent: 4                # KL-4ch=4; V-JEPA ViT-L=1024; ViT-B=768
 
   # --- LatentSummarizer + CrossModalAdapter ---
   n_visual_context_steps: 3        # most-recent context patches given visual tokens.
