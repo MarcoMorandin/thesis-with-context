@@ -47,6 +47,7 @@ dev = [
     "pytest>=9.0.2",
 ]
 vidtok = [
+    # decord>=0.6.0,          # video loading — Linux only (no macOS wheel)
     "av>=12.0.0",             # PyAV — low-level video decode used by VidTok
     "torchvision>=0.17.2",    # image transforms inside VidTok pipeline
     "opencv-python>=4.6.0",   # cv2 — image processing in VidTok scripts
@@ -61,3 +62,8 @@ allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mmtsfm", "src/utils", "src/eval"]
+
+[tool.uv]
+override-dependencies = [
+    "decord>=0.6.0; sys_platform != 'darwin'"
+]
