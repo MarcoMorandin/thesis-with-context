@@ -356,18 +356,18 @@ class VisionChronos2LightningModule(LightningModule):
     # Training / Validation / Test
     # ------------------------------------------------------------------
 
-    def _forward(self, batch: Dict[str, torch.Tensor]):
+    def _forward(self, batch: Dict[str, torch.Tensor], force_vision_off: bool = False):
         """Run the fp32 forward once; return (unpacked inputs, model output)."""
         inputs = self._unpack_batch(batch)
         device_type = self.device.type
         device_type = device_type if isinstance(device_type, str) and device_type != "mps" else "cpu"
         with torch.autocast(device_type=device_type, enabled=False):
             fp32_inputs = {key: self._to_float32(value) for key, value in inputs.items()}
-            out = self.model.forward(**fp32_inputs)
+            out = self.model.forward(**fp32_inputs, force_vision_off=force_vision_off)
         return inputs, out
 
-    def _step(self, batch: Dict[str, torch.Tensor], stage: str):
-        inputs, out = self._forward(batch)
+    def _step(self, batch: Dict[str, torch.Tensor], stage: str, force_vision_off: bool = False):
+        inputs, out = self._forward(batch, force_vision_off=force_vision_off)
 
         loss = out.loss
         assert loss is not None, "Loss is None — check future_target in batch"
@@ -426,17 +426,25 @@ class VisionChronos2LightningModule(LightningModule):
         self._protocol_eval = ProtocolEvaluator(
             horizon=self.hparams.horizon,
             reference_path=self.hparams.sp_reference_path,
+            compute_marginal_gain=getattr(self.hparams, "compute_marginal_gain", False),
         )
 
     def test_step(self, batch, batch_idx):
+        # Pass 1: Vision-on
         inputs, out = self._forward(batch)
         loss = out.loss
         if loss is not None and torch.isfinite(loss):
             self.log("test/loss", loss, on_epoch=True, prog_bar=True, sync_dist=True)
         if self._protocol_eval is not None and out.quantile_preds is not None:
-            self._accumulate_protocol(batch, inputs, out)
+            self._accumulate_protocol(batch, inputs, out, vision_off=False)
 
-    def _accumulate_protocol(self, batch, inputs, out):
+        # Pass 2: Vision-masked/off
+        if self._protocol_eval is not None and getattr(self._protocol_eval, "compute_marginal_gain", False):
+            inputs_off, out_off = self._forward(batch, force_vision_off=True)
+            if out_off.quantile_preds is not None:
+                self._accumulate_protocol(batch, inputs_off, out_off, vision_off=True)
+
+    def _accumulate_protocol(self, batch, inputs, out, vision_off: bool = False):
         """Collect masked daylight predictions for NMAE/NRMSE/SS (protocol §5)."""
         H = self.hparams.horizon
         q = out.quantile_preds.detach().float()          # [B, Q, H_out]
@@ -453,6 +461,7 @@ class VisionChronos2LightningModule(LightningModule):
             median=median.cpu().numpy(),
             mask=(mask * daylight).cpu().numpy(),
             quantiles=quantiles.cpu().numpy(),
+            vision_off=vision_off,
         )
 
     def on_test_epoch_end(self):
@@ -460,7 +469,7 @@ class VisionChronos2LightningModule(LightningModule):
             return
         results = self._protocol_eval.finalize()
         overall = results.get("overall", {})
-        for k in ("nmae", "nrmse", "skill_score", "crps"):
+        for k in ("nmae", "nrmse", "skill_score", "crps", "nmae_vision_on", "nmae_vision_off", "delta_nmae", "nrmse_vision_on", "nrmse_vision_off", "delta_nrmse"):
             if k in overall:
                 self.log(f"test/{k}", float(overall[k]), rank_zero_only=True)
         try:
@@ -471,9 +480,13 @@ class VisionChronos2LightningModule(LightningModule):
             path = self._protocol_eval.write(
                 self.hparams.results_dir, self.hparams.results_tag, run_cfg
             )
-            print(f"[protocol-eval] NMAE={overall.get('nmae'):.4f} "
+            msg = (f"[protocol-eval] NMAE={overall.get('nmae'):.4f} "
                   f"NRMSE={overall.get('nrmse'):.4f} "
-                  f"SS={overall.get('skill_score', float('nan')):.4f} → {path}", flush=True)
+                  f"SS={overall.get('skill_score', float('nan')):.4f}")
+            if "delta_nmae" in overall:
+                msg += f" delta_NMAE={overall.get('delta_nmae'):.4f} delta_NRMSE={overall.get('delta_nrmse'):.4f}"
+            msg += f" → {path}"
+            print(msg, flush=True)
         except Exception as e:  # never fail the run on a results-write hiccup
             print(f"[protocol-eval] results write skipped: {e}", flush=True)
 
