@@ -8,9 +8,11 @@ import logging
 # Ensure project root is accessible
 import sys
 import pyrootutils
+
 root = pyrootutils.setup_root(__file__, indicator=".git", pythonpath=True)
 
 import torch
+
 torch.set_float32_matmul_precision("high")  # Tensor Core acceleration on A100 / Ampere
 
 load_dotenv()
@@ -52,6 +54,7 @@ def _best_finite_checkpoint_path(trainer) -> str | None:
 @hydra.main(version_base="1.3", config_path="../../configs", config_name="config.yaml")
 def main(cfg: DictConfig):
     from utils.reproducibility import set_seed
+
     set_seed(cfg.seed)
     log.info(OmegaConf.to_yaml(cfg))
 
@@ -59,7 +62,9 @@ def main(cfg: DictConfig):
     datamodule = instantiate(cfg.data)
 
     log.info(f"Instantiating model <{cfg.model._target_}>")
-    model = instantiate(cfg.model)
+    # Thread the run seed into the model so the protocol results manifest
+    # records the actual seed (matches the baselines' run_config provenance).
+    model = instantiate(cfg.model, seed=cfg.seed)
 
     log.info(f"Instantiating logger <{cfg.logger._target_}>")
     logger = instantiate(cfg.logger)
@@ -88,12 +93,19 @@ def main(cfg: DictConfig):
                 log.warning("Skipping testing: no finite best checkpoint was produced.")
         if ckpt_path is not None:
             log.info(f"Starting testing from checkpoint: {ckpt_path}")
-            trainer.test(model=model, datamodule=datamodule, ckpt_path=ckpt_path, weights_only=False)
+            trainer.test(
+                model=model,
+                datamodule=datamodule,
+                ckpt_path=ckpt_path,
+                weights_only=False,
+            )
 
     # wandb.finish() only on rank 0 — other ranks never called wandb.init()
     import wandb
+
     if int(os.environ.get("LOCAL_RANK", 0)) == 0:
         wandb.finish()
+
 
 if __name__ == "__main__":
     main()

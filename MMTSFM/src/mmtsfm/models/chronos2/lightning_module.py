@@ -80,6 +80,9 @@ class VisionChronos2LightningModule(LightningModule):
         results_dir: str = "results",
         results_tag: str = "mmtsfm_s2_ukpv",
         sp_reference_path: Optional[str] = None,
+        # Recorded in the results manifest for provenance; must equal the
+        # baselines' seed (common.config.SEED) for comparable runs.
+        seed: int = 42,
         # W6: run a second vision-off pass at test time and report the visual
         # marginal gain (Δ on/off). Off by default — doubles the test forward.
         compute_marginal_gain: bool = False,
