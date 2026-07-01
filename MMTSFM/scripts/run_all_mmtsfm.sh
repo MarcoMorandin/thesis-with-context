@@ -129,6 +129,10 @@ extract_vjepa_dataset() {
     local horizon; horizon="$(dataset_horizon "$ds")"
     [[ -n "$horizon" ]] || { echo "  SKIP V-JEPA extraction for unknown dataset '$ds'"; return 0; }
     local cache_dir="${VJEPA_CACHE_ROOT}/${ds}"
+    if [[ -d "$cache_dir" ]] && [[ -n "$(find "$cache_dir" -maxdepth 1 -name "*.pt" | head -n 1)" ]]; then
+        echo ">>> V-JEPA cache for dataset=$ds already exists and is populated at $cache_dir. Skipping extraction."
+        return 0
+    fi
     mkdir -p "$cache_dir"
     echo ""
     echo ">>> pre-extract V-JEPA: dataset=$ds cache=$cache_dir"
