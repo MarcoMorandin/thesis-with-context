@@ -118,7 +118,7 @@ dataset_horizon() { case "$1" in uk_pv) echo 12;; goes_pvdaq) echo 24;; *) echo 
 # encoder → hydra vision override(s)
 vis_flags() {
     case "$1" in
-        vjepa2) echo "model.vision_cfg.visual_encoder_type=vjepa2" ;;
+        vjepa2) echo "" ;;
         skip)   echo "model.vision_cfg.skip_vision_stack=true" ;;
         *)      echo "" ;;
     esac

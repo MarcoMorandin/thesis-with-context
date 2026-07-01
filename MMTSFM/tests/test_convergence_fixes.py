@@ -394,6 +394,7 @@ class TestConditionalMultimodalEmbeddings:
                 return torch.zeros(B, 2, 4, 4)  # [B, T_lat, P, D_v=4]
 
         vcfg = VisionChronos2Config(
+            n_visual_context_steps=2,
             adapter_type="linear",
             visual_dropout_prob=1.0,  # ALWAYS drop visual
             numeric_dropout_prob=0.0,

@@ -55,3 +55,8 @@ horizon: ${data.horizon}     # inherit from data config
 freeze_chronos: false        # set true to train vision modules only (adapter pilot)
 n_unfreeze_encoder_blocks: 3  # number of encoder blocks to unfreeze when freeze_chronos=true
 backbone_lr_ratio: 0.1       # LR multiplier for pretrained Chronos-2 backbone
+
+# ---- Protocol evaluation ----
+results_dir: results
+results_tag: mmtsfm_s2_ukpv
+sp_reference_path: null

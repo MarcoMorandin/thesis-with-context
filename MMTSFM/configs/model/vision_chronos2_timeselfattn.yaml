@@ -55,3 +55,8 @@ horizon: ${data.horizon}     # inherit from data config
 freeze_chronos: true        # Stage 2a: train vision modules only (adapter alignment)
 n_unfreeze_encoder_blocks: 3  # unfreeze last 3/6 encoder blocks to give adapter sufficient gradient signal
 backbone_lr_ratio: 0.1       # LR multiplier for pretrained Chronos-2 backbone (prevents catastrophic forgetting)
+
+# ---- Protocol evaluation ----
+results_dir: results
+results_tag: mmtsfm_s2_ukpv
+sp_reference_path: null
