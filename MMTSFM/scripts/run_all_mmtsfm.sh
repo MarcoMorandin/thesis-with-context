@@ -35,7 +35,12 @@
 #   ABLATIONS=$'grassmann_interleaved|model=vision_chronos2_grassmann' sbatch scripts/run_all_mmtsfm.sh
 #   GPUS=2 MAX_EPOCHS=5 bash scripts/run_all_mmtsfm.sh                   # interactive node
 set -uo pipefail
-cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")/..}"     # MMTSFM/
+# Anchor on the script location, NOT $SLURM_SUBMIT_DIR — sbatch'ing from the
+# repo root would otherwise run everything in the wrong directory. NOTE: the
+# #SBATCH --output path above is still resolved against the SUBMIT dir before
+# this line runs, so always `sbatch` from MMTSFM/ (precache_login.sh creates
+# logs/slurm there; a missing output dir kills the job before it starts).
+cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]:-$0}")")/.."     # MMTSFM/
 MMTSFM_DIR="$PWD"
 REPO_ROOT="$(cd .. && pwd)"
 
@@ -51,7 +56,6 @@ TEAM_SCRATCH="${TEAM_SCRATCH:-/leonardo_scratch/fast/IscrC_MTSFM}"
 export UV_CACHE_DIR="${UV_CACHE_DIR:-${TEAM_SCRATCH}/uv_cache}"
 export HF_HOME="${HF_HOME:-${TEAM_SCRATCH}/hf_cache}"
 export TORCH_HOME="${TORCH_HOME:-${TEAM_SCRATCH}/torch_cache}"
-export TORCH_HUB_DIR="${TORCH_HUB_DIR:-${TORCH_HOME}/hub}"
 DATA_DIR="${DATA_DIR:-${TEAM_SCRATCH}/data}"
 DATA="${DATA:-${DATA_DIR}/dataset_all.parquet}"
 CKPT_DIR="${CKPT_DIR:-${TEAM_SCRATCH}/checkpoints}"
@@ -71,11 +75,20 @@ EXTRACT_BATCH_SIZE="${EXTRACT_BATCH_SIZE:-8}"
 EXTRACT_NUM_WORKERS="${EXTRACT_NUM_WORKERS:-4}"
 EXTRACT_VIDEO_FRAMES="${EXTRACT_VIDEO_FRAMES:-8}"
 EXTRACT_IMG_SIZE="${EXTRACT_IMG_SIZE:-224}"
+# Settings-versioned cache subdir: a cache built with a different arch / frame
+# count / resolution must never be silently reused (wrong latent dims).
+VJEPA_CACHE_VER="${VJEPA_ARCH}_f${EXTRACT_VIDEO_FRAMES}_s${EXTRACT_IMG_SIZE}"
+vjepa_cache_dir() { echo "${VJEPA_CACHE_ROOT}/$1/${VJEPA_CACHE_VER}"; }
 MAX_EPOCHS="${MAX_EPOCHS:-50}"
 BATCH_SIZE="${BATCH_SIZE:-16}"
 NUM_WORKERS="${NUM_WORKERS:-8}"        # per run; × GPUS ≤ --cpus-per-task
 SEED="${SEED:-42}"
 AGGREGATE="${AGGREGATE:-1}"            # 1 → refresh baselines/results/ALL_RESULTS at the end
+RESUME="${RESUME:-1}"                  # 1 → resume each run from <tag>/last.ckpt when present
+# Walltime safety valves: stride-1 uk_pv epochs are huge; a job killed mid-fit
+# writes NO results (protocol metrics are produced at test time only).
+LIMIT_TRAIN_BATCHES="${LIMIT_TRAIN_BATCHES:-}"   # e.g. 5000 → cap batches/epoch
+VAL_CHECK_INTERVAL="${VAL_CHECK_INTERVAL:-}"     # e.g. 2000 → val + ckpt every N batches
 
 # GPUs to saturate. Default = all visible on the node; ≥1 fallback for login/CPU.
 GPUS="${GPUS:-$(nvidia-smi -L 2>/dev/null | grep -c GPU)}"
@@ -93,7 +106,7 @@ ABLATIONS_DEFAULT=$'grassmann_interleaved|model=vision_chronos2_grassmann
 selfattn_late|model=vision_chronos2_timeselfattn data.batch_size=8
 selfattn_interleaved|model.vision_cfg.fusion_mode=interleaved model.chronos_core_cfg.use_grassmann=false
 grassmann_no_modbias|model=vision_chronos2_grassmann model.chronos_core_cfg.grassmann_modality_pair_bias=false
-numeric_grassmann|model.vision_cfg.skip_vision_stack=true model.vision_cfg.fusion_mode=interleaved model.chronos_core_cfg.use_grassmann=true'
+numeric_grassmann|model.vision_cfg.skip_vision_stack=true model.vision_cfg.fusion_mode=interleaved model.chronos_core_cfg.use_grassmann=true +data.emit_vision=false'
 ABLATIONS="${ABLATIONS:-$ABLATIONS_DEFAULT}"
 
 [[ -f "$DATA" ]] || { echo "FATAL: DATA not found: $DATA (run precache_login.sh)"; exit 1; }
@@ -111,9 +124,16 @@ declare -A STATUS=()
 
 # dataset → hydra data-config group
 data_cfg() { case "$1" in uk_pv) echo ukpv;; goes_pvdaq) echo goespvdaq;; *) echo "";; esac; }
-# dataset → short tag / Skill-Score reference
+# dataset → short tag / Skill-Score reference. ALWAYS pass a dataset-specific
+# path (even a not-yet-existing one): with a null sp_reference_path the
+# evaluator falls back to the committed uk_pv reference, which would score
+# goes_pvdaq Skill-Scores against the wrong dataset's Smart Persistence.
 short()    { case "$1" in uk_pv) echo ukpv;; goes_pvdaq) echo goes;; *) echo "$1";; esac; }
-sp_ref()   { case "$1" in uk_pv) echo "$SP_REF_UKPV";; *) echo "";; esac; }
+sp_ref()   { case "$1" in
+                 uk_pv)      echo "$SP_REF_UKPV";;
+                 goes_pvdaq) echo "${RESULTS_DIR}/smart_persistence_s2_goes.json";;
+                 *)          echo "";;
+             esac; }
 dataset_horizon() { case "$1" in uk_pv) echo 12;; goes_pvdaq) echo 24;; *) echo "";; esac; }
 # encoder → hydra vision override(s)
 vis_flags() {
@@ -124,46 +144,61 @@ vis_flags() {
     esac
 }
 
-extract_vjepa_dataset() {
-    local ds="$1"
+# launch_extract <ds> <split> <gpu> — one extraction in the background on $gpu.
+# No directory-level "already populated" skip here: the extractor is idempotent
+# per FILE, so a partially-built cache is completed instead of frozen (a frozen
+# partial cache silently pushes whole training batches onto the raw V-JEPA
+# encode path — the slow/OOM mode).
+launch_extract() {
+    local ds="$1" split="$2" gpu="$3"
     local horizon; horizon="$(dataset_horizon "$ds")"
-    [[ -n "$horizon" ]] || { echo "  SKIP V-JEPA extraction for unknown dataset '$ds'"; return 0; }
-    local cache_dir="${VJEPA_CACHE_ROOT}/${ds}"
-    if [[ -d "$cache_dir" ]] && [[ -n "$(find "$cache_dir" -maxdepth 1 -name "*.pt" | head -n 1)" ]]; then
-        echo ">>> V-JEPA cache for dataset=$ds already exists and is populated at $cache_dir. Skipping extraction."
-        return 0
-    fi
+    local cache_dir; cache_dir="$(vjepa_cache_dir "$ds")"
     mkdir -p "$cache_dir"
-    echo ""
-    echo ">>> pre-extract V-JEPA: dataset=$ds cache=$cache_dir"
-    for split in $EXTRACT_SPLITS; do
-        local log="logs/slurm/extract_vjepa_${ds}_${split}.log"
-        local -a CMD=(
-            python scripts/extract_video_embeddings.py
-            --encoder vjepa2
-            --vjepa-arch "$VJEPA_ARCH"
-            --dataset "$ds"
-            --split "$split"
-            --horizon "$horizon"
-            --video-frames "$EXTRACT_VIDEO_FRAMES"
-            --img-size "$EXTRACT_IMG_SIZE"
-            --imagenet-norm
-            --data-dir "$DATA_DIR"
-            --batch-size "$EXTRACT_BATCH_SIZE"
-            --num-workers "$EXTRACT_NUM_WORKERS"
-        )
-        echo "    $split → $log"
-        echo "    uv run ${CMD[*]}" > "$log"
-        CUDA_VISIBLE_DEVICES="${EXTRACT_GPU:-0}" uv run "${CMD[@]}" >> "$log" 2>&1 || {
-            echo "FATAL: V-JEPA extraction failed for dataset=$ds split=$split; see $log"
-            exit 1
-        }
-    done
+    if [[ -n "$(find "${VJEPA_CACHE_ROOT}/${ds}" -maxdepth 1 -name '*.pt' 2>/dev/null | head -n 1)" ]]; then
+        echo "  NOTE: legacy unversioned cache at ${VJEPA_CACHE_ROOT}/${ds} — if it was built"
+        echo "        with ${VJEPA_CACHE_VER}, move its *.pt into $cache_dir to reuse it."
+    fi
+    local log="logs/slurm/extract_vjepa_${ds}_${split}.log"
+    local -a CMD=(
+        python scripts/extract_video_embeddings.py
+        --encoder vjepa2
+        --vjepa-arch "$VJEPA_ARCH"
+        --dataset "$ds"
+        --split "$split"
+        --horizon "$horizon"
+        --video-frames "$EXTRACT_VIDEO_FRAMES"
+        --img-size "$EXTRACT_IMG_SIZE"
+        --imagenet-norm
+        --data-dir "$DATA_DIR"
+        --cache-dir "$cache_dir"
+        --batch-size "$EXTRACT_BATCH_SIZE"
+        --num-workers "$EXTRACT_NUM_WORKERS"
+    )
+    echo ">>> [GPU $gpu] extract $ds/$split → $log"
+    echo "    uv run ${CMD[*]}" > "$log"
+    CUDA_VISIBLE_DEVICES="$gpu" uv run "${CMD[@]}" >> "$log" 2>&1 &
 }
 
 if [[ "$PREEXTRACT_VJEPA" == "1" && "$ENCODER" == "vjepa2" ]]; then
+    # dataset × split extraction jobs, dispatched across all GPUs in waves.
+    declare -a E_DS=() E_SPLIT=()
     for ds in $DATASETS; do
-        extract_vjepa_dataset "$ds"
+        [[ -n "$(dataset_horizon "$ds")" ]] || { echo "  SKIP V-JEPA extraction for unknown dataset '$ds'"; continue; }
+        for split in $EXTRACT_SPLITS; do E_DS+=("$ds"); E_SPLIT+=("$split"); done
+    done
+    e=0
+    while (( e < ${#E_DS[@]} )); do
+        epids=(); enames=()
+        for (( g=0; g<GPUS && e<${#E_DS[@]}; g++, e++ )); do
+            launch_extract "${E_DS[$e]}" "${E_SPLIT[$e]}" "$g"
+            epids+=("$!"); enames+=("${E_DS[$e]}/${E_SPLIT[$e]}")
+        done
+        for k in "${!epids[@]}"; do
+            wait "${epids[$k]}" || {
+                echo "FATAL: V-JEPA extraction failed for ${enames[$k]}; see logs/slurm/"
+                exit 1
+            }
+        done
     done
 fi
 
@@ -197,35 +232,60 @@ launch_job() {
         "data.batch_size=$BATCH_SIZE" "data.num_workers=$NUM_WORKERS"
         "model.results_dir=$RESULTS_DIR" "model.results_tag=$tag"
     )
-    [[ -n "$ref" && -f "$ref" ]] && CMD+=("model.sp_reference_path=$ref")
+    # Pass the dataset-specific SP reference even when the file does not exist
+    # yet: the evaluator then omits the Skill-Score instead of silently falling
+    # back to the committed uk_pv reference (wrong dataset).
+    [[ -n "$ref" ]] && CMD+=("model.sp_reference_path=$ref")
+    # devices=1 → no DDP process group; skips slurm.yaml's ddp strategy (and the
+    # per-run MASTER_PORT juggling it required).
+    CMD+=("trainer.strategy=auto")
+    # Unique hydra run dir per run: parallel launches in the same second would
+    # otherwise share logs/experiments/runs/<timestamp> and clobber .hydra/.
+    CMD+=('hydra.run.dir=logs/experiments/runs/${now:%Y-%m-%d_%H-%M-%S}_'"$tag")
+    # Resume: a requeued/resubmitted job continues from last.ckpt instead of
+    # burning the walltime re-training from scratch.
+    local last_ckpt="${CKPT_DIR}/${tag}/last.ckpt"
+    [[ "$RESUME" == "1" && -f "$last_ckpt" ]] && CMD+=("ckpt_path=$last_ckpt")
+    [[ -n "$LIMIT_TRAIN_BATCHES" ]] && CMD+=("+trainer.limit_train_batches=$LIMIT_TRAIN_BATCHES")
+    [[ -n "$VAL_CHECK_INTERVAL" ]] && CMD+=("+trainer.val_check_interval=$VAL_CHECK_INTERVAL")
     local vf; vf="$(vis_flags "$ENCODER")"
     [[ -n "$vf" ]] && CMD+=($vf)
-    if [[ "$ENCODER" == "vjepa2" && -d "${VJEPA_CACHE_ROOT}/${ds}" ]]; then
-        CMD+=("data.vjepa_cache_dir=${VJEPA_CACHE_ROOT}/${ds}")
+    if [[ "$ENCODER" == "vjepa2" && -d "$(vjepa_cache_dir "$ds")" ]]; then
+        CMD+=("data.vjepa_cache_dir=$(vjepa_cache_dir "$ds")")
     fi
     # shellcheck disable=SC2206  -- intentional word-split: $ovr is a list of overrides
     CMD+=($ovr)
-    # each concurrent run inits its own DDP process group → needs a distinct
-    # MASTER_PORT, else parallel runs collide on the default port (EADDRINUSE).
-    local port=$(( 29500 + i ))
     local log="logs/slurm/${tag}.log"
     echo ">>> [GPU $gpu] $tag  →  $log"
     echo "    uv run ${CMD[*]}" > "$log"
-    CUDA_VISIBLE_DEVICES="$gpu" MASTER_ADDR=127.0.0.1 MASTER_PORT="$port" uv run "${CMD[@]}" >> "$log" 2>&1 &
+    CUDA_VISIBLE_DEVICES="$gpu" uv run "${CMD[@]}" >> "$log" 2>&1 &
 }
 
-# ---- dispatch in waves of $GPUS, one run pinned per GPU ----------------------
-echo ""; echo ">>> dispatching $NJOBS run(s), $GPUS per wave"
+# ---- dispatch: per-GPU work queue (a freed GPU immediately takes the next
+# job — waves would leave GPUs idle for the duration of the slowest run) ------
+echo ""; echo ">>> dispatching $NJOBS run(s) across $GPUS GPU(s)"
+declare -a GPU_PID=() GPU_TAG=()
+for (( g=0; g<GPUS; g++ )); do GPU_PID[$g]=""; done
 i=0
-while (( i < NJOBS )); do
-    pids=(); ptags=()
-    for (( g=0; g<GPUS && i<NJOBS; g++, i++ )); do
-        launch_job "$i" "$g"
-        pids+=("$!"); ptags+=("${J_TAG[$i]}")
+while :; do
+    running=0
+    for (( g=0; g<GPUS; g++ )); do
+        pid="${GPU_PID[$g]}"
+        if [[ -n "$pid" ]]; then
+            if kill -0 "$pid" 2>/dev/null; then
+                running=$((running+1)); continue
+            fi
+            wait "$pid"; STATUS["${GPU_TAG[$g]}"]=$?
+            GPU_PID[$g]=""
+        fi
+        if (( i < NJOBS )); then
+            launch_job "$i" "$g"
+            GPU_PID[$g]="$!"; GPU_TAG[$g]="${J_TAG[$i]}"
+            running=$((running+1)); i=$((i+1))
+        fi
     done
-    for k in "${!pids[@]}"; do
-        wait "${pids[$k]}"; STATUS["${ptags[$k]}"]=$?
-    done
+    (( running == 0 && i >= NJOBS )) && break
+    sleep 10
 done
 
 # ---- aggregate (best-effort; baselines env) --------------------------------
@@ -243,7 +303,6 @@ ok=0; fail=0
 for n in "${!STATUS[@]}"; do
     rc="${STATUS[$n]}"
     if [[ "$rc" == 0 ]]; then ok=$((ok+1)); tag=OK
-    elif [[ "$rc" == skip ]]; then tag=SKIP
     else fail=$((fail+1)); tag="FAIL(rc=$rc)"; fi
     printf "   %-24s %s\n" "$n" "$tag"
 done
@@ -251,3 +310,7 @@ echo "   ----  ok=$ok fail=$fail"
 echo " Results → $RESULTS_DIR/<tag>.json (+ ALL_RESULTS.md)"
 echo " Per-run logs → logs/slurm/<tag>.log"
 echo "=============================================================="
+# Propagate failures to SLURM: without this the job reports COMPLETED even
+# when every run failed.
+(( fail > 0 )) && exit 1
+exit 0
