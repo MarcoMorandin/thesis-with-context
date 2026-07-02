@@ -5,8 +5,8 @@
 #SBATCH --cpus-per-task=32
 #SBATCH --gres=gpu:4
 #SBATCH --partition=boost_usr_prod
-#SBATCH --qos=boost_qos_lprod
-#SBATCH --time=24:00:00
+#SBATCH --qos=boost_qos_dbg
+#SBATCH --time=00:30:00
 #SBATCH --account=IscrC_MTSFM
 #SBATCH --output=logs/slurm/%j_%x.out
 #SBATCH --error=logs/slurm/%j_%x.err
