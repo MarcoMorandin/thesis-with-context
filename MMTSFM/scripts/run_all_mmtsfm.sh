@@ -35,12 +35,26 @@
 #   ABLATIONS=$'grassmann_interleaved|model=vision_chronos2_grassmann' sbatch scripts/run_all_mmtsfm.sh
 #   GPUS=2 MAX_EPOCHS=5 bash scripts/run_all_mmtsfm.sh                   # interactive node
 set -uo pipefail
-# Anchor on the script location, NOT $SLURM_SUBMIT_DIR — sbatch'ing from the
-# repo root would otherwise run everything in the wrong directory. NOTE: the
-# #SBATCH --output path above is still resolved against the SUBMIT dir before
-# this line runs, so always `sbatch` from MMTSFM/ (precache_login.sh creates
-# logs/slurm there; a missing output dir kills the job before it starts).
-cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]:-$0}")")/.."     # MMTSFM/
+# Resolve MMTSFM/ as the workdir. Under sbatch the job script runs from a
+# SPOOL COPY (/var/spool/slurmd/.../slurm_script), so the script's own path is
+# useless there — use $SLURM_SUBMIT_DIR, accepting submission from either
+# MMTSFM/ or the repo root. The script-path fallback covers interactive
+# `bash scripts/run_all_mmtsfm.sh`. NOTE: the #SBATCH --output path above is
+# resolved against the SUBMIT dir before this runs — submit from MMTSFM/ so
+# logs/slurm exists (committed .gitkeep), or pre-create it at the repo root.
+if [[ -n "${SLURM_SUBMIT_DIR:-}" && -f "${SLURM_SUBMIT_DIR}/scripts/run_all_mmtsfm.sh" ]]; then
+    cd "$SLURM_SUBMIT_DIR"                                       # sbatch from MMTSFM/
+elif [[ -n "${SLURM_SUBMIT_DIR:-}" && -f "${SLURM_SUBMIT_DIR}/MMTSFM/scripts/run_all_mmtsfm.sh" ]]; then
+    cd "${SLURM_SUBMIT_DIR}/MMTSFM"                              # sbatch from repo root
+else
+    cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]:-$0}")")/.."  # interactive bash
+fi
+# Fail loudly if resolution went anywhere unexpected (e.g. a future SLURM
+# spool-path change) instead of running uv/python in the wrong tree.
+[[ -f pyproject.toml && -d src/mmtsfm ]] || {
+    echo "FATAL: workdir resolution failed — PWD=$PWD is not MMTSFM/ (submit from MMTSFM/ or the repo root)"
+    exit 1
+}
 MMTSFM_DIR="$PWD"
 REPO_ROOT="$(cd .. && pwd)"
 
