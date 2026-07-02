@@ -30,7 +30,9 @@ def _allowlist_lightning_checkpoint_globals() -> None:
     _orig = torch.load
 
     def _load(*args, **kwargs):
-        kwargs["weights_only"] = False
+        # Default only — callers that explicitly pass weights_only (e.g. the
+        # latent-cache loader uses weights_only=True) keep their choice.
+        kwargs.setdefault("weights_only", False)
         return _orig(*args, **kwargs)
 
     torch.load = _load

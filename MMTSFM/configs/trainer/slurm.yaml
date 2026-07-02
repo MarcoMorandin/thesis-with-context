@@ -8,8 +8,9 @@ num_nodes: 1                    # set to >1 for multi-node jobs (match --nodes i
 strategy: ddp_find_unused_parameters_true   # frozen V-JEPA encoder + modality dropout → unused params
 accelerator: gpu
 
-# Logging cadence — SLURM jobs produce tty-less logs; flush often
-log_every_n_steps: 1
+# Logging cadence — SLURM jobs produce tty-less logs. 50 keeps the offline
+# wandb file and logger overhead sane on million-step stride-1 epochs.
+log_every_n_steps: 50
 enable_progress_bar: false      # no tty on compute nodes
 
 # Checkpointing — point to shared filesystem scratch
