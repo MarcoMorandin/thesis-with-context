@@ -58,18 +58,32 @@ def wanted_keys(args) -> set[str]:
     return keys
 
 
-def recompress(path: Path, apply: bool) -> int:
-    """Rewrite as contiguous fp16 if beneficial; return bytes saved."""
+def recompress(path: Path, apply: bool, out_dir: Path | None = None) -> int:
+    """Rewrite as contiguous fp16 if beneficial; return bytes saved.
+
+    ``out_dir`` writes the compact copy THERE instead of in place — needed
+    when the source filesystem is over quota (Lustre then rejects all new
+    writes, so tmp+rename in place is impossible). Existing compact files in
+    out_dir are skipped, making the pass resumable.
+    """
     size = path.stat().st_size
+    dst = (out_dir / path.name) if out_dir is not None else path
+    target_guess = 4 * 196 * 1024 * 2  # fp16 payload, for the skip check
+    if (
+        out_dir is not None
+        and dst.exists()
+        and dst.stat().st_size <= int(target_guess * 1.2)
+    ):
+        return 0  # already exported
     z = torch.load(path, map_location="cpu", weights_only=True)
     target = z.numel() * 2  # fp16 payload
-    if z.dtype == torch.float16 and size <= int(target * 1.2):
-        return 0  # already compact
+    if out_dir is None and z.dtype == torch.float16 and size <= int(target * 1.2):
+        return 0  # already compact in place
     if apply:
-        tmp = path.with_suffix(".pt.tmp")
+        tmp = dst.with_suffix(".pt.tmp")
         torch.save(z.to(torch.float16).clone().contiguous(), tmp)
-        os.replace(tmp, path)
-        return size - path.stat().st_size
+        os.replace(tmp, dst)
+        return size - dst.stat().st_size
     return size - int(target * 1.05)  # dry-run estimate (+save overhead)
 
 
@@ -82,9 +96,19 @@ def main() -> None:
     p.add_argument("--splits", default="train,val,test")
     p.add_argument("--workers", type=int, default=16)
     p.add_argument("--apply", action="store_true", help="actually delete/rewrite")
+    p.add_argument(
+        "--out-dir",
+        default=None,
+        help="Write compact fp16 copies HERE instead of in place. Use when the "
+        "cache filesystem is over quota (writes there are rejected): export to "
+        "a dir on another filesystem, delete the bloated source dir, move back.",
+    )
     args = p.parse_args()
 
     cache_dir = Path(args.cache_dir)
+    out_dir = Path(args.out_dir) if args.out_dir else None
+    if out_dir is not None and args.apply:
+        out_dir.mkdir(parents=True, exist_ok=True)
     keep = wanted_keys(args)
     files = [f for f in cache_dir.iterdir() if f.suffix == ".pt"]
     # stale tmp files from an interrupted earlier pass
@@ -108,7 +132,7 @@ def main() -> None:
     saved = 0
     with ThreadPoolExecutor(max_workers=args.workers) as ex:
         for s in tqdm(
-            ex.map(lambda f: recompress(f, args.apply), kept),
+            ex.map(lambda f: recompress(f, args.apply, out_dir), kept),
             total=len(kept),
             desc="recompress",
             unit="file",
