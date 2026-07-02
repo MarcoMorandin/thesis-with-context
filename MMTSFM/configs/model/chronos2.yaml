@@ -26,7 +26,7 @@ grassmann_plucker_eps: 1.0e-8
 
 # Forecasting config (required by Chronos2Model)
 chronos_config:
-  context_length: 512
+  context_length: 2048   # covers the 14-day protocol history (uk_pv 672, goes_pvdaq 1344 steps); 512 silently truncated it
   input_patch_size: 32
   input_patch_stride: 32
   output_patch_size: 32

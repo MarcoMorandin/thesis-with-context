@@ -19,7 +19,7 @@ chronos_core_cfg:
   grassmann_modality_pair_bias: true
   attn_implementation: sdpa    # "sdpa" (default) or "eager"
   chronos_config:
-    context_length: 512
+    context_length: 2048   # covers the 14-day protocol history (uk_pv 672, goes_pvdaq 1344 steps); 512 silently truncated it
     input_patch_size: 8
     input_patch_stride: 8
     output_patch_size: 8
