@@ -213,6 +213,37 @@ class TestLatentSummarizer:
         # True spacing must change the causal window → different summary.
         assert not torch.allclose(out_dt, out_uniform, atol=1e-5)
 
+    def test_frame_delta_t_per_frame_pooled_to_latent(self):
+        """W5 fix: per-frame Δt (length T_v = stride·T_lat, as emitted by the
+        dataloader) is pooled to T_lat via per-group max and actually consumed —
+        matching the result of passing the pooled Δt directly."""
+        from mmtsfm.models.vision import LatentSummarizer
+
+        torch.manual_seed(0)
+        B, T_lat, P, D_v = 1, 4, 8, 4
+        summ = LatentSummarizer(
+            d_v=D_v, d_model=16, n_vis_steps=4, n_heads=4, dropout=0.0
+        )
+        summ.eval()
+        video_tokens = torch.randn(B, T_lat, P, D_v)
+
+        # 8 per-frame Δt values (V-JEPA stride 2 → T_lat=4); left slot of each
+        # pair is older. Includes a Δt=0 pad slot that per-group max must ignore.
+        per_frame = torch.tensor(
+            [[20000.0, 18000.0, 16000.0, 14000.0, 12000.0, 10000.0, 0.0, 10.0]]
+        )  # [B, 8]
+        pooled = per_frame.reshape(B, T_lat, 2).amax(dim=-1)  # [B, T_lat]
+
+        out_uniform = summ(video_tokens, T_ts=8)
+        out_per_frame = summ(video_tokens, T_ts=8, frame_delta_t=per_frame)
+        out_pooled = summ(video_tokens, T_ts=8, frame_delta_t=pooled)
+
+        assert not torch.isnan(out_per_frame).any()
+        # Per-frame Δt must be consumed (differ from uniform fallback) …
+        assert not torch.allclose(out_per_frame, out_uniform, atol=1e-5)
+        # … and equal the explicitly pooled variant.
+        assert torch.allclose(out_per_frame, out_pooled, atol=1e-6)
+
     def test_frame_delta_t_wrong_length_ignored(self):
         """Δt whose length != T_lat is ignored (falls back to uniform)."""
         from mmtsfm.models.vision import LatentSummarizer

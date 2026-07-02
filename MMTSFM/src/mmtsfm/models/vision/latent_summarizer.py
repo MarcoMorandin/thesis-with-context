@@ -212,8 +212,10 @@ class LatentSummarizer(nn.Module):
             ``[B, T_lat]`` — seconds before the forecast origin for each latent
             frame (0 = now, larger = older). When provided, the causal
             attention window is built from true temporal spacing rather than
-            assuming uniformly spaced frames (W5). Its length must equal
-            ``T_lat``; otherwise it is ignored and uniform spacing is used.
+            assuming uniformly spaced frames (W5). Accepts per-frame Δt of
+            length ``k · T_lat`` (pooled to latent resolution via per-group
+            max) or length ``T_lat``; anything else is ignored and uniform
+            spacing is used.
 
         Returns
         -------
@@ -243,6 +245,16 @@ class LatentSummarizer(nn.Module):
         # Default: uniform-spacing boundary [n_vis, kv_len] → broadcast over batch.
         # W5: when frame_delta_t is supplied (and matches T_lat), build the
         # boundary from true temporal spacing instead → [B, n_vis, kv_len].
+        # The dataloader emits per-FRAME Δt (length T_v) while V-JEPA's temporal
+        # stride folds frames into T_lat latent steps (T_v = stride · T_lat), so
+        # pool Δt to latent resolution first — otherwise the shape check below
+        # never passes and W5 silently degrades to uniform spacing on every run.
+        # amax picks the OLDER frame of each stride group, which also ignores the
+        # Δt=0 left-padding of missing frames (those slots are masked anyway).
+        if frame_delta_t is not None and frame_delta_t.shape[-1] != T_lat:
+            L = frame_delta_t.shape[-1]
+            if L % T_lat == 0:
+                frame_delta_t = frame_delta_t.reshape(B, T_lat, L // T_lat).amax(dim=-1)
         use_dt = frame_delta_t is not None and frame_delta_t.shape[-1] == T_lat
         if use_dt:
             time_mask = self._build_time_attn_mask(frame_delta_t, n_vis, T_lat, P)
