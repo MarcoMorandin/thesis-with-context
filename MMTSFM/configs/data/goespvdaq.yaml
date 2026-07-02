@@ -24,6 +24,7 @@ visual_window_hours: 6.0     # W5: recency cap — only frames within 6h of orig
 img_size: 224
 img_channels: 3
 imagenet_norm: true
+vjepa_cache_dir: null        # set by run_all_mmtsfm.sh to the pre-extracted V-JEPA latents dir
 
 num_samples_train: 1000
 num_samples_val: 200
