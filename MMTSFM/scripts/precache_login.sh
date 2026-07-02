@@ -18,6 +18,7 @@ set -uo pipefail
 cd "$(dirname "$0")/.."          # MMTSFM/
 MMTSFM_DIR="$PWD"
 REPO_ROOT="$(cd .. && pwd)"
+FAILURES=0
 
 [[ -f .env ]] && { set -a; source .env; set +a; }
 [[ -f "$REPO_ROOT/.env" ]] && { set -a; source "$REPO_ROOT/.env"; set +a; }
@@ -35,7 +36,7 @@ CKPT_DIR="${CKPT_DIR:-${TEAM_SCRATCH}/checkpoints}"
 
 mkdir -p "$HF_HOME" "$TORCH_HOME" "$TORCH_HUB_DIR" "$DATA_DIR" "$CKPT_DIR" logs/slurm
 info() { echo "[mmtsfm-precache] $*"; }
-warn() { echo "[mmtsfm-precache][WARN] $*" >&2; }
+warn() { echo "[mmtsfm-precache][WARN] $*" >&2; FAILURES=$((FAILURES+1)); }
 
 export PYTHONPATH="${MMTSFM_DIR}/src:${REPO_ROOT}/baselines:${PYTHONPATH:-}"
 
@@ -48,9 +49,10 @@ echo "=============================================================="
 # --- 1+2: env + weights (uv sync, V-JEPA 2.1, Chronos-2) ---------------------
 if [[ "$STAGE" == "all" || "$STAGE" == "weights" ]]; then
     info "uv sync (main deps incl. vjepa2 / h5py / pandas)"
-    uv sync || warn "uv sync failed — fix before submitting the GPU job"
+    uv sync || { warn "uv sync FAILED — fix before submitting the GPU job"; exit 1; }
     info ">>> caching V-JEPA 2.1 hub repo + weights"
-    uv run python - <<'PY' || warn "V-JEPA cache warmup failed — check internet access on login node"
+    # Required offline artifact (torch.hub repo + weights under TORCH_HOME).
+    uv run python - <<'PY' || { warn "V-JEPA cache warmup FAILED — offline GPU job cannot build the encoder"; exit 1; }
 import torch
 from mmtsfm.models.vision.visual_encoder import VisualEncoder
 
@@ -61,9 +63,12 @@ print(f"V-JEPA OK: arch={enc.arch} d_v={enc.d_v} hub={torch.hub.get_dir()}")
 PY
 
     info ">>> caching Chronos-2 backbone"
-    uv run python - <<'PY' || warn "Chronos-2 cache warmup failed — check amazon/chronos-2 access"
+    # Weight download is REQUIRED for the offline compute job (HF_HUB_OFFLINE=1
+    # at train time). Fail hard here rather than letting every ablation die at
+    # Chronos2Model.from_pretrained on the compute node.
+    uv run python - <<'PY' || { warn "Chronos-2 cache warmup FAILED — the offline GPU job cannot load the backbone"; exit 1; }
 from mmtsfm.models.chronos2.config import Chronos2CoreConfig
-from mmtsfm.models.chronos2.modeling_chronos2 import Chronos2Model
+from mmtsfm.models.chronos2.model import Chronos2Model
 
 cfg = Chronos2CoreConfig.from_pretrained("amazon/chronos-2")
 Chronos2Model.from_pretrained("amazon/chronos-2", config=cfg, ignore_mismatched_sizes=True)
@@ -109,6 +114,12 @@ if [[ "$STAGE" == "all" || "$STAGE" == "data" ]]; then
 fi
 
 echo ""
+if (( FAILURES > 0 )); then
+    echo "=============================================================="
+    echo " MMTSFM PRECACHE FINISHED WITH $FAILURES FAILURE(S) — fix before sbatch."
+    echo "=============================================================="
+    exit 1
+fi
 echo "=============================================================="
 echo " MMTSFM PRECACHE DONE. run_all_mmtsfm.sh auto-resolves:"
 echo "   DATA_DIR    = $DATA_DIR"
