@@ -55,6 +55,11 @@ class MMTSFMDataModule(LightningDataModule):
         visual_window_hours: float = 6.0,  # W5: recency cap on candidate frames
         vjepa_cache_dir: Optional[str] = None,
         emit_vision: bool = True,  # False for vision-free runs (skip frame decode + latents)
+        # pv_record TRAIN window stride. Default None → stride 1 (every step is a
+        # window origin). uk_pv stride-1 ≈ 1.36M train windows — set >1 to bound
+        # epoch size AND the pre-extracted V-JEPA cache (extractor must use the
+        # SAME value or cache keys miss). val/test always stride=H (protocol).
+        train_stride: Optional[int] = None,
         # num_samples_* only used by "synthetic"; real datasets compute their own length
         num_samples_train: int = 1000,
         num_samples_val: int = 200,
@@ -89,6 +94,7 @@ class MMTSFMDataModule(LightningDataModule):
                 h5_path=self.hparams.h5_path,
                 vjepa_cache_dir=self.hparams.vjepa_cache_dir,
                 emit_vision=self.hparams.emit_vision,
+                stride=self.hparams.train_stride if split == "train" else None,
             )
         return MMTSFMDataset(
             num_samples=num_samples,

@@ -103,6 +103,11 @@ RESUME="${RESUME:-1}"                  # 1 → resume each run from <tag>/last.c
 # writes NO results (protocol metrics are produced at test time only).
 LIMIT_TRAIN_BATCHES="${LIMIT_TRAIN_BATCHES:-}"   # e.g. 5000 → cap batches/epoch
 VAL_CHECK_INTERVAL="${VAL_CHECK_INTERVAL:-}"     # e.g. 2000 → val + ckpt every N batches
+# TRAIN window stride (extraction AND training — keys must match). Default 1 =
+# every step is a window origin: uk_pv train ≈ 1.36M windows ≈ 2.2 TB of fp16
+# latents + a matching encode bill. TRAIN_STRIDE=12 → ~113k windows / ~180 GB.
+# val/test always stride=H (protocol scoring), unaffected.
+TRAIN_STRIDE="${TRAIN_STRIDE:-}"
 
 # GPUs to saturate. Default = all visible on the node; ≥1 fallback for login/CPU.
 GPUS="${GPUS:-$(nvidia-smi -L 2>/dev/null | grep -c GPU)}"
@@ -188,6 +193,9 @@ launch_extract() {
         --batch-size "$EXTRACT_BATCH_SIZE"
         --num-workers "$EXTRACT_NUM_WORKERS"
     )
+    # Train-split stride must mirror data.train_stride (launch_job) so the
+    # cache keys the extractor writes are the ones training looks up.
+    [[ "$split" == "train" && -n "$TRAIN_STRIDE" ]] && CMD+=(--stride "$TRAIN_STRIDE")
     echo ">>> [GPU $gpu] extract $ds/$split → $log"
     echo "    uv run ${CMD[*]}" > "$log"
     CUDA_VISIBLE_DEVICES="$gpu" uv run "${CMD[@]}" >> "$log" 2>&1 &
@@ -262,6 +270,7 @@ launch_job() {
     [[ "$RESUME" == "1" && -f "$last_ckpt" ]] && CMD+=("ckpt_path=$last_ckpt")
     [[ -n "$LIMIT_TRAIN_BATCHES" ]] && CMD+=("+trainer.limit_train_batches=$LIMIT_TRAIN_BATCHES")
     [[ -n "$VAL_CHECK_INTERVAL" ]] && CMD+=("+trainer.val_check_interval=$VAL_CHECK_INTERVAL")
+    [[ -n "$TRAIN_STRIDE" ]] && CMD+=("+data.train_stride=$TRAIN_STRIDE")
     local vf; vf="$(vis_flags "$ENCODER")"
     [[ -n "$vf" ]] && CMD+=($vf)
     if [[ "$ENCODER" == "vjepa2" && -d "$(vjepa_cache_dir "$ds")" ]]; then

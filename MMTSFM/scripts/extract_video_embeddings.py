@@ -58,6 +58,7 @@ def extract(args: argparse.Namespace) -> None:
         ("horizon", args.horizon),
         ("video_frames", args.video_frames),
         ("img_size", args.img_size),
+        ("stride", args.stride),
     ]:
         if val is not None:
             cfg[key] = val
@@ -69,7 +70,7 @@ def extract(args: argparse.Namespace) -> None:
     print(
         f"[extract] shape cfg: hist_steps={cfg.get('hist_steps')} "
         f"horizon={cfg['horizon']} video_frames={cfg['video_frames']} "
-        f"img_size={cfg['img_size']}"
+        f"img_size={cfg['img_size']} stride={cfg.get('stride')}"
     )
 
     ds = PVRecordDataset(
@@ -155,7 +156,12 @@ def extract(args: argparse.Namespace) -> None:
         # converts inputs to fp32 anyway (_to_float32 in the lightning module).
         z = z.reshape(batch_size, n_entities, *z.shape[1:]).to(torch.float16).cpu()
         for sample_i, entity_i, key in missing:
-            torch.save(z[sample_i, entity_i], cache_dir / f"{key}.pt")
+            # .clone(): z[i, j] is a VIEW — torch.save would serialize the
+            # whole batch storage (8× file bloat, the 32 TB cache incident).
+            torch.save(
+                z[sample_i, entity_i].clone().contiguous(),
+                cache_dir / f"{key}.pt",
+            )
             n_done += 1
 
         elapsed = time.time() - t0
@@ -180,6 +186,14 @@ def main() -> None:
     p.add_argument("--video-frames", type=int, default=None)
     p.add_argument("--img-size", type=int, default=None)
     p.add_argument("--num-entities", type=int, default=1)
+    p.add_argument(
+        "--stride",
+        type=int,
+        default=None,
+        help="Window origin stride (default: dataset default — 1 for train, H "
+        "for val/test). MUST match the training run's data.train_stride, or "
+        "cache keys miss and training falls back to raw V-JEPA encode.",
+    )
     p.add_argument("--imagenet-norm", action="store_true")
     p.add_argument(
         "--vjepa-arch", default="vit_large", choices=["vit_large", "vit_base"]

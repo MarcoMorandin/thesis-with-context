@@ -125,6 +125,36 @@ def test_datamodule_config_wires_through(tmp_path):
     assert batch["V"].shape[:3] == (2, 1, 8)
 
 
+def test_datamodule_train_stride_wires_through(tmp_path):
+    """train_stride thins TRAIN window origins (cache-size control); val/test
+    keep the protocol stride=H regardless."""
+    parquet = tmp_path / "dataset_all.parquet"
+    _make_parquet(parquet, SPLITS["uk_pv"]["train"][:2] + SPLITS["uk_pv"]["val"][:2])
+
+    from mmtsfm.data.datamodule import MMTSFMDataModule
+
+    common = dict(
+        data_dir=str(parquet),
+        dataset_name="uk_pv",
+        num_workers=0,
+        batch_size=2,
+        num_entities=1,
+        hist_steps=None,
+        horizon=12,
+    )
+    dm1 = MMTSFMDataModule(**common)
+    dm1.setup("fit")
+    dm12 = MMTSFMDataModule(**common, train_stride=12)
+    dm12.setup("fit")
+
+    # stride=12 → ~1/12 the train windows of stride=1
+    assert len(dm12.train_dataset) < len(dm1.train_dataset)
+    starts = [start for _, start in dm12.train_dataset.win._index]
+    assert all((b - a) % 12 == 0 for a, b in zip(starts, starts[1:]) if b > a)
+    # val untouched: protocol stride=H
+    assert len(dm12.val_dataset) == len(dm1.val_dataset)
+
+
 def test_datamodule_train_groups_n_entities(tmp_path):
     """W4: datamodule applies num_entities>1 to TRAIN, forces N=1 for val/test."""
     import yaml
