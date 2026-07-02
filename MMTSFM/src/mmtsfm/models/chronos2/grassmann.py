@@ -51,28 +51,33 @@ class CausalGrassmannMixing(nn.Module):
 
         self.dropout = nn.Dropout(config.dropout_rate)
 
-        self.use_modality_pair_bias = getattr(config, "grassmann_modality_pair_bias", False)
+        self.use_modality_pair_bias = getattr(
+            config, "grassmann_modality_pair_bias", False
+        )
         if self.use_modality_pair_bias:
             # 4 scalar biases: TT=0, TV=1, VT=2, VV=3
             # Added to offset logit before softmax for position-dependent weighting.
             # Init zeros → no initial bias toward any pair type.
             self.modality_pair_bias = nn.Parameter(torch.zeros(4))
 
-        # Cache Plücker indices as buffers (avoids recomputing every forward).
-        # persistent=True ensures correct DDP broadcast and checkpoint round-trips.
-        idx_i, idx_j = torch.triu_indices(r, r, offset=1)
-        self.register_buffer("_plucker_idx_i", idx_i, persistent=True)
-        self.register_buffer("_plucker_idx_j", idx_j, persistent=True)
+        # Plücker pair indices (upper-triangular, offset=1) are NOT stored as
+        # buffers. When the model is built on `meta` and materialized with
+        # `to_empty()` (Chronos-2 pretrained load path), every buffer — persistent
+        # or not — is allocated with uninitialized storage; index buffers absent
+        # from the checkpoint are then left as garbage, causing out-of-bounds
+        # advanced-indexing (CUDA device-side assert / IndexError). Deriving them
+        # on-device inside _compute_plucker is O(r²), negligible next to the linear
+        # layers, and immune to materialization order.
 
     def _compute_plucker(self, u: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
-        """Compute normalized Plücker vectors for pairs (u, v) using cached index buffers."""
+        """Compute normalized Plücker vectors for pairs (u, v)."""
         # Advanced indexing (u[..., idx]) instead of torch.gather + expand.
         # gather on stride-0 expanded views triggers CUDA OOB asserts on A100+newer
         # drivers even after .contiguous(). Advanced indexing uses a safe kernel path.
-        idx_i = self._plucker_idx_i  # [plucker_dim]
-        idx_j = self._plucker_idx_j  # [plucker_dim]
+        # Indices derived on-the-fly on u's device (see __init__ note).
+        idx_i, idx_j = torch.triu_indices(self.r, self.r, offset=1, device=u.device)
 
-        u_i = u[..., idx_i]   # [B, L, plucker_dim]
+        u_i = u[..., idx_i]  # [B, L, plucker_dim]
         v_j = v[..., idx_j]
         u_j = u[..., idx_j]
         v_i = v[..., idx_i]
@@ -84,9 +89,13 @@ class CausalGrassmannMixing(nn.Module):
         return p
 
     def _process_offset(
-        self, z: torch.Tensor, valid_mask: torch.Tensor,
-        delta: int, weight: torch.Tensor,
-        g_sum: torch.Tensor, weight_sum: torch.Tensor,
+        self,
+        z: torch.Tensor,
+        valid_mask: torch.Tensor,
+        delta: int,
+        weight: torch.Tensor,
+        g_sum: torch.Tensor,
+        weight_sum: torch.Tensor,
         target_dtype: torch.dtype,
     ) -> None:
         """Process a single offset: Plücker + project + accumulate."""
@@ -97,11 +106,15 @@ class CausalGrassmannMixing(nn.Module):
         # positions 0..L-δ-1, which made position i ingest z[i+δ] (future leak).
         # Correct: z_past covers positions 0..L-δ-1, z_curr covers δ..L-1;
         # result is written to g_sum[:,delta:,:] (positions δ..L-1).
-        z_past = z[:, :L_eff, :]   # [B, L-δ, r]  — the earlier tokens
-        z_curr = z[:, delta:, :]   # [B, L-δ, r]  — the later tokens (present)
+        z_past = z[:, :L_eff, :]  # [B, L-δ, r]  — the earlier tokens
+        z_curr = z[:, delta:, :]  # [B, L-δ, r]  — the later tokens (present)
 
         # Validity mask: both z_past[i-δ] and z_curr[i] must be valid
-        v = (valid_mask[:, :L_eff] & valid_mask[:, delta:]).unsqueeze(-1).to(target_dtype)
+        v = (
+            (valid_mask[:, :L_eff] & valid_mask[:, delta:])
+            .unsqueeze(-1)
+            .to(target_dtype)
+        )
 
         # Plücker encoding + projection
         plucker = self._compute_plucker(z_past, z_curr)
@@ -113,7 +126,7 @@ class CausalGrassmannMixing(nn.Module):
 
     def _compute_modality_biases(
         self,
-        modality_mask: torch.Tensor,   # [B, L]  0=TS, 1=visual
+        modality_mask: torch.Tensor,  # [B, L]  0=TS, 1=visual
         valid_offsets: list,
         dtype: torch.dtype,
     ) -> torch.Tensor:
@@ -124,20 +137,23 @@ class CausalGrassmannMixing(nn.Module):
         pair_biases = torch.zeros(B, L, n_valid, device=device, dtype=dtype)
         curr = modality_mask.long()  # [B, L]
         for k, delta in enumerate(valid_offsets):
-            past = torch.cat([
-                torch.zeros(B, delta, device=device, dtype=torch.long),
-                modality_mask[:, :-delta].long(),
-            ], dim=1)  # [B, L]
+            past = torch.cat(
+                [
+                    torch.zeros(B, delta, device=device, dtype=torch.long),
+                    modality_mask[:, :-delta].long(),
+                ],
+                dim=1,
+            )  # [B, L]
             pair_type = past * 2 + curr  # {0=TT, 1=TV, 2=VT, 3=VV}  [B, L]
             pair_biases[:, :, k] = self.modality_pair_bias[pair_type]
         return pair_biases  # [B, L, n_valid]
 
     def _process_offset_positional(
         self,
-        z: torch.Tensor,            # [B, L, r]
-        valid_mask: torch.Tensor,   # [B, L]
+        z: torch.Tensor,  # [B, L, r]
+        valid_mask: torch.Tensor,  # [B, L]
         delta: int,
-        weight: torch.Tensor,       # [B, L]  position-wise weight
+        weight: torch.Tensor,  # [B, L]  position-wise weight
         g_sum: torch.Tensor,
         weight_sum: torch.Tensor,
         target_dtype: torch.dtype,
@@ -145,7 +161,11 @@ class CausalGrassmannMixing(nn.Module):
         L_eff = z.shape[1] - delta
         z_past = z[:, :L_eff, :]
         z_curr = z[:, delta:, :]
-        v = (valid_mask[:, :L_eff] & valid_mask[:, delta:]).unsqueeze(-1).to(target_dtype)
+        v = (
+            (valid_mask[:, :L_eff] & valid_mask[:, delta:])
+            .unsqueeze(-1)
+            .to(target_dtype)
+        )
         plucker = self._compute_plucker(z_past, z_curr)
         g = self.W_plu(plucker)
         w = weight[:, delta:].unsqueeze(-1).to(target_dtype)  # [B, L_eff, 1]
@@ -186,19 +206,15 @@ class CausalGrassmannMixing(nn.Module):
         else:
             # Build base logits for valid offsets (mask out-of-range offsets)
             offset_mask = torch.tensor(
-                [d < seq_len for d in self.window_offsets],
-                device=hidden_states.device
+                [d < seq_len for d in self.window_offsets], device=hidden_states.device
             )
             masked_logits = torch.where(
                 offset_mask,
                 self.offset_weights,
-                torch.full_like(self.offset_weights, float('-inf')),
+                torch.full_like(self.offset_weights, float("-inf")),
             )[:num_offsets]  # [n_valid]
 
-            position_wise = (
-                self.use_modality_pair_bias
-                and modality_mask is not None
-            )
+            position_wise = self.use_modality_pair_bias and modality_mask is not None
 
             if position_wise:
                 # [B, L, n_valid] = base[n_valid] + modality_bias[B, L, n_valid]
@@ -211,12 +227,10 @@ class CausalGrassmannMixing(nn.Module):
                 normalized_weights = torch.softmax(masked_logits, dim=0)  # [n_valid]
 
             g_sum = torch.zeros(
-                batch_size, seq_len, d_model,
-                device=z.device, dtype=hidden_states.dtype
+                batch_size, seq_len, d_model, device=z.device, dtype=hidden_states.dtype
             )
             weight_sum = torch.zeros(
-                batch_size, seq_len, 1,
-                device=z.device, dtype=hidden_states.dtype
+                batch_size, seq_len, 1, device=z.device, dtype=hidden_states.dtype
             )
 
             for i, delta in enumerate(valid_offsets):
@@ -227,16 +241,21 @@ class CausalGrassmannMixing(nn.Module):
                     )
                 else:
                     self._process_offset(
-                        z, valid_mask, delta, normalized_weights[i],
-                        g_sum, weight_sum, hidden_states.dtype,
+                        z,
+                        valid_mask,
+                        delta,
+                        normalized_weights[i],
+                        g_sum,
+                        weight_sum,
+                        hidden_states.dtype,
                     )
 
             weight_sum = torch.clamp(weight_sum, min=1e-6)
             g = g_sum / weight_sum
 
         # Step 5: Gated fusion
-        u = torch.cat([hidden_states, g], dim=-1)   # [B, L, 2*d]
-        alpha = torch.sigmoid(self.W_gate(u))        # [B, L, d]
+        u = torch.cat([hidden_states, g], dim=-1)  # [B, L, 2*d]
+        alpha = torch.sigmoid(self.W_gate(u))  # [B, L, d]
         h_mix = alpha * hidden_states + (1 - alpha) * g
 
         # Residual connection + dropout

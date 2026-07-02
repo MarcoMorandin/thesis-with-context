@@ -655,8 +655,16 @@ class TestCausalGrassmannMixing:
         layer = CausalGrassmannMixing(cfg)
         assert layer.r == 4
 
-    def test_plucker_buffers_used_not_reallocated(self):
-        """M5: _compute_plucker must use registered buffers, not allocate new index tensors."""
+    def test_plucker_survives_meta_to_empty_materialization(self):
+        """Regression: Plücker indices must not be stale buffers.
+
+        The Chronos-2 pretrained loader builds on `meta` then materializes with
+        `to_empty()`, which allocates uninitialized storage for every buffer.
+        Index tensors that were registered as buffers (and absent from the
+        checkpoint) were left as garbage → out-of-bounds advanced indexing.
+        Deriving them on-device in _compute_plucker must make forward robust
+        to this materialization path.
+        """
         from mmtsfm.models.chronos2.config import Chronos2CoreConfig
         from mmtsfm.models.chronos2.grassmann import CausalGrassmannMixing
 
@@ -680,24 +688,25 @@ class TestCausalGrassmannMixing:
                 "max_output_patches": 2,
             },
         )
+        # No index buffers should be left in the state_dict to become stale.
         layer = CausalGrassmannMixing(cfg)
-        layer.eval()
+        assert "_plucker_idx_i" not in layer.state_dict()
+        assert "_plucker_idx_j" not in layer.state_dict()
 
-        ptr_i_before = layer._plucker_idx_i.data_ptr()
-        ptr_j_before = layer._plucker_idx_j.data_ptr()
+        # Simulate the meta → to_empty materialization used by the pretrained loader.
+        with torch.device("meta"):
+            meta_layer = CausalGrassmannMixing(cfg)
+        meta_layer = meta_layer.to_empty(device="cpu")
+        # Copy real weights in (as load_state_dict would); indices are derived, not loaded.
+        meta_layer.load_state_dict(layer.state_dict())
+        meta_layer.eval()
 
         B, L, D = 1, 8, 64
         mask = torch.zeros(B, 1, L, L)
         h = torch.randn(B, L, D)
         pos = torch.arange(L).unsqueeze(0)
-        layer(h, mask, pos)
-
-        assert layer._plucker_idx_i.data_ptr() == ptr_i_before, (
-            "_plucker_idx_i was reallocated"
-        )
-        assert layer._plucker_idx_j.data_ptr() == ptr_j_before, (
-            "_plucker_idx_j was reallocated"
-        )
+        out = meta_layer(h, mask, pos)
+        assert torch.isfinite(out.hidden_states).all()
 
     def test_plucker_output_deterministic(self):
         """M5: two identical forward passes must produce identical output."""
