@@ -54,6 +54,7 @@ class MMTSFMDataModule(LightningDataModule):
         imagenet_norm: bool = False,
         visual_window_hours: float = 6.0,  # W5: recency cap on candidate frames
         vjepa_cache_dir: Optional[str] = None,
+        emit_vision: bool = True,  # False for vision-free runs (skip frame decode + latents)
         # num_samples_* only used by "synthetic"; real datasets compute their own length
         num_samples_train: int = 1000,
         num_samples_val: int = 200,
@@ -87,6 +88,7 @@ class MMTSFMDataModule(LightningDataModule):
                 num_entities=self.hparams.num_entities if split == "train" else 1,
                 h5_path=self.hparams.h5_path,
                 vjepa_cache_dir=self.hparams.vjepa_cache_dir,
+                emit_vision=self.hparams.emit_vision,
             )
         return MMTSFMDataset(
             num_samples=num_samples,

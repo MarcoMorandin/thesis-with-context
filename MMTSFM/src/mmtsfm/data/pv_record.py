@@ -126,10 +126,14 @@ class PVRecordDataset(Dataset):
         visual_window_hours: float = 6.0,
         num_entities: int = 1,
         vjepa_cache_dir: str | None = None,
+        emit_vision: bool = True,
         **_ignored,
     ):
         super().__init__()
         self.dataset_name = dataset_name
+        # False → vision-free runs (model.vision_cfg.skip_vision_stack=true):
+        # emit a 1×1-pixel placeholder V, no frame decode, no latent load.
+        self.emit_vision = bool(emit_vision)
         # Pre-extracted V-JEPA 2.1 latent cache (scripts/extract_video_embeddings.py).
         # When set, each window's [T_lat, P, D_v] latent is loaded and attached as
         # ``Z`` so training skips the encoder forward (see _attach_latents).
@@ -266,8 +270,14 @@ class PVRecordDataset(Dataset):
         return self._h5[f"{dataset}_{site}"]
 
     def _load_vision(
-        self, item: dict
+        self, item: dict, load_frames: bool = True
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Frame availability mask + Δt always; pixel decode only when needed.
+
+        ``load_frames=False`` (pre-extracted V-JEPA latent hit) skips the H5
+        read + PIL resize — the model consumes ``Z`` and ignores ``V`` — but
+        keeps mask/Δt, which drive the summarizer's latent mask and W5 window.
+        """
         T, Tv, S, C = self.T, self.T_v, self.img_size, self.C_img
         key = (str(item["dataset"]), str(item["site_id"]))
         fmap = self.frame_maps.get(key, {})
@@ -292,23 +302,36 @@ class PVRecordDataset(Dataset):
         # Left-pad: place active frames at the end if we have fewer than Tv
         pad_len = Tv - len(sel)
         if len(sel) > 0:
-            g = self._group(*key)
-            images = g["images"]
+            images = None
+            if load_frames:
+                g = self._group(*key)
+                images = g["images"]
             for idx_sel, t in enumerate(sel):
                 j = pad_len + idx_sel
-                V[0, j] = _prep_frame(images[fmap[t]], S, C, self.imagenet_norm)
+                if images is not None:
+                    V[0, j] = _prep_frame(images[fmap[t]], S, C, self.imagenet_norm)
                 mask_v[0, j] = 1.0
                 video_delta_t[0, j] = float(t_now - t)
 
         return V, mask_v, video_delta_t
 
-    def _build_entity(self, item: dict) -> dict:
+    def _build_entity(self, item: dict, load_frames: bool = True) -> dict:
         """Per-entity tensors (leading entity dim = 1) for one window."""
         T, H = self.T, self.H
         cov = np.asarray(item["cov"], dtype=np.float32)  # (T+H, C) future weather known
         hist_ts = item["timestamps"][:T]
         t_now = int(hist_ts[-1])
-        V, mask_visual, video_delta_t = self._load_vision(item)
+        if self.emit_vision:
+            V, mask_visual, video_delta_t = self._load_vision(
+                item, load_frames=load_frames
+            )
+        else:
+            # Vision-free run: 1×1-pixel placeholder keeps the batch schema
+            # (and collate shapes) without paying decode CPU or pinned memory.
+            Tv = self.T_v
+            V = torch.zeros(1, Tv, self.C_img, 1, 1)
+            mask_visual = torch.zeros(1, Tv)
+            video_delta_t = torch.zeros(1, Tv)
         hist_delta_t = torch.from_numpy(t_now - hist_ts.astype(np.float32)).view(1, T)
 
         return {
@@ -338,7 +361,13 @@ class PVRecordDataset(Dataset):
 
     def __getitem__(self, idx: int) -> dict:
         win_indices = self.groups[idx]
-        entities = [self._build_entity(self.win[w]) for w in win_indices]
+        # Latent-cache hit for the whole group → skip the raw frame decode
+        # (H5 read + PIL resize per frame): the model consumes Z, not V.
+        latent_files = self._latent_files(win_indices) if self.emit_vision else None
+        entities = [
+            self._build_entity(self.win[w], load_frames=latent_files is None)
+            for w in win_indices
+        ]
         N = len(entities)
 
         # Stack per-entity tensors along the leading entity dim → [N, ...].
@@ -369,7 +398,14 @@ class PVRecordDataset(Dataset):
         site_ids = [e["site_id"] for e in entities]
         out["site_id"] = site_ids[0] if N == 1 else site_ids
 
-        self._attach_latents(out, win_indices)
+        if latent_files is not None:
+            out["Z"] = torch.stack(
+                [
+                    torch.load(f, map_location="cpu", weights_only=True)
+                    for f in latent_files
+                ],
+                dim=0,
+            )
         return out
 
     def _entity_cache_key(self, win_item: dict) -> str:
@@ -382,21 +418,17 @@ class PVRecordDataset(Dataset):
         origin = int(ts[self.T - 1])
         return f"{win_item['dataset']}_{win_item['site_id']}_{origin}"
 
-    def _attach_latents(self, out: dict, win_indices: list[int]) -> None:
-        """Attach pre-extracted V-JEPA latents as ``Z`` [N, T_lat, P, D_v].
+    def _latent_files(self, win_indices: list[int]) -> list[Path] | None:
+        """Cache files for the group, or None on any miss.
 
-        No-op without a cache dir. Only attaches when *every* entity in the group
-        has a cached latent (a partial group would break the collate stack); a
-        miss falls back to encoding raw frames V at train time.
+        Z is attached only when *every* entity in the group has a cached latent
+        (a partial group would break the collate stack); a miss falls back to
+        decoding + encoding raw frames V at train time.
         """
         if self._cache_dir is None:
-            return
+            return None
         files = [
             self._cache_dir / f"{self._entity_cache_key(self.win[w])}.pt"
             for w in win_indices
         ]
-        if all(f.exists() for f in files):
-            out["Z"] = torch.stack(
-                [torch.load(f, map_location="cpu", weights_only=True) for f in files],
-                dim=0,
-            )
+        return files if all(f.exists() for f in files) else None
