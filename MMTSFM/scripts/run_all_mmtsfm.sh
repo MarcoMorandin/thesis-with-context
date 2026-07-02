@@ -205,10 +205,13 @@ launch_job() {
     fi
     # shellcheck disable=SC2206  -- intentional word-split: $ovr is a list of overrides
     CMD+=($ovr)
+    # each concurrent run inits its own DDP process group → needs a distinct
+    # MASTER_PORT, else parallel runs collide on the default port (EADDRINUSE).
+    local port=$(( 29500 + i ))
     local log="logs/slurm/${tag}.log"
     echo ">>> [GPU $gpu] $tag  →  $log"
     echo "    uv run ${CMD[*]}" > "$log"
-    CUDA_VISIBLE_DEVICES="$gpu" uv run "${CMD[@]}" >> "$log" 2>&1 &
+    CUDA_VISIBLE_DEVICES="$gpu" MASTER_ADDR=127.0.0.1 MASTER_PORT="$port" uv run "${CMD[@]}" >> "$log" 2>&1 &
 }
 
 # ---- dispatch in waves of $GPUS, one run pinned per GPU ----------------------
