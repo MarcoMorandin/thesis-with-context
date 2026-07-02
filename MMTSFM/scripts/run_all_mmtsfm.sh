@@ -90,7 +90,7 @@ GPUS="${GPUS:-$(nvidia-smi -L 2>/dev/null | grep -c GPU)}"
 #   numeric_grassmann     : vision off, Grassmann TS-only (vision-lift lower bound;
 #                           distinct from the Chronos-2 baseline — keeps Grassmann)
 ABLATIONS_DEFAULT=$'grassmann_interleaved|model=vision_chronos2_grassmann
-selfattn_late|model=vision_chronos2_timeselfattn
+selfattn_late|model=vision_chronos2_timeselfattn data.batch_size=8
 selfattn_interleaved|model.vision_cfg.fusion_mode=interleaved model.chronos_core_cfg.use_grassmann=false
 grassmann_no_modbias|model=vision_chronos2_grassmann model.chronos_core_cfg.grassmann_modality_pair_bias=false
 numeric_grassmann|model.vision_cfg.skip_vision_stack=true model.vision_cfg.fusion_mode=interleaved model.chronos_core_cfg.use_grassmann=true'
