@@ -89,6 +89,9 @@ class VisionChronos2LightningModule(LightningModule):
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["video_encoder"])
+        # The frozen V-JEPA encoder is stripped from checkpoints (see
+        # on_save_checkpoint); loading must therefore tolerate missing keys.
+        self.strict_loading = False
         self._protocol_eval = None
         self.grassmann_warmup_steps = grassmann_warmup_steps
         self.n_unfreeze_encoder_blocks = n_unfreeze_encoder_blocks
@@ -194,6 +197,21 @@ class VisionChronos2LightningModule(LightningModule):
     # ------------------------------------------------------------------
     # Checkpoint compatibility
     # ------------------------------------------------------------------
+
+    def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+        """Strip the frozen V-JEPA encoder from checkpoints (~1.2 GB each).
+
+        The encoder is rebuilt with identical weights from the torch.hub cache
+        at module init, so persisting it only bloats every checkpoint file.
+        Kept when any encoder param is trainable (Stage 3 fine-tuning).
+        """
+        enc = getattr(self.model, "video_encoder", None)
+        if enc is None or any(p.requires_grad for p in enc.parameters()):
+            return
+        prefix = "model.video_encoder."
+        state = checkpoint.get("state_dict", {})
+        for k in [k for k in state if k.startswith(prefix)]:
+            del state[k]
 
     def on_load_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
         """Handle checkpoint compatibility across architecture changes.
@@ -625,8 +643,14 @@ class VisionChronos2LightningModule(LightningModule):
         Per-group breakdown is the diagnostic signal we use to detect
         gradient starvation in the visual adapter / summarizer (Stage 2a).
         """
-        total_sq = 0.0
-        per_group_sq: dict[str, float] = {name: 0.0 for name, _ in self._GRAD_GROUPS}
+        # Accumulate squared norms as TENSORS: calling .item() per parameter
+        # forces a host-device sync for every tensor on every step (hundreds of
+        # CUDA syncs/step). One .item()/isfinite at the end is enough.
+        zero = torch.zeros((), device=self.device)
+        total_sq = zero
+        per_group_sq: dict[str, torch.Tensor] = {
+            name: zero for name, _ in self._GRAD_GROUPS
+        }
         # Index by parameter id so each grad is counted in exactly one group.
         group_by_param_id: dict[int, str] = {}
         for group_name, prefix in self._GRAD_GROUPS:
@@ -643,13 +667,14 @@ class VisionChronos2LightningModule(LightningModule):
         for p in self.model.parameters():
             if p.grad is None:
                 continue
-            sq = p.grad.detach().pow(2).sum().item()
-            total_sq += sq
+            sq = p.grad.detach().pow(2).sum()
+            total_sq = total_sq + sq
             group = group_by_param_id.get(id(p))
             if group is not None:
-                per_group_sq[group] += sq
+                per_group_sq[group] = per_group_sq[group] + sq
 
-        grad_norm = total_sq**0.5
+        grad_norm = total_sq.sqrt()
+        grad_finite = bool(torch.isfinite(grad_norm))
 
         if self.trainer.global_step % 500 == 0:
             loss_val = (
@@ -695,7 +720,7 @@ class VisionChronos2LightningModule(LightningModule):
         # the NaN pollute AdamW's moment buffers (which would taint *all*
         # subsequent steps), zero every grad on this rank for this step.
         # Lightning's gradient_clip_val=1.0 then clips a no-op vector.
-        if not math.isfinite(grad_norm):
+        if not grad_finite:
             self.log(
                 "train/grad_skipped", 1.0, on_step=True, on_epoch=False, prog_bar=False
             )
@@ -715,7 +740,7 @@ class VisionChronos2LightningModule(LightningModule):
                     # Which high-level groups have NaN?
                     nan_groups = []
                     for gname, sq in per_group_sq.items():
-                        if not math.isfinite(sq):
+                        if not bool(torch.isfinite(sq)):
                             nan_groups.append(gname)
                     # Also check unfrozen encoder blocks individually — log
                     # the specific param name inside the block so we can

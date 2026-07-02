@@ -6,6 +6,7 @@ Roadmap done-when criteria:
 
 Run: uv run pytest tests/test_training_loop.py -v
 """
+
 from __future__ import annotations
 
 import math
@@ -70,6 +71,7 @@ def _make_module(**overrides):
 
     mod = VisionChronos2LightningModule(**cfg)
     from unittest.mock import Mock
+
     mod.trainer = Mock()
     mod.trainer.is_global_zero = True
     mod.trainer.estimated_stepping_batches = 100
@@ -78,18 +80,18 @@ def _make_module(**overrides):
 
 def _make_batch(bs=2, N=2, T=32, H=8, T_v=4, C=3, img=16):
     return {
-        "Y":                     torch.randn(bs, N, T, 1),
-        "Y_future":              torch.randn(bs, N, H, 1),
-        "X_cov":                 torch.randn(bs, N, T + H, 3),
-        "V":                     torch.rand(bs, N, T_v, C, img, img),
-        "mask_target":           torch.ones(bs, N, T, 1),
-        "mask_future":           torch.ones(bs, N, H, 1),
-        "mask_visual":           torch.ones(bs, N, T_v),
+        "Y": torch.randn(bs, N, T, 1),
+        "Y_future": torch.randn(bs, N, H, 1),
+        "X_cov": torch.randn(bs, N, T + H, 3),
+        "V": torch.rand(bs, N, T_v, C, img, img),
+        "mask_target": torch.ones(bs, N, T, 1),
+        "mask_future": torch.ones(bs, N, H, 1),
+        "mask_visual": torch.ones(bs, N, T_v),
         "mask_modality_dropout": torch.ones(bs, N, 2),
-        "entity_ids":            torch.zeros(bs, N, dtype=torch.long),
-        "timestamps":            torch.arange(T + H).unsqueeze(0).expand(bs, -1),
-        "timestamps_v":          torch.arange(T_v).unsqueeze(0).expand(bs, -1),
-        "adj_matrix":            torch.eye(N).unsqueeze(0).expand(bs, -1, -1),
+        "entity_ids": torch.zeros(bs, N, dtype=torch.long),
+        "timestamps": torch.arange(T + H).unsqueeze(0).expand(bs, -1),
+        "timestamps_v": torch.arange(T_v).unsqueeze(0).expand(bs, -1),
+        "adj_matrix": torch.eye(N).unsqueeze(0).expand(bs, -1, -1),
     }
 
 
@@ -97,12 +99,13 @@ def _make_batch(bs=2, N=2, T=32, H=8, T_v=4, C=3, img=16):
 # Unit tests
 # ---------------------------------------------------------------------------
 
+
 class TestBatchUnpacking:
     def test_context_shape(self):
         module = _make_module()
         batch = _make_batch(bs=2, N=3, T=32)
         inputs = module._unpack_batch(batch)
-        assert inputs["context"].shape == (6, 32)   # BS*N
+        assert inputs["context"].shape == (6, 32)  # BS*N
 
     def test_future_target_shape(self):
         module = _make_module()
@@ -146,7 +149,7 @@ class TestTrainingStep:
         module = _make_module()
         module.eval()
         batch = _make_batch()
-        module.validation_step(batch, 0)   # returns None, just checks no crash
+        module.validation_step(batch, 0)  # returns None, just checks no crash
 
     def test_training_step_numeric_only(self):
         """With all-zero visual mask, training step still works."""
@@ -187,6 +190,7 @@ class TestOptimizerScheduler:
             max_epochs = 5
             train_dataloader = None
             accumulate_grad_batches = 1
+
         module._trainer = _MockTrainer()
 
         result = module.configure_optimizers()
@@ -201,6 +205,7 @@ class TestOptimizerScheduler:
             max_epochs = 5
             train_dataloader = None
             accumulate_grad_batches = 1
+
         module._trainer = _MockTrainer()
 
         result = module.configure_optimizers()
@@ -220,22 +225,25 @@ class TestOptimizerScheduler:
             max_epochs = 5
             train_dataloader = None
             accumulate_grad_batches = 1
+
         module._trainer = _MockTrainer()
 
         result = module.configure_optimizers()
         optim = result["optimizer"]
 
-        decay_groups   = [g for g in optim.param_groups if g["weight_decay"] > 0]
+        decay_groups = [g for g in optim.param_groups if g["weight_decay"] > 0]
         nodecay_groups = [g for g in optim.param_groups if g["weight_decay"] == 0.0]
 
-        assert len(decay_groups) > 0,   "Must have at least one WD>0 group"
+        assert len(decay_groups) > 0, "Must have at least one WD>0 group"
         assert len(nodecay_groups) > 0, "Must have at least one WD=0 group"
 
-        backbone_groups = [g for g in optim.param_groups if "backbone" in g.get("name", "")]
-        new_groups      = [g for g in optim.param_groups if "new" in g.get("name", "")]
+        backbone_groups = [
+            g for g in optim.param_groups if "backbone" in g.get("name", "")
+        ]
+        new_groups = [g for g in optim.param_groups if "new" in g.get("name", "")]
         if backbone_groups and new_groups:
             max_backbone_lr = max(g["lr"] for g in backbone_groups)
-            min_new_lr      = min(g["lr"] for g in new_groups)
+            min_new_lr = min(g["lr"] for g in new_groups)
             assert max_backbone_lr <= min_new_lr, (
                 f"Backbone LR ({max_backbone_lr}) must be ≤ new-module LR ({min_new_lr})"
             )
@@ -263,8 +271,19 @@ class TestFreezeChronos:
         block_layers = list(module.model.chronos.encoder.block)
         assert len(block_layers) >= 2
         for name, p in block_layers[0].named_parameters():
-            if not any(k in name for k in ("W_red", "W_plu", "W_gate", "offset_weights", "modality_pair_bias")):
-                assert not p.requires_grad, f"Earlier block standard parameter {name} should be frozen"
+            if not any(
+                k in name
+                for k in (
+                    "W_red",
+                    "W_plu",
+                    "W_gate",
+                    "offset_weights",
+                    "modality_pair_bias",
+                )
+            ):
+                assert not p.requires_grad, (
+                    f"Earlier block standard parameter {name} should be frozen"
+                )
 
     def test_freeze_chronos_vision_still_trains(self):
         module = _make_module(freeze_chronos=True)
@@ -285,6 +304,7 @@ class TestSmokeTraining:
         module = _make_module()
 
         from mmtsfm.data.dataset import MMTSFMDataset
+
         ds = MMTSFMDataset(
             num_samples=4,
             num_entities=2,
@@ -297,7 +317,7 @@ class TestSmokeTraining:
             dataset_name="synthetic",
         )
         dl_train = DataLoader(ds, batch_size=2, shuffle=False)
-        dl_val   = DataLoader(ds, batch_size=2, shuffle=False)
+        dl_val = DataLoader(ds, batch_size=2, shuffle=False)
 
         trainer = pl.Trainer(
             max_epochs=2,
@@ -322,3 +342,36 @@ class TestSmokeTraining:
         # Loss must be finite
         assert not torch.isnan(final_loss), "train/loss is NaN"
         assert not torch.isinf(final_loss), "train/loss is Inf"
+
+
+# ---------------------------------------------------------------------------
+# Checkpoint content
+# ---------------------------------------------------------------------------
+
+
+class TestCheckpointStripsFrozenEncoder:
+    def test_frozen_encoder_keys_dropped(self):
+        """on_save_checkpoint removes model.video_encoder.* when frozen
+        (the encoder is rebuilt from the hub cache at init — ~1.2 GB saved
+        per checkpoint file)."""
+        mod = _make_module()
+        for p in mod.model.video_encoder.parameters():
+            p.requires_grad_(False)
+        ckpt = {"state_dict": mod.state_dict()}
+        assert any(k.startswith("model.video_encoder.") for k in ckpt["state_dict"])
+        mod.on_save_checkpoint(ckpt)
+        assert not any(k.startswith("model.video_encoder.") for k in ckpt["state_dict"])
+        # Loading the stripped state must work (strict_loading=False contract).
+        missing, unexpected = mod.load_state_dict(ckpt["state_dict"], strict=False)
+        assert not unexpected
+        assert all(k.startswith("model.video_encoder.") for k in missing)
+        assert mod.strict_loading is False
+
+    def test_trainable_encoder_keys_kept(self):
+        """Stage 3 (unfrozen encoder): weights must stay in the checkpoint."""
+        mod = _make_module()
+        for p in mod.model.video_encoder.parameters():
+            p.requires_grad_(True)
+        ckpt = {"state_dict": mod.state_dict()}
+        mod.on_save_checkpoint(ckpt)
+        assert any(k.startswith("model.video_encoder.") for k in ckpt["state_dict"])
