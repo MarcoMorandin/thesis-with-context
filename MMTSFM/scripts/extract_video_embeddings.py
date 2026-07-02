@@ -89,7 +89,11 @@ def extract(args: argparse.Namespace) -> None:
         enc = _build_vjepa_encoder(arch=args.vjepa_arch, device=device)
         enc.eval()
 
-    cache_dir = _cache_dir_for(data_dir, args.dataset)
+    cache_dir = (
+        Path(args.cache_dir)
+        if args.cache_dir
+        else _cache_dir_for(data_dir, args.dataset)
+    )
     cache_dir.mkdir(parents=True, exist_ok=True)
     print(f"[extract] cache dir: {cache_dir}")
 
@@ -104,7 +108,13 @@ def extract(args: argparse.Namespace) -> None:
     n_done = 0
     n_skip = 0
     t0 = time.time()
-    pbar = tqdm(loader, total=len(loader), unit="batch", desc=f"{args.dataset}/{args.split}", dynamic_ncols=True)
+    pbar = tqdm(
+        loader,
+        total=len(loader),
+        unit="batch",
+        desc=f"{args.dataset}/{args.split}",
+        dynamic_ncols=True,
+    )
 
     for batch_idx, batch in enumerate(pbar):
         batch_size = batch["Y"].shape[0]
@@ -129,14 +139,21 @@ def extract(args: argparse.Namespace) -> None:
             continue
 
         video = batch["V"]
-        t_v, c_img, h_img, w_img = video.shape[2], video.shape[3], video.shape[4], video.shape[5]
+        t_v, c_img, h_img, w_img = (
+            video.shape[2],
+            video.shape[3],
+            video.shape[4],
+            video.shape[5],
+        )
         video = video.reshape(batch_size * n_entities, t_v, c_img, h_img, w_img)
         video = video.permute(0, 2, 1, 3, 4).to(device, non_blocking=True)
 
         with torch.no_grad():
             z = enc(video)
 
-        z = z.reshape(batch_size, n_entities, *z.shape[1:]).cpu()
+        # fp16 halves the on-disk cache (~3.2 MB → 1.6 MB per window); training
+        # converts inputs to fp32 anyway (_to_float32 in the lightning module).
+        z = z.reshape(batch_size, n_entities, *z.shape[1:]).to(torch.float16).cpu()
         for sample_i, entity_i, key in missing:
             torch.save(z[sample_i, entity_i], cache_dir / f"{key}.pt")
             n_done += 1
@@ -164,8 +181,17 @@ def main() -> None:
     p.add_argument("--img-size", type=int, default=None)
     p.add_argument("--num-entities", type=int, default=1)
     p.add_argument("--imagenet-norm", action="store_true")
-    p.add_argument("--vjepa-arch", default="vit_large", choices=["vit_large", "vit_base"])
+    p.add_argument(
+        "--vjepa-arch", default="vit_large", choices=["vit_large", "vit_base"]
+    )
     p.add_argument("--data-dir", default="./data")
+    p.add_argument(
+        "--cache-dir",
+        default=None,
+        help="Latent cache dir (default: <data-dir>/vjepa_cache/<dataset>). "
+        "Pass a settings-versioned path to avoid silently reusing a cache "
+        "built with a different arch / img-size / frame count.",
+    )
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--batch-size", type=int, default=8)
     p.add_argument("--num-workers", type=int, default=4)
