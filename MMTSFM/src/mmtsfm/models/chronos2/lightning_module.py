@@ -111,6 +111,12 @@ class VisionChronos2LightningModule(LightningModule):
                 core_config.grassmann_window_offsets
             )
             pretrained_config.grassmann_plucker_eps = core_config.grassmann_plucker_eps
+            # The §8.1 no-modbias ablation flips this flag; without propagation the
+            # hub config's default (True) silently wins and the ablation no-ops.
+            pretrained_config.grassmann_modality_pair_bias = (
+                core_config.grassmann_modality_pair_bias
+            )
+            pretrained_config._attn_implementation = core_config._attn_implementation
             # Propagate nested chronos_config overrides (use_arcsinh, max_output_patches, quantiles, …).
             # Without this, YAML values silently lose to the values stored in the HF checkpoint —
             # e.g., use_arcsinh stays False and (target-loc)/scale becomes unbounded → loss overflow.
