@@ -74,22 +74,30 @@ class Chronos2EncoderBlock(nn.Module):
         # backward, which would poison the PARAMETER gradients of this block.
         hidden_states = torch.nan_to_num(hidden_states, nan=0.0, posinf=0.0, neginf=0.0)
         if hidden_states.requires_grad:
-            hidden_states.register_hook(lambda g: torch.nan_to_num(g, nan=0.0, posinf=0.0, neginf=0.0))
+            hidden_states.register_hook(
+                lambda g: torch.nan_to_num(g, nan=0.0, posinf=0.0, neginf=0.0)
+            )
 
         # apply group attention
         group_self_attn_outputs: AttentionOutput = self.layer[1](
-            hidden_states, attention_mask=group_time_mask, output_attentions=output_attentions
+            hidden_states,
+            attention_mask=group_time_mask,
+            output_attentions=output_attentions,
         )
         hidden_states = group_self_attn_outputs[0]
         hidden_states = torch.nan_to_num(hidden_states, nan=0.0, posinf=0.0, neginf=0.0)
         if hidden_states.requires_grad:
-            hidden_states.register_hook(lambda g: torch.nan_to_num(g, nan=0.0, posinf=0.0, neginf=0.0))
+            hidden_states.register_hook(
+                lambda g: torch.nan_to_num(g, nan=0.0, posinf=0.0, neginf=0.0)
+            )
 
         # apply feed forward layer
         hidden_states = self.layer[2](hidden_states)
         hidden_states = torch.nan_to_num(hidden_states, nan=0.0, posinf=0.0, neginf=0.0)
         if hidden_states.requires_grad:
-            hidden_states.register_hook(lambda g: torch.nan_to_num(g, nan=0.0, posinf=0.0, neginf=0.0))
+            hidden_states.register_hook(
+                lambda g: torch.nan_to_num(g, nan=0.0, posinf=0.0, neginf=0.0)
+            )
 
         return Chronos2EncoderBlockOutput(
             hidden_states=hidden_states,
@@ -110,15 +118,21 @@ class Chronos2Encoder(nn.Module):
         super().__init__()
         assert not config.is_decoder
 
-        self.block = nn.ModuleList([Chronos2EncoderBlock(config) for i in range(config.num_layers)])
-        self.final_layer_norm = Chronos2LayerNorm(config.d_model, eps=config.layer_norm_epsilon)
+        self.block = nn.ModuleList(
+            [Chronos2EncoderBlock(config) for i in range(config.num_layers)]
+        )
+        self.final_layer_norm = Chronos2LayerNorm(
+            config.d_model, eps=config.layer_norm_epsilon
+        )
         self.dropout = nn.Dropout(config.dropout_rate)
 
     @staticmethod
     def _expand_and_invert_time_attention_mask(
         attention_mask: torch.Tensor, floating_type: torch.dtype
     ) -> torch.Tensor:
-        assert attention_mask.ndim == 2, "attention_mask must have shape (batch, seq_len)"
+        assert attention_mask.ndim == 2, (
+            "attention_mask must have shape (batch, seq_len)"
+        )
 
         # Add new dims for attention heads and q_len
         attention_mask = attention_mask[:, None, None, :]
@@ -131,7 +145,9 @@ class Chronos2Encoder(nn.Module):
 
     @staticmethod
     def _construct_and_invert_group_time_mask(
-        group_ids: torch.Tensor, attention_mask: torch.Tensor, floating_type: torch.dtype
+        group_ids: torch.Tensor,
+        attention_mask: torch.Tensor,
+        floating_type: torch.dtype,
     ) -> torch.Tensor:
         # construct group_mask (batch, batch) from group ids
         # a cell is True if both row and col had the same group id
@@ -145,7 +161,9 @@ class Chronos2Encoder(nn.Module):
         # finfo(float16).min = -65504 is a finite value; when added to large logits
         # under scale=1.0 it can overflow. float32 finfo.min ≈ -3.4e38 is safe.
         group_time_mask = rearrange(group_time_mask, "q b t -> t 1 q b")
-        group_time_mask = (1.0 - group_time_mask.float()) * torch.finfo(torch.float32).min
+        group_time_mask = (1.0 - group_time_mask.float()) * torch.finfo(
+            torch.float32
+        ).min
 
         return group_time_mask
 
@@ -162,16 +180,27 @@ class Chronos2Encoder(nn.Module):
         batch_size, seq_length = inputs_embeds.size()[:-1]
 
         if position_ids is None:
-            position_ids = torch.arange(0, seq_length, dtype=torch.long, device=inputs_embeds.device).unsqueeze(0)
+            position_ids = torch.arange(
+                0, seq_length, dtype=torch.long, device=inputs_embeds.device
+            ).unsqueeze(0)
 
         if attention_mask is None:
-            attention_mask = torch.ones(batch_size, seq_length, device=inputs_embeds.device, dtype=inputs_embeds.dtype)
+            attention_mask = torch.ones(
+                batch_size,
+                seq_length,
+                device=inputs_embeds.device,
+                dtype=inputs_embeds.dtype,
+            )
 
         # make the time attention mask broadcastable to attention scores (batch, n_heads, q_len, kv_len) and invert
-        extended_attention_mask = self._expand_and_invert_time_attention_mask(attention_mask, inputs_embeds.dtype)
+        extended_attention_mask = self._expand_and_invert_time_attention_mask(
+            attention_mask, inputs_embeds.dtype
+        )
 
         # construct group time mask
-        group_time_mask = self._construct_and_invert_group_time_mask(group_ids, attention_mask, inputs_embeds.dtype)
+        group_time_mask = self._construct_and_invert_group_time_mask(
+            group_ids, attention_mask, inputs_embeds.dtype
+        )
 
         all_time_self_attentions: tuple[torch.Tensor, ...] = ()
         all_group_self_attentions: tuple[torch.Tensor, ...] = ()
@@ -200,8 +229,14 @@ class Chronos2Encoder(nn.Module):
                 assert layer_outputs.time_self_attn_weights is not None
                 assert layer_outputs.group_self_attn_weights is not None
 
-                all_time_self_attentions = (*all_time_self_attentions, layer_outputs.time_self_attn_weights)
-                all_group_self_attentions = (*all_group_self_attentions, layer_outputs.group_self_attn_weights)
+                all_time_self_attentions = (
+                    *all_time_self_attentions,
+                    layer_outputs.time_self_attn_weights,
+                )
+                all_group_self_attentions = (
+                    *all_group_self_attentions,
+                    layer_outputs.group_self_attn_weights,
+                )
 
         hidden_states = self.final_layer_norm(hidden_states)
         hidden_states = self.dropout(hidden_states)
@@ -239,7 +274,10 @@ class Chronos2Model(PreTrainedModel):
         )
         self.chronos_config = Chronos2ForecastingConfig(**config.chronos_config)
 
-        assert self.chronos_config.input_patch_size == self.chronos_config.output_patch_size, (
+        assert (
+            self.chronos_config.input_patch_size
+            == self.chronos_config.output_patch_size
+        ), (
             "input_patch_size and output_patch_size sizes must be equal, "
             f"but found {self.chronos_config.input_patch_size} and {self.chronos_config.output_patch_size}"
         )
@@ -263,7 +301,8 @@ class Chronos2Model(PreTrainedModel):
 
         # patching layer
         self.patch = Patch(
-            patch_size=self.chronos_config.input_patch_size, patch_stride=self.chronos_config.input_patch_stride
+            patch_size=self.chronos_config.input_patch_size,
+            patch_stride=self.chronos_config.input_patch_stride,
         )
 
         # instance normalization, also referred to as "scaling" in Chronos and GluonTS
@@ -299,10 +338,14 @@ class Chronos2Model(PreTrainedModel):
             # Mesh TensorFlow FF initialization
             # See https://github.com/tensorflow/mesh/blob/master/mesh_tensorflow/transformer/transformer_layers.py#L56
             # and https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/layers.py#L89
-            module.wi.weight.data.normal_(mean=0.0, std=factor * ((self.config.d_model) ** -0.5))
+            module.wi.weight.data.normal_(
+                mean=0.0, std=factor * ((self.config.d_model) ** -0.5)
+            )
             if hasattr(module.wi, "bias") and module.wi.bias is not None:
                 module.wi.bias.data.zero_()
-            module.wo.weight.data.normal_(mean=0.0, std=factor * ((self.config.d_ff) ** -0.5))
+            module.wo.weight.data.normal_(
+                mean=0.0, std=factor * ((self.config.d_ff) ** -0.5)
+            )
             if hasattr(module.wo, "bias") and module.wo.bias is not None:
                 module.wo.bias.data.zero_()
         elif isinstance(module, MHA):
@@ -311,10 +354,14 @@ class Chronos2Model(PreTrainedModel):
             d_model = self.config.d_model
             kv_proj_dim = self.config.d_kv
             n_heads = self.config.num_heads
-            module.q.weight.data.normal_(mean=0.0, std=factor * ((d_model * kv_proj_dim) ** -0.5))
+            module.q.weight.data.normal_(
+                mean=0.0, std=factor * ((d_model * kv_proj_dim) ** -0.5)
+            )
             module.k.weight.data.normal_(mean=0.0, std=factor * (d_model**-0.5))
             module.v.weight.data.normal_(mean=0.0, std=factor * (d_model**-0.5))
-            module.o.weight.data.normal_(mean=0.0, std=factor * ((n_heads * kv_proj_dim) ** -0.5))
+            module.o.weight.data.normal_(
+                mean=0.0, std=factor * ((n_heads * kv_proj_dim) ** -0.5)
+            )
         elif isinstance(module, (Chronos2Model)):
             module.shared.weight.data.normal_(mean=0.0, std=factor * 1.0)
         elif isinstance(module, CausalGrassmannMixing):
@@ -322,34 +369,52 @@ class Chronos2Model(PreTrainedModel):
             d_model = self.config.d_model
             r = self.config.grassmann_reduced_dim
             plucker_dim = r * (r - 1) // 2
-            module.W_red.weight.data.normal_(mean=0.0, std=factor * (d_model ** -0.5))
+            module.W_red.weight.data.normal_(mean=0.0, std=factor * (d_model**-0.5))
             if module.W_red.bias is not None:
                 module.W_red.bias.data.zero_()
-            module.W_plu.weight.data.normal_(mean=0.0, std=factor * (plucker_dim ** -0.5))
+            module.W_plu.weight.data.normal_(mean=0.0, std=factor * (plucker_dim**-0.5))
             if module.W_plu.bias is not None:
                 module.W_plu.bias.data.zero_()
-            module.W_gate.weight.data.normal_(mean=0.0, std=factor * ((2 * d_model) ** -0.5))
+            module.W_gate.weight.data.normal_(
+                mean=0.0, std=factor * ((2 * d_model) ** -0.5)
+            )
             if module.W_gate.bias is not None:
                 module.W_gate.bias.data.zero_()
+            # offset_weights / modality_pair_bias are MISSING from the pretrained
+            # checkpoint; under from_pretrained's meta+to_empty() materialization
+            # they only get values here. Skipping them leaves uninitialized GPU
+            # garbage (observed as random NaN that permanently froze training).
+            module.offset_weights.data.fill_(1.0)
+            if getattr(module, "modality_pair_bias", None) is not None:
+                module.modality_pair_bias.data.zero_()
         elif isinstance(module, ResidualBlock):
             module.hidden_layer.weight.data.normal_(
                 mean=0.0,
                 std=factor * (module.hidden_layer.weight.size(-1) ** -0.5),
             )
-            if hasattr(module.hidden_layer, "bias") and module.hidden_layer.bias is not None:
+            if (
+                hasattr(module.hidden_layer, "bias")
+                and module.hidden_layer.bias is not None
+            ):
                 module.hidden_layer.bias.data.zero_()
 
             module.residual_layer.weight.data.normal_(
                 mean=0.0,
                 std=factor * (module.residual_layer.weight.size(-1) ** -0.5),
             )
-            if hasattr(module.residual_layer, "bias") and module.residual_layer.bias is not None:
+            if (
+                hasattr(module.residual_layer, "bias")
+                and module.residual_layer.bias is not None
+            ):
                 module.residual_layer.bias.data.zero_()
 
             module.output_layer.weight.data.normal_(
                 mean=0.0, std=factor * (module.output_layer.weight.size(-1) ** -0.5)
             )
-            if hasattr(module.output_layer, "bias") and module.output_layer.bias is not None:
+            if (
+                hasattr(module.output_layer, "bias")
+                and module.output_layer.bias is not None
+            ):
                 module.output_layer.bias.data.zero_()
 
     def _validate_input(
@@ -365,11 +430,18 @@ class Chronos2Model(PreTrainedModel):
     ):
         output_patch_size = self.chronos_config.output_patch_size
         if context.ndim != 2:
-            raise ValueError(f"context must have shape (batch_size, context_length), found: {tuple(context.shape)}")
+            raise ValueError(
+                f"context must have shape (batch_size, context_length), found: {tuple(context.shape)}"
+            )
         if context_mask is not None and context_mask.shape != context.shape:
-            raise ValueError(f"mask must have shape {tuple(context.shape)}, found: {tuple(context_mask.shape)}")
+            raise ValueError(
+                f"mask must have shape {tuple(context.shape)}, found: {tuple(context_mask.shape)}"
+            )
         if future_covariates is not None:
-            if future_covariates.shape[0] != context.shape[0] or future_covariates.ndim != 2:
+            if (
+                future_covariates.shape[0] != context.shape[0]
+                or future_covariates.ndim != 2
+            ):
                 raise ValueError(
                     f"future_covariates must have shape (batch_size={context.shape[0]}, future_length), found: {tuple(future_covariates.shape)}"
                 )
@@ -378,20 +450,27 @@ class Chronos2Model(PreTrainedModel):
                     f"{num_output_patches=} must be large enough to accommodate the length of future_covariates, "
                     f"found: {future_covariates.shape[-1]} > {num_output_patches} * {output_patch_size}"
                 )
-            if future_target is not None and future_target.shape != future_covariates.shape:
+            if (
+                future_target is not None
+                and future_target.shape != future_covariates.shape
+            ):
                 raise ValueError(
                     f"future_target must have the same shape as future_covariates, found: {tuple(future_target.shape)} and {tuple(future_covariates.shape)}"
                 )
         if future_covariates_mask is not None:
             if future_covariates is None:
-                raise ValueError("future_covariates must be provided if future_covariates_mask is provided")
+                raise ValueError(
+                    "future_covariates must be provided if future_covariates_mask is provided"
+                )
             if future_covariates_mask.shape != future_covariates.shape:
                 raise ValueError(
                     f"future_covariates_mask must have the same shape as future_covariates, "
                     f"found: {tuple(future_covariates_mask.shape)} and {tuple(future_covariates.shape)}"
                 )
         if group_ids is not None and group_ids.shape != (context.shape[0],):
-            raise ValueError(f"group_ids must have shape (batch_size,), found: {tuple(group_ids.shape)}")
+            raise ValueError(
+                f"group_ids must have shape (batch_size,), found: {tuple(group_ids.shape)}"
+            )
         if future_target is not None:
             if future_target.shape[0] != context.shape[0] or future_target.ndim != 2:
                 raise ValueError(
@@ -404,7 +483,9 @@ class Chronos2Model(PreTrainedModel):
                 )
         if future_target_mask is not None:
             if future_target is None:
-                raise ValueError("future_target must be provided if future_target_mask is provided")
+                raise ValueError(
+                    "future_target must be provided if future_target_mask is provided"
+                )
             if future_target_mask.shape != future_target.shape:
                 raise ValueError(
                     f"future_target_mask must have the same shape as future_target, found: {tuple(future_target_mask.shape)} and {tuple(future_target.shape)}"
@@ -443,8 +524,12 @@ class Chronos2Model(PreTrainedModel):
 
         # context time encoding: every observation is assigned a sequential time index,
         # scaled by model's context length = [-C, -(C-1), ..., -1] / context_length
-        final_context_length = num_context_patches * self.chronos_config.input_patch_size
-        context_time_enc = torch.arange(start=-final_context_length, end=0, device=self.device, dtype=torch.float32)
+        final_context_length = (
+            num_context_patches * self.chronos_config.input_patch_size
+        )
+        context_time_enc = torch.arange(
+            start=-final_context_length, end=0, device=self.device, dtype=torch.float32
+        )
         context_time_enc = (
             repeat(
                 context_time_enc,
@@ -458,7 +543,9 @@ class Chronos2Model(PreTrainedModel):
         )
 
         # concat time encoding, context and mask along the last (feature) dim
-        patched_context = torch.cat([context_time_enc, patched_context, patched_mask], dim=-1)
+        patched_context = torch.cat(
+            [context_time_enc, patched_context, patched_mask], dim=-1
+        )
 
         return patched_context, attention_mask, loc_scale
 
@@ -477,9 +564,15 @@ class Chronos2Model(PreTrainedModel):
             future_covariates = future_covariates.to(self.dtype)
 
             if future_covariates_mask is None:
-                future_covariates_mask = torch.isnan(future_covariates).logical_not().to(future_covariates.dtype)
+                future_covariates_mask = (
+                    torch.isnan(future_covariates)
+                    .logical_not()
+                    .to(future_covariates.dtype)
+                )
 
-            future_covariates = torch.where(future_covariates_mask > 0.0, future_covariates, 0.0)
+            future_covariates = torch.where(
+                future_covariates_mask > 0.0, future_covariates, 0.0
+            )
 
             if torch.isnan(future_covariates).any():
                 raise ValueError(
@@ -491,33 +584,58 @@ class Chronos2Model(PreTrainedModel):
             if num_output_patches * output_patch_size > future_covariates.shape[-1]:
                 padding_shape = (
                     *future_covariates.shape[:-1],
-                    num_output_patches * output_patch_size - future_covariates.shape[-1],
+                    num_output_patches * output_patch_size
+                    - future_covariates.shape[-1],
                 )
                 future_covariates = torch.cat(
-                    [future_covariates, torch.zeros(padding_shape).to(future_covariates)], dim=-1
+                    [
+                        future_covariates,
+                        torch.zeros(padding_shape).to(future_covariates),
+                    ],
+                    dim=-1,
                 )
                 future_covariates_mask = torch.cat(
-                    [future_covariates_mask, torch.zeros(padding_shape).to(future_covariates_mask)], dim=-1
+                    [
+                        future_covariates_mask,
+                        torch.zeros(padding_shape).to(future_covariates_mask),
+                    ],
+                    dim=-1,
                 )
 
             patched_future_covariates = rearrange(
-                future_covariates, "b (n p) -> b n p", n=num_output_patches, p=output_patch_size
+                future_covariates,
+                "b (n p) -> b n p",
+                n=num_output_patches,
+                p=output_patch_size,
             )
             patched_future_covariates_mask = rearrange(
-                future_covariates_mask, "b (n p) -> b n p", n=num_output_patches, p=output_patch_size
+                future_covariates_mask,
+                "b (n p) -> b n p",
+                n=num_output_patches,
+                p=output_patch_size,
             )
         else:
             patched_future_covariates = torch.zeros(
-                batch_size, num_output_patches, output_patch_size, device=self.device, dtype=self.dtype
+                batch_size,
+                num_output_patches,
+                output_patch_size,
+                device=self.device,
+                dtype=self.dtype,
             )
             patched_future_covariates_mask = torch.zeros(
-                batch_size, num_output_patches, output_patch_size, device=self.device, dtype=self.dtype
+                batch_size,
+                num_output_patches,
+                output_patch_size,
+                device=self.device,
+                dtype=self.dtype,
             )
 
         # future time encoding: every future timestep is assigned a sequential time index,
         # scaled by model's context length = [0, 1, ..., h-1] / context_length
         final_future_length = num_output_patches * output_patch_size
-        future_time_enc = torch.arange(start=0, end=final_future_length, device=self.device, dtype=torch.float32)
+        future_time_enc = torch.arange(
+            start=0, end=final_future_length, device=self.device, dtype=torch.float32
+        )
         future_time_enc = (
             repeat(
                 future_time_enc,
@@ -531,7 +649,12 @@ class Chronos2Model(PreTrainedModel):
         )
 
         patched_future = torch.cat(
-            [future_time_enc, patched_future_covariates, patched_future_covariates_mask], dim=-1
+            [
+                future_time_enc,
+                patched_future_covariates,
+                patched_future_covariates_mask,
+            ],
+            dim=-1,
         )
 
         return patched_future, patched_future_covariates_mask
@@ -547,7 +670,10 @@ class Chronos2Model(PreTrainedModel):
     ) -> torch.Tensor:
         batch_size = future_target.shape[0]
         output_patch_size = self.chronos_config.output_patch_size
-        assert quantile_preds.shape[0] == batch_size and quantile_preds.shape[-1] >= future_target.shape[-1]
+        assert (
+            quantile_preds.shape[0] == batch_size
+            and quantile_preds.shape[-1] >= future_target.shape[-1]
+        )
 
         # normalize target and mask
         future_target, _ = self.instance_norm(future_target, loc_scale)
@@ -569,15 +695,22 @@ class Chronos2Model(PreTrainedModel):
 
         # pad target and target_mask if they are shorter than model's prediction
         if quantile_preds.shape[-1] > future_target.shape[-1]:
-            padding_shape = (*future_target.shape[:-1], quantile_preds.shape[-1] - future_target.shape[-1])
-            future_target = torch.cat([future_target, torch.zeros(padding_shape).to(future_target)], dim=-1)
+            padding_shape = (
+                *future_target.shape[:-1],
+                quantile_preds.shape[-1] - future_target.shape[-1],
+            )
+            future_target = torch.cat(
+                [future_target, torch.zeros(padding_shape).to(future_target)], dim=-1
+            )
             future_target_mask = torch.cat(
-                [future_target_mask, torch.zeros(padding_shape).to(future_target_mask)], dim=-1
+                [future_target_mask, torch.zeros(padding_shape).to(future_target_mask)],
+                dim=-1,
             )
 
         quantiles = rearrange(self.quantiles, "num_quantiles -> 1 num_quantiles 1")
         quantile_loss = 2 * torch.abs(
-            (future_target - quantile_preds) * ((future_target <= quantile_preds).float() - quantiles)
+            (future_target - quantile_preds)
+            * ((future_target <= quantile_preds).float() - quantiles)
         )
         inv_future_covariate_mask = 1 - rearrange(
             patched_future_covariates_mask,
@@ -589,7 +722,6 @@ class Chronos2Model(PreTrainedModel):
         # the first components masks any missing targets and the second component masks known future values
         loss_mask = future_target_mask.float() * inv_future_covariate_mask
         loss_val = quantile_loss * loss_mask
-
 
         # FIX H: masked mean over horizon — divide only by unmasked positions.
         # Plain .mean(dim=-1) divides by total (padded) H; with horizon=12 and
@@ -632,11 +764,17 @@ class Chronos2Model(PreTrainedModel):
         input_embeds: torch.Tensor = self.input_patch_embedding(patched_context)
         # append [REG] special token embedding, if needed
         if self.chronos_config.use_reg_token:
-            reg_input_ids = torch.full((batch_size, 1), self.config.reg_token_id, device=input_embeds.device)
+            reg_input_ids = torch.full(
+                (batch_size, 1), self.config.reg_token_id, device=input_embeds.device
+            )
             reg_embeds = self.shared(reg_input_ids)
             input_embeds = torch.cat([input_embeds, reg_embeds], dim=-2)
             attention_mask = torch.cat(
-                [attention_mask.to(self.dtype), torch.ones_like(reg_input_ids).to(self.dtype)], dim=-1
+                [
+                    attention_mask.to(self.dtype),
+                    torch.ones_like(reg_input_ids).to(self.dtype),
+                ],
+                dim=-1,
             )
 
         patched_future, patched_future_covariates_mask = self._prepare_patched_future(
@@ -646,7 +784,9 @@ class Chronos2Model(PreTrainedModel):
             num_output_patches=num_output_patches,
             batch_size=batch_size,
         )
-        future_attention_mask = torch.ones(batch_size, num_output_patches, dtype=self.dtype, device=self.device)
+        future_attention_mask = torch.ones(
+            batch_size, num_output_patches, dtype=self.dtype, device=self.device
+        )
 
         # get future embeddings of shape (batch, num_output_patches, d_model)
         future_embeds: torch.Tensor = self.input_patch_embedding(patched_future)
@@ -665,7 +805,12 @@ class Chronos2Model(PreTrainedModel):
             group_ids=group_ids,
             output_attentions=output_attentions,
         )
-        return encoder_outputs, loc_scale, patched_future_covariates_mask, num_context_patches
+        return (
+            encoder_outputs,
+            loc_scale,
+            patched_future_covariates_mask,
+            num_context_patches,
+        )
 
     def forward(
         self,
@@ -746,7 +891,12 @@ class Chronos2Model(PreTrainedModel):
         - enc_group_self_attn_weights: Group self attention weights, if output_attentions=True
         """
         batch_size = context.shape[0]
-        encoder_outputs, loc_scale, patched_future_covariates_mask, num_context_patches = self.encode(
+        (
+            encoder_outputs,
+            loc_scale,
+            patched_future_covariates_mask,
+            num_context_patches,
+        ) = self.encode(
             context=context,
             context_mask=context_mask,
             group_ids=group_ids,
@@ -759,7 +909,11 @@ class Chronos2Model(PreTrainedModel):
         )
         hidden_states: torch.Tensor = encoder_outputs[0]
         reg_len = 1 if self.chronos_config.use_reg_token else 0
-        assert hidden_states.shape == (batch_size, num_context_patches + reg_len + num_output_patches, self.model_dim)
+        assert hidden_states.shape == (
+            batch_size,
+            num_context_patches + reg_len + num_output_patches,
+            self.model_dim,
+        )
 
         # slice the last num_output_patches hidden states to be input into the output_patch_embedding
         forecast_embeds = hidden_states[:, -num_output_patches:]
