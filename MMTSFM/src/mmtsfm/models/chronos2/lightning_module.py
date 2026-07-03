@@ -518,6 +518,26 @@ class VisionChronos2LightningModule(LightningModule):
             ]
         return value
 
+    def on_train_start(self):
+        """Fail loud on non-finite params before burning GPU hours.
+
+        Runs after checkpoint restore, so it catches both uninitialized
+        from_pretrained garbage (params missing from ckpt that _init_weights
+        skipped) and NaN-poisoned resume checkpoints. Without this, the
+        NaN-grad zeroing in on_before_optimizer_step silently freezes training
+        at init quality for the whole run.
+        """
+        bad = [
+            name
+            for name, p in self.model.named_parameters()
+            if p.is_floating_point() and not torch.isfinite(p).all()
+        ]
+        if bad:
+            raise FloatingPointError(
+                f"Non-finite parameters at train start (bad init or corrupt "
+                f"checkpoint): {bad[:8]}{' ...' if len(bad) > 8 else ''}"
+            )
+
     def training_step(self, batch, batch_idx):
         loss = self._step(batch, "train")
         self._last_loss = loss
