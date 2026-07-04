@@ -590,6 +590,17 @@ class VisionChronos2LightningModule(LightningModule):
         mask = inputs["future_target_mask"][:, :H].float()
         daylight = batch["daylight_future"].reshape(y.shape[0], -1)[:, :H].float()
         site_ids = [str(s) for s in batch["site_id"]]
+        # S6 ramp inputs — same rule as baselines/common/runner._future_deltas:
+        # |Δy| vs the previous step (step 0 uses the last history step), validity
+        # = mask_future·daylight·prev_mask. Thresholding happens in finalize().
+        delta = delta_valid = None
+        if "context" in inputs and "context_mask" in inputs:
+            prev = torch.cat([inputs["context"][:, -1:].float(), y[:, :-1]], dim=1)
+            prev_mask = torch.cat(
+                [inputs["context_mask"][:, -1:].float(), mask[:, :-1]], dim=1
+            )
+            delta = (y - prev).abs()
+            delta_valid = mask * daylight * prev_mask
         self._protocol_eval.update(
             site_ids=site_ids,
             y_true=y.cpu().numpy(),
@@ -597,6 +608,8 @@ class VisionChronos2LightningModule(LightningModule):
             mask=(mask * daylight).cpu().numpy(),
             quantiles=quantiles.cpu().numpy(),
             vision_off=vision_off,
+            delta=None if delta is None else delta.cpu().numpy(),
+            delta_valid=None if delta_valid is None else delta_valid.cpu().numpy(),
         )
 
     def on_test_epoch_end(self):
