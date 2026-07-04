@@ -50,6 +50,11 @@ class ProtocolEvaluator:
         self.compute_marginal_gain = compute_marginal_gain
         if self.compute_marginal_gain:
             self.acc_off = PerPlantAccumulator()
+        # Raw per-site buffers (vision-on pass only). Ramp thresholds are a
+        # per-site top-decile over the WHOLE test set, so the S6 ramp metrics
+        # cannot be streamed — they need a second pass in finalize(). The same
+        # buffers back the per-site prediction npz dump in write().
+        self._store: dict[str, dict[str, list[np.ndarray]]] = {}
 
     def update(
         self,
@@ -59,6 +64,8 @@ class ProtocolEvaluator:
         mask: np.ndarray,  # (B, H) = mask_future · daylight
         quantiles: np.ndarray | None = None,  # (B, H, Q)
         vision_off: bool = False,
+        delta: np.ndarray | None = None,  # (B, H) |Δy| vs previous step
+        delta_valid: np.ndarray | None = None,  # (B, H) mask·daylight·prev_mask
     ) -> None:
         target_acc = (
             self.acc_off if (self.compute_marginal_gain and vision_off) else self.acc
@@ -72,6 +79,79 @@ class ProtocolEvaluator:
             if quantiles is None
             else np.asarray(quantiles, np.float64),
         )
+        if not vision_off:
+            self._store_batch(site_ids, y_true, median, mask, delta, delta_valid)
+
+    def _store_batch(self, site_ids, y_true, median, mask, delta, delta_valid):
+        arrs = {
+            "true": np.asarray(y_true, dtype=np.float32),
+            "pred": np.asarray(median, dtype=np.float32),
+            "mask": np.asarray(mask, dtype=np.float32),
+        }
+        if delta is not None and delta_valid is not None:
+            arrs["delta"] = np.asarray(delta, dtype=np.float32)
+            arrs["delta_valid"] = np.asarray(delta_valid, dtype=np.float32)
+        sites = np.asarray([str(s) for s in site_ids])
+        for site in np.unique(sites):
+            rows = sites == site
+            bucket = self._store.setdefault(str(site), {k: [] for k in arrs})
+            for k, v in arrs.items():
+                bucket.setdefault(k, []).append(v[rows])
+
+    def _ramp_metrics(self) -> dict[str, dict[str, float]]:
+        """Per-site S6 ramp NMAE/NRMSE (protocol rule: top-decile |Δy| per site).
+
+        Same subset rule as ``baselines/common/runner`` (delta vs previous step
+        incl. the last history step, validity = mask·daylight·prev_mask,
+        per-site top-decile threshold over the full test set) — the MMTSFM
+        windows are protocol-aligned, so these ramp numbers are comparable with
+        tiers 0-3, unlike the T4-T6 native-window proxies.
+        """
+        out: dict[str, dict[str, float]] = {}
+        acc = PerPlantAccumulator()
+        for site, bucket in self._store.items():
+            # ramp needs delta for EVERY stored batch — a mixed stream (some
+            # updates without history) would misalign delta rows with pred/true
+            if not bucket.get("delta") or len(bucket["delta"]) != len(bucket["true"]):
+                continue
+            delta = np.concatenate(bucket["delta"], axis=0).astype(np.float64)
+            valid = np.concatenate(bucket["delta_valid"], axis=0).astype(np.float64)
+            if (valid > 0).sum() == 0:
+                continue
+            thr = float(np.quantile(delta[valid > 0], 0.9))
+            ramp = ((delta >= thr) & (valid > 0)).astype(np.float64)
+            true = np.concatenate(bucket["true"], axis=0).astype(np.float64)
+            pred = np.concatenate(bucket["pred"], axis=0).astype(np.float64)
+            mask = np.concatenate(bucket["mask"], axis=0).astype(np.float64)
+            acc.update(
+                plants=np.asarray([site] * len(true)),
+                y_true=true,
+                y_pred=pred,
+                mask=mask,
+                ramp_mask=ramp,
+            )
+        for site, row in acc.per_plant().items():
+            if "nmae_ramp" in row:
+                out[site] = {
+                    "nmae_ramp": row["nmae_ramp"],
+                    "nrmse_ramp": row["nrmse_ramp"],
+                }
+        return out
+
+    def dump_predictions(self, out_dir: str, model_name: str) -> Path | None:
+        """Write per-site raw pred/true/mask npz (baselines predictions layout)."""
+        if not self._store:
+            return None
+        pred_dir = Path(out_dir) / "predictions"
+        pred_dir.mkdir(parents=True, exist_ok=True)
+        for site, bucket in self._store.items():
+            np.savez(
+                pred_dir / f"{model_name}_{site}_pred.npz",
+                pred=np.concatenate(bucket["pred"], axis=0),
+                true=np.concatenate(bucket["true"], axis=0),
+                mask=np.concatenate(bucket["mask"], axis=0),
+            )
+        return pred_dir
 
     def _reference_nrmse(self) -> tuple[float | None, dict]:
         path = Path(self.reference_path or default_reference_path())
@@ -82,6 +162,17 @@ class ProtocolEvaluator:
 
     def finalize(self) -> dict:
         results = {"overall": self.acc.macro(), "per_plant": self.acc.per_plant()}
+        ramp = self._ramp_metrics()
+        if ramp:
+            for plant, row in results["per_plant"].items():
+                if plant in ramp:
+                    row.update(ramp[plant])
+            results["overall"]["nmae_ramp"] = float(
+                np.mean([r["nmae_ramp"] for r in ramp.values()])
+            )
+            results["overall"]["nrmse_ramp"] = float(
+                np.mean([r["nrmse_ramp"] for r in ramp.values()])
+            )
         ref_nrmse, ref_per_plant = self._reference_nrmse()
         if ref_nrmse:
             results["overall"]["skill_score"] = skill_score(
@@ -129,6 +220,11 @@ class ProtocolEvaluator:
         run_config: dict,
         data_path: str = config.DEFAULT_DATA_PATH,
     ) -> Path:
-        return write_results(
+        path = write_results(
             out_dir, model_name, self.finalize(), run_config, data_path
         )
+        try:
+            self.dump_predictions(out_dir, model_name)
+        except Exception as e:  # dump is auxiliary — never fail the results write
+            print(f"[protocol-eval] prediction dump skipped: {e}", flush=True)
+        return path

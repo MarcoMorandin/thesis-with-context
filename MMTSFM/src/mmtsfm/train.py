@@ -93,6 +93,10 @@ def main(cfg: DictConfig):
             ckpt_path = _best_finite_checkpoint_path(trainer)
             if ckpt_path is None:
                 log.warning("Skipping testing: no finite best checkpoint was produced.")
+        elif cfg.get("ckpt_path", None):
+            # test-only mode (train=false): score an existing checkpoint —
+            # "best" is meaningless without a fit in this process.
+            ckpt_path = cfg.ckpt_path
         if ckpt_path is not None:
             log.info(f"Starting testing from checkpoint: {ckpt_path}")
             trainer.test(

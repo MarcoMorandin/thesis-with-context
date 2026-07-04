@@ -105,3 +105,68 @@ def test_visual_marginal_gain():
     assert abs(res["per_plant"]["A"]["nmae_vision_on"] - 0.0) < 1e-9
     assert abs(res["per_plant"]["A"]["nmae_vision_off"] - 0.2) < 1e-9
     assert abs(res["per_plant"]["A"]["delta_nmae"] - 0.2) < 1e-9
+
+
+def test_ramp_metrics_top_decile_subset():
+    """S6: ramp NMAE/NRMSE from the per-site top-decile |Δy| subset."""
+    from eval.protocol_eval import ProtocolEvaluator
+
+    ev = ProtocolEvaluator(horizon=4)
+    rng = np.random.default_rng(0)
+    n = 50
+    y = rng.uniform(0.2, 0.4, (n, 4))
+    y[0, 2] = 0.95  # one huge jump → guaranteed top-decile ramp step
+    pred = y + 0.05
+    pred[0, 2] = y[0, 2] + 0.3  # ramp step has a much larger error
+    mask = np.ones_like(y)
+    delta = np.abs(np.diff(np.concatenate([y[:, :1], y], axis=1), axis=1))
+    ev.update(
+        site_ids=["A"] * n,
+        y_true=y,
+        median=pred,
+        mask=mask,
+        delta=delta,
+        delta_valid=mask,
+    )
+    res = ev.finalize()
+    assert "nmae_ramp" in res["overall"]
+    assert "nrmse_ramp" in res["overall"]
+    # the ramp subset contains the high-error jump → ramp error > overall error
+    assert res["overall"]["nmae_ramp"] > res["overall"]["nmae"]
+    assert res["per_plant"]["A"]["nmae_ramp"] == res["overall"]["nmae_ramp"]
+
+
+def test_ramp_metrics_absent_without_delta():
+    from eval.protocol_eval import ProtocolEvaluator
+
+    ev = ProtocolEvaluator(horizon=4)
+    y = np.zeros((2, 4))
+    ev.update(site_ids=["A"] * 2, y_true=y, median=y, mask=np.ones_like(y))
+    res = ev.finalize()
+    assert "nmae_ramp" not in res["overall"]
+
+
+def test_dump_predictions_per_site_npz(tmp_path):
+    from eval.protocol_eval import ProtocolEvaluator
+
+    ev = ProtocolEvaluator(horizon=4, reference_path=str(tmp_path / "missing.json"))
+    y = np.random.default_rng(1).uniform(0, 1, (3, 4))
+    ev.update(site_ids=["A", "B", "A"], y_true=y, median=y + 0.1, mask=np.ones_like(y))
+    ev.write(str(tmp_path), "mmtsfm_test", {"seed": 42}, data_path="x")
+    for site, rows in (("A", 2), ("B", 1)):
+        f = tmp_path / "predictions" / f"mmtsfm_test_{site}_pred.npz"
+        assert f.exists()
+        data = np.load(f)
+        assert data["pred"].shape == (rows, 4)
+        assert data["true"].shape == (rows, 4)
+        assert data["mask"].shape == (rows, 4)
+    # vision-off updates must not pollute the dump
+    ev2 = ProtocolEvaluator(horizon=4, compute_marginal_gain=True)
+    ev2.update(
+        site_ids=["A"],
+        y_true=y[:1],
+        median=y[:1],
+        mask=np.ones((1, 4)),
+        vision_off=True,
+    )
+    assert ev2.dump_predictions(str(tmp_path), "off_only") is None
