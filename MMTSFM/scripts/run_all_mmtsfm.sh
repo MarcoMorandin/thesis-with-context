@@ -84,7 +84,12 @@ ENCODER="${ENCODER:-vjepa2}"           # vjepa2 | skip (applied to vision ablati
 PREEXTRACT_VJEPA="${PREEXTRACT_VJEPA:-1}"
 EXTRACT_SPLITS="${EXTRACT_SPLITS:-train val test}"
 VJEPA_ARCH="${VJEPA_ARCH:-vit_large}"
-VJEPA_CACHE_ROOT="${VJEPA_CACHE_ROOT:-${DATA_DIR}/vjepa_cache}"
+# Cache of record lives on the WORK filesystem (quota headroom), not under the
+# read-only dataset dir on scratch. Defaulting to ${DATA_DIR}/vjepa_cache made
+# any submission without VJEPA_CACHE_ROOT exported silently re-encode the full
+# V-JEPA cache from zero into scratch (2026-07-04: 2 jobs burned hours re-caching
+# while the 139k-file cache sat unused in /leonardo_work).
+VJEPA_CACHE_ROOT="${VJEPA_CACHE_ROOT:-/leonardo_work/IscrC_MTSFM/vjepa_cache}"
 EXTRACT_BATCH_SIZE="${EXTRACT_BATCH_SIZE:-8}"
 EXTRACT_NUM_WORKERS="${EXTRACT_NUM_WORKERS:-4}"
 EXTRACT_VIDEO_FRAMES="${EXTRACT_VIDEO_FRAMES:-8}"
