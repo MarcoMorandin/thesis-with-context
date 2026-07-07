@@ -39,6 +39,12 @@ Score (SS)** over Smart Persistence. This is the bar the thesis model (PVTSFM) m
    fine-tuning the same backbone (chronos2_ft 0.331). Adaptation is mandatory — zero-shot
    foundation models alone do not even clear the classical-ML tier.
 
+**Where our model stands (updated 2026-07-04).** First *healthy* MMTSFM grassmann runs
+(after the init-NaN fix, §3.5): **interleaved SS 0.343**, no_modbias 0.337. Fusion beats
+fine-tuning the same backbone (chronos2_ft 0.331) but trails RAG (≈0.477) and the 0.55
+bar. Weakness is localized: horizons ≥2.5 h. Next lever: retrieval and/or richer vision
+conditioning on top of the fused backbone (§6 P1b).
+
 **Honesty caveats (read before over-claiming):**
 
 - **Single dataset.** Everything here is `uk_pv`. No cross-dataset (`goes_pvdaq`, the US
@@ -88,19 +94,22 @@ Pulled from `ALL_RESULTS.md`. ⚠ flags = read §3 before quoting the number.
 | 12 | T4 | cora | 0.1025 | 0.1444 | 0.374 | 0.0816 | 0.2021 | frozen-TSFM adapt |
 | 13 | T3 | ttm_ft | 0.1029 | 0.1465 | 0.364 | — | 0.2062 | tiny TSFM, fine-tuned |
 | 14 | T6 | crossvivit | 0.1112 | 0.1500 | 0.349 | — | 0.2100 | multimodal |
-| 15 | T1 | TabPFN | 0.1076 | 0.1524 | 0.339 | 0.0815 | 0.2050 | tabular FM |
-| 16 | T3 | chronos2_ft | 0.1120 | 0.1543 | 0.331 | 0.0855 | 0.2115 | our backbone, FT |
-| 17 | T2 | DLinear | 0.1131 | 0.1556 | 0.325 | — | 0.2092 | linear check |
-| 18 | T3 | tirex_zs | 0.1145 | 0.1642 | 0.287 | 0.0892 | 0.2233 | zero-shot |
-| 19 | T3 | timesfm_zs | 0.1172 | 0.1680 | 0.271 | 0.0923 | 0.2319 | zero-shot |
-| 20 | T0 | climatology_hourly | 0.1353 | 0.1766 | 0.234 | — | 0.2037 | reference |
-| 21 | T5 | aurora | 0.1280 | 0.1769 | 0.232 | — | 0.2516 | multimodal (weak) |
-| 22 | T6 | sunset | 0.1384 | 0.1806 | 0.216 | — | 0.2177 | multimodal |
-| 23 | T3 | chronos2_zs | 0.1376 | 0.1873 | 0.187 | 0.1072 | 0.2335 | our backbone, ZS |
-| 24 | T5 | unicast | 0.1433 | 0.2025 | 0.121 | — | 0.2814 | ⚠ genuinely weak (§3.3) |
-| 25 | T0 | seasonal_naive | 0.1419 | 0.2058 | 0.107 | — | 0.2575 | reference |
-| 26 | T5 | visionts_pp | 0.1690 | 0.2266 | 0.017 | — | 0.2515 | ≈ persistence |
-| 27 | T0 | persistence | 0.1643 | 0.2272 | 0.014 | — | 0.2990 | floor |
+| 15 | **MM** | **mmtsfm_selfattn_late** | 0.1076 | 0.1513 | **0.3432** | 0.0810 | **0.2034** | **ours, late fusion + TimeSelfAttention** (§3.5; ramp = protocol-aligned) |
+| 16 | **MM** | **mmtsfm_grassmann_interleaved** | 0.1059 | 0.1514 | **0.3429** | 0.0805 | — | **ours, flagship** (§3.5) |
+| 17 | T1 | TabPFN | 0.1076 | 0.1524 | 0.339 | 0.0815 | 0.2050 | tabular FM |
+| 18 | **MM** | **mmtsfm_grassmann_no_modbias** | 0.1066 | 0.1527 | **0.337** | 0.0812 | — | **ours, ablation: no modality_pair_bias** (§3.5) |
+| 19 | T3 | chronos2_ft | 0.1120 | 0.1543 | 0.331 | 0.0855 | 0.2115 | our backbone, FT |
+| 20 | T2 | DLinear | 0.1131 | 0.1556 | 0.325 | — | 0.2092 | linear check |
+| 21 | T3 | tirex_zs | 0.1145 | 0.1642 | 0.287 | 0.0892 | 0.2233 | zero-shot |
+| 22 | T3 | timesfm_zs | 0.1172 | 0.1680 | 0.271 | 0.0923 | 0.2319 | zero-shot |
+| 23 | T0 | climatology_hourly | 0.1353 | 0.1766 | 0.234 | — | 0.2037 | reference |
+| 24 | T5 | aurora | 0.1280 | 0.1769 | 0.232 | — | 0.2516 | multimodal (weak) |
+| 25 | T6 | sunset | 0.1384 | 0.1806 | 0.216 | — | 0.2177 | multimodal |
+| 26 | T3 | chronos2_zs | 0.1376 | 0.1873 | 0.187 | 0.1072 | 0.2335 | our backbone, ZS |
+| 27 | T5 | unicast | 0.1433 | 0.2025 | 0.121 | — | 0.2814 | ⚠ genuinely weak (§3.3) |
+| 28 | T0 | seasonal_naive | 0.1419 | 0.2058 | 0.107 | — | 0.2575 | reference |
+| 29 | T5 | visionts_pp | 0.1690 | 0.2266 | 0.017 | — | 0.2515 | ≈ persistence |
+| 30 | T0 | persistence | 0.1643 | 0.2272 | 0.014 | — | 0.2990 | floor |
 | — | T0 | smart_persistence | 0.1593 | 0.2304 | 0.000 | — | 0.2806 | **reference (SS≡0)** |
 | ✗ | T3 | ttm_zs | 0.1704 | 0.2490 | **−0.081** | — | 0.3414 | worse than SP |
 
@@ -134,6 +143,12 @@ Pulled from `ALL_RESULTS.md`. ⚠ flags = read §3 before quoting the number.
   on the cloud-transition regime. solar_vlm (0.443) is the best PV-specialized
   multimodal, then crossvivit (0.349). aurora (0.232), sunset (0.216), unicast (0.121)
   remain weak; visionts_pp ≈ persistence.
+* **MM (ours, MMTSFM)** — first healthy grassmann runs land at **SS 0.343 / 0.337**
+  (interleaved / no_modbias): above chronos2_ft (0.331) — i.e. the multimodal fusion
+  already beats plain fine-tuning of the same backbone — but below the RAG pair
+  (≈0.477) and far from the 0.55 bar. Horizon profile shows a clean split: steps 1–5
+  are strong (NMAE 0.066–0.092), then a jump at step 6+ (0.126–0.153) — the 2.5 h+
+  part of the horizon is where the headroom is. See §3.5.
 
 ---
 
@@ -166,6 +181,53 @@ Pulled from `ALL_RESULTS.md`. ⚠ flags = read §3 before quoting the number.
    affine recalibration on the targets — flagged for P0 below, *not* fixed here.
 4. **Single dataset.** Everything here is `uk_pv`. No cross-dataset (`goes_pvdaq`)
    evidence yet, so generalization claims are unsupported.
+5. **MMTSFM grassmann rows are now healthy re-runs (the old SS −0.123 row is
+   retired).** The 2026-07-03 flagship run (job 48329885) was invalidated by
+   uninitialized Grassmann `offset_weights` / `modality_pair_bias` (fixed in
+   `ba8471d`: `_init_weights` now covers them; `fcfe4fe` adds a fail-loud
+   non-finite-param check at train start). Re-runs on 2026-07-04 (jobs
+   48501300/48501301, same protocol, TRAIN_STRIDE=12) trained cleanly — zero NaN
+   in either log, finite grad_norms throughout, normal early-stop on val/loss
+   (interleaved: best epoch 23, val/loss 2.844, stopped epoch 30; no_modbias:
+   best epoch 21, val/loss 2.850, stopped epoch 28):
+   * `mmtsfm_grassmann_interleaved` — NMAE 0.1059 / NRMSE 0.1514 / **SS 0.343** /
+     CRPS 0.0805 / coverage_80 0.793 (14 plants, 165,295 steps).
+   * `mmtsfm_grassmann_no_modbias` — NMAE 0.1066 / NRMSE 0.1527 / **SS 0.337** /
+     CRPS 0.0812 / coverage_80 0.756. Removing `modality_pair_bias` costs only
+     ~0.006 SS → the pair bias helps marginally (calibration more than accuracy:
+     coverage_80 drops 0.79→0.76 without it).
+   * `mmtsfm_selfattn_late` (2026-07-05, resumed after walltime timeout, job
+     48543921, stopped epoch 37, best val 2.876 @ epoch 30) — NMAE 0.1076 /
+     NRMSE 0.1513 / **SS 0.3432** / CRPS 0.0810 / **ramp NRMSE 0.2034**
+     (protocol-aligned ramp rule, comparable with tiers 0–3). **Statistical tie
+     with the grassmann flagship (0.3429)**: on uk_pv, interleaved Grassmann
+     mixing so far buys nothing over plain late fusion + TimeSelfAttention.
+   * A third arm, `mmtsfm_numeric_grassmann`, OOM'd twice: with the vision
+     stack skipped, samples fall into the standard multivariate path where
+     every covariate channel becomes its own series row (15 rows/sample →
+     [30, 86, 768] at batch 2 vs [2, 89, 768] interleaved) — a 15× batch-dim
+     blowup into group attention. Re-running at `batch_size=2` +
+     `accumulate_grad_batches=8` (job 48601902, training cleanly).
+   * ⚠ **Open integrity issue: saved MMTSFM checkpoints do not reproduce
+     their training-time scores in a fresh process.** Affects BOTH
+     architectures: interleaved epoch-23 ckpt (claims val 2.8435) → fresh val
+     4.08 / test SS 0.102; no_modbias epoch-21 → val 5.25 / SS 0.037;
+     selfattn epoch-30 (claims 2.8760) → val 5.06 / SS 0.016. Eliminated by
+     experiment (jobs 48601899/48602913/48603462/48689741): weight restore is
+     tensor-faithful (all 236 non-V-JEPA keys apply, values verified), hydra
+     configs bit-identical, V-JEPA cache unchanged since Jul 3, dataset
+     deterministic, quantiles/inv_freq buffers deterministic, and the fit-entry
+     restore path fails identically (val 4.065 after fit-restore + 1 batch) —
+     so the checkpoint *content* does not correspond to the scoring model,
+     despite capturing every registered parameter. Apparent "seamless" resumes
+     are consistent with 1–2 epochs of retraining healing the damage. Next
+     diagnostic: numeric_grassmann (vision-free) resume val → discriminates
+     vision-path vs global; after that, activation-fingerprint bisection
+     (dump per-module outputs on a fixed batch at save time vs after reload).
+     In-process test numbers (the rows above) are internally consistent and
+     remain the numbers of record; post-hoc re-scoring from checkpoints is
+     blocked until this is fixed.
+   Raw artifacts: `results/mmtsfm/mmtsfm_{grassmann_interleaved,grassmann_no_modbias,selfattn_late}_ukpv.{json,log}`.
 
 ---
 
@@ -289,6 +351,13 @@ the trace plots hide. Sorted by **site NMAE ↓** (site-10793-only — see §4 w
    as a strong component, not an afterthought.
 4. **Zero-shot TSFMs are insufficient alone** — adaptation (FT / RAG / fusion) is
    mandatory to clear even the classical-ML tier.
+5. **First valid MMTSFM signal (2026-07-04): fusion > FT, but retrieval still wins.**
+   mmtsfm_grassmann_interleaved (0.343) beats chronos2_ft (0.331) with the same
+   backbone — the vision fusion adds real signal — but trails ts_rag/cross_rag
+   (≈0.477) by 0.13 SS and the 0.55 bar by 0.21. The per-horizon NMAE profile
+   (strong ≤2 h, degrading 2.5–6 h) says the vision context is not yet informing the
+   longer horizons where clouds move in. The no_modbias ablation (0.337) shows
+   `modality_pair_bias` is worth keeping but is not the bottleneck.
 
 ---
 
@@ -355,6 +424,19 @@ is in §1–§5.
 * Run the low-history robustness sweep and the day-ahead decay curve
   (`DECAY_HORIZONS_HOURS = (1, 6, 24)`) — zero-shot FMs may close the gap at longer
   horizons where supervised models over-fit short transients.
+
+**P1b — MMTSFM iteration (new, post 2026-07-04 runs)**
+* Resubmit `mmtsfm_numeric_grassmann` with reduced memory footprint (smaller batch or
+  activation checkpointing) — it OOM'd before producing a number, so the
+  numeric-vs-interleaved comparison is still open.
+* Close the 0.13-SS gap to the RAG pair: the horizon profile (§2 MM) points at
+  late-horizon (2.5–6 h) degradation — test whether richer vision conditioning
+  (more frames / longer vision context) or RAG-style retrieval on top of the fused
+  backbone recovers it. This directly connects to D2.
+* Add ramp NMAE/NRMSE for the MMTSFM rows (dump predictions npz →
+  `import_predictions.py` path, same as T4–T6) so the ramp column is comparable.
+* Keep `modality_pair_bias` (worth ~0.006 SS + better coverage_80); deprioritize
+  further bias ablations.
 
 **P2 — strengthen the multimodal case**
 * Investigate why most vision baselines (sunset, aurora, visionts_pp) sit near the
