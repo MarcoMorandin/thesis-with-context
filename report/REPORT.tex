@@ -1,0 +1,839 @@
+% Options for packages loaded elsewhere
+\PassOptionsToPackage{unicode}{hyperref}
+\PassOptionsToPackage{hyphens}{url}
+\PassOptionsToPackage{dvipsnames,svgnames,x11names}{xcolor}
+\documentclass[
+  9pt,
+]{article}
+\usepackage{xcolor}
+\usepackage[margin=1.5cm]{geometry}
+\usepackage{amsmath,amssymb}
+\setcounter{secnumdepth}{-\maxdimen} % remove section numbering
+\usepackage{iftex}
+\ifPDFTeX
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{textcomp} % provide euro and other symbols
+\else % if luatex or xetex
+  \usepackage{unicode-math} % this also loads fontspec
+  \defaultfontfeatures{Scale=MatchLowercase}
+  \defaultfontfeatures[\rmfamily]{Ligatures=TeX,Scale=1}
+\fi
+\usepackage{lmodern}
+\ifPDFTeX\else
+  % xetex/luatex font selection
+\fi
+% Use upquote if available, for straight quotes in verbatim environments
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+\IfFileExists{microtype.sty}{% use microtype if available
+  \usepackage[]{microtype}
+  \UseMicrotypeSet[protrusion]{basicmath} % disable protrusion for tt fonts
+}{}
+\makeatletter
+\@ifundefined{KOMAClassName}{% if non-KOMA class
+  \IfFileExists{parskip.sty}{%
+    \usepackage{parskip}
+  }{% else
+    \setlength{\parindent}{0pt}
+    \setlength{\parskip}{6pt plus 2pt minus 1pt}}
+}{% if KOMA class
+  \KOMAoptions{parskip=half}}
+\makeatother
+\usepackage{longtable,booktabs,array}
+\usepackage{calc} % for calculating minipage widths
+% Correct order of tables after \paragraph or \subparagraph
+\usepackage{etoolbox}
+\makeatletter
+\patchcmd\longtable{\par}{\if@noskipsec\mbox{}\fi\par}{}{}
+\makeatother
+% Allow footnotes in longtable head/foot
+\IfFileExists{footnotehyper.sty}{\usepackage{footnotehyper}}{\usepackage{footnote}}
+\makesavenoteenv{longtable}
+\setlength{\emergencystretch}{3em} % prevent overfull lines
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\usepackage{amssymb}
+\usepackage{bookmark}
+\IfFileExists{xurl.sty}{\usepackage{xurl}}{} % add URL line breaks if available
+\urlstyle{same}
+\hypersetup{
+  colorlinks=true,
+  linkcolor={blue},
+  filecolor={Maroon},
+  citecolor={Blue},
+  urlcolor={blue},
+  pdfcreator={LaTeX via pandoc}}
+
+\author{}
+\date{}
+
+\begin{document}
+
+\subsection{1. Dataset Overview}\label{dataset-overview}
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{Total records:} 1,297,015
+\item
+  \textbf{Columns:} 35
+\item
+  \textbf{Sites:} 106
+\end{itemize}
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\linewidth - 10\tabcolsep) * \real{0.1188}}
+  >{\raggedleft\arraybackslash}p{(\linewidth - 10\tabcolsep) * \real{0.0891}}
+  >{\raggedleft\arraybackslash}p{(\linewidth - 10\tabcolsep) * \real{0.0891}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 10\tabcolsep) * \real{0.1683}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 10\tabcolsep) * \real{0.2673}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 10\tabcolsep) * \real{0.2673}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+dataset
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedleft
+rows
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedleft
+sites
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+sampling
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+first\_\allowbreak{}ts
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+last\_\allowbreak{}ts
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+goes\_\allowbreak{}pvdaq & 88806 & 8 & 15 minutes & 2019-01-01 00:00:00+00:00 &
+2019-09-30 23:45:00+00:00 \\
+uk\_\allowbreak{}pv & 1208209 & 98 & 30 minutes & 2019-01-01 08:00:00+00:00 &
+2020-12-31 16:00:00+00:00 \\
+\end{longtable}
+
+\subsubsection{1.1 Organization}\label{organization}
+
+Two source datasets (\texttt{uk\_\allowbreak{}pv} satellite HRV crops,
+\texttt{goes\_\allowbreak{}pvdaq} GOES-16 crops) merged into a single table
+\texttt{dataset\_\allowbreak{}all.parquet} --- one row per
+\texttt{(site\_\allowbreak{}id,\ timestamp\_\allowbreak{}utc)}. Each row pairs a PV power reading
+and its weather/solar covariates with a co-registered image frame;
+pixels live in \texttt{images\_\allowbreak{}all.h5}, referenced by the integer
+\texttt{image\_\allowbreak{}*\_\allowbreak{}index} pointers. \texttt{norm\_\allowbreak{}power} (power \(\div\)
+installed capacity) is the model target; splits are cross-plant on
+\texttt{site\_\allowbreak{}id}.
+
+\subsubsection{1.2 Columns}\label{columns}
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.3333}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.3333}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.3333}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Column
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Meaning
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Role
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\texttt{dataset} & Source dataset: \texttt{uk\_\allowbreak{}pv} or
+\texttt{goes\_\allowbreak{}pvdaq} & id --- cross-region split key \\
+\texttt{site\_\allowbreak{}id} & PV plant identifier & id --- cross-plant split
+key \\
+\texttt{timestamp\_\allowbreak{}utc} & UTC sample time & index --- windowing \\
+\texttt{power\_\allowbreak{}w} & Measured PV power output (W) & raw target; not fed
+directly \\
+\texttt{installed\_\allowbreak{}power\_\allowbreak{}w} & Nameplate capacity (W) & normalizer \\
+\texttt{norm\_\allowbreak{}power} & power\_\allowbreak{}w \(\div\) installed\_\allowbreak{}power\_\allowbreak{}w &
+\textbf{target} \\
+\texttt{temperature\_\allowbreak{}2m} & 2 m air temperature (\(^\circ\)C) & covariate ---
+observed \\
+\texttt{shortwave\_\allowbreak{}radiation} & Surface downwelling shortwave (W/m\textsuperscript{2}) &
+covariate --- observed \\
+\texttt{direct\_\allowbreak{}radiation} & Direct-beam component (W/m\textsuperscript{2}) & covariate
+--- observed \\
+\texttt{diffuse\_\allowbreak{}radiation} & Diffuse component (W/m\textsuperscript{2}) & covariate ---
+observed \\
+\texttt{direct\_\allowbreak{}normal\_\allowbreak{}irradiance} & DNI (W/m\textsuperscript{2}) & covariate ---
+observed \\
+\texttt{cloudcover} & Total cloud cover (\%) & covariate --- observed \\
+\texttt{windspeed\_\allowbreak{}10m} & 10 m wind speed (m/s) & covariate ---
+observed \\
+\texttt{precipitation} & Precipitation (mm) & covariate --- observed \\
+\texttt{solar\_\allowbreak{}zenith} & Solar zenith angle (deg) & covariate ---
+deterministic \\
+\texttt{solar\_\allowbreak{}azimuth} & Solar azimuth angle (deg) & covariate ---
+deterministic \\
+\texttt{clearsky\_\allowbreak{}ghi} & Clear-sky GHI model (W/m\textsuperscript{2}) & covariate ---
+deterministic \\
+\texttt{doy\_\allowbreak{}sin}, \texttt{doy\_\allowbreak{}cos} & Cyclic day-of-year encoding &
+covariate --- deterministic \\
+\texttt{solar\_\allowbreak{}time} & Local apparent solar time (hours) & covariate ---
+deterministic \\
+\texttt{image\_\allowbreak{}h5\_\allowbreak{}index} & Row index into \texttt{images\_\allowbreak{}all.h5} &
+vision input pointer \\
+\texttt{latitude}, \texttt{longitude} & Site coordinates & metadata ---
+unused (can be used for graph building) \\
+\texttt{station\_\allowbreak{}id} & Weather station tag & metadata --- unused \\
+\texttt{camera\_\allowbreak{}id} & Imagery channel (HRV/GOES) & metadata ---
+unused \\
+\texttt{outage\_\allowbreak{}flag} & Flag: outage / zero-output anomaly & curation
+only, unused \\
+\texttt{night\_\allowbreak{}clamped} & Flag: nighttime power clamped to 0 & curation
+only, unused \\
+\end{longtable}
+
+\newpage
+
+\subsubsection{1.3 Construction \& sources}\label{construction-sources}
+
+The dataset is assembled fusing four public sources into one
+standardized \texttt{(site\_\allowbreak{}id,\ timestamp\_\allowbreak{}utc)} table plus
+co-registered image frames:
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{PV power --- UK}
+  (\href{https://huggingface.co/datasets/openclimatefix/uk_pv}{\texttt{openclimatefix/uk\_\allowbreak{}pv}},
+  HF): 30-minutely generation (2019--2020) and per-site metadata
+  (rounded lat/lon, \texttt{kWp} capacity). \texttt{generation\_\allowbreak{}Wh} over
+  30 min is converted to watts (\(\times\)2); short gaps (\(\leq\) 3 steps) are linearly
+  interpolated, unfixable ones dropped.
+\item
+  \textbf{UK satellite imagery} --- EUMETSAT \textbf{SEVIRI RSS HRV}
+  from the Open Climate Fix public GCS bucket
+  (\texttt{gs://public-datasets-eumetsat-solar-forecasting/satellite/EUMETSAT/SEVIRI\_\allowbreak{}RSS/v4/\textless{}year\textgreater{}\_\allowbreak{}hrv.zarr}),
+  \textasciitilde1 km/px. Frames are reprojected (pyproj) to each site
+  and cropped to \textbf{128\(\times\)128 px (\textasciitilde128 km)} for
+  cloud-advection context.
+\item
+  \textbf{PV power + imagery --- US} (\texttt{goes\_\allowbreak{}pvdaq}): NREL
+  \textbf{PVDAQ} systems with site metadata (lat/lon, nameplate power)
+  from the \href{https://oedi-data-lake.s3.amazonaws.com/pvdaq/}{OEDI
+  data lake}, paired with \textbf{GOES-16} satellite crops (10 sites).
+\item
+  \textbf{Weather covariates} ---
+  \href{https://open-meteo.com/en/docs/historical-weather-api}{Open-Meteo
+  Archive API}: 8 hourly variables (2 m temperature,
+  shortwave/direct/diffuse radiation, DNI, cloud cover, 10 m wind speed,
+  precipitation), fetched per site and joined to each row by
+  nearest-timestamp (\texttt{merge\_\allowbreak{}asof}).
+\end{itemize}
+
+\textbf{Operations.} Per frame: NaN \(\rightarrow\) 0, clip to {[}0,1{]}, keep only
+non-empty crops; images are written as per-site PNGs / a single
+\texttt{uint8} HDF5 (millions of small files are impractical). Numeric
+rows from both sources are concatenated, enriched with
+\texttt{installed\_\allowbreak{}power\_\allowbreak{}w} + coordinates, then joined with the weather
+track and saved.
+
+\subsubsection{1.4 Other public dataset --- ClimateHackAI
+2023}\label{other-public-dataset-climatehackai-2023}
+
+The \textbf{ClimateHackAI 2023} competition dataset
+(\href{https://doxaai.com/competition/climatehackai-2023/overview}{DOXA}
+\(\cdot\)
+\href{https://huggingface.co/datasets/climatehackai/climatehackai-2023}{HF},
+\textasciitilde600 GB) is a multimodal PV-nowcasting corpus over
+\textbf{Great Britain}. Per site it provides \textbf{PV generation} as a
+fraction of installed capacity at \textbf{5-min} resolution, with
+metadata (latitude, longitude, orientation, tilt, installed capacity);
+two \textbf{EUMETSAT} satellite streams at 5-min cadence ---
+\textbf{HRV} \texttt{{[}12,128,128{]}} and \textbf{non-HRV} 11-channel
+\texttt{{[}12,128,128,11{]}} crops centred on each site; \textbf{DWD
+ICON-EU} numerical weather forecasts (38 variables, T\(-\)1h\ldots T+4h,
+128\(\times\)128 grids); and \textbf{ECMWF CAMS} air-quality forecasts (13
+variables \(\times\) 8 altitudes). The competition task: from \textbf{1 h of
+history} (PV + satellite) plus the hourly weather/air-quality forecast
+steps, predict the \textbf{next 4 h} of PV output --- 48 values at 5-min
+intervals --- scored by mean absolute error (target \textless{} 0.15).
+
+It is structured differently from the dataset of record: built for
+\textbf{nowcasting}, it is organised as short fixed windows (1 h in \(\rightarrow\) 4
+h out) at 5-min resolution with per-window satellite/NWP/air-quality
+tensors, rather than a single long tall table of
+\texttt{(site,\ timestamp)} rows spanning history and horizon. That
+short-window, high-cadence, forecast-tensor layout targets
+minutes-to-hours nowcasting and would need re-windowing and re-sampling
+before it could serve the longer-history, cross-plant protocol used
+here.
+
+Note: this is a \textbf{competition dataset with no accompanying
+published paper}; it is documented only through the competition overview
+and Hugging Face repository, so there is no peer-reviewed reference to
+cite for its construction or provenance.
+
+\subsubsection{1.5 Other public dataset --- MMSP
+(FusionSF)}\label{other-public-dataset-mmsp-fusionsf}
+
+The \textbf{MMSP} (Multi-Modal Solar Power) dataset is released with
+\textbf{FusionSF}
+(\href{https://arxiv.org/abs/2402.05823}{arXiv:2402.05823} \(\cdot\)
+\href{https://github.com/MAZiqing/FusionSF}{code} \(\cdot\)
+\href{https://drive.google.com/drive/folders/1qGVOw-hAVQlO3n-1d4ZNHvL42L9PkdBK}{data}),
+a multimodal PV corpus over \textbf{88 geographically dispersed solar
+plants across a Chinese province (\textasciitilde157,100 km\textsuperscript{2})}, spanning
+\textbf{Jan 2021 -- Jun 2022} at \textbf{hourly} resolution (downsampled
+from 10-min). Each record fuses three modalities: \textbf{historical PV
+power}; \textbf{Himawari-8/9 satellite imagery} cropped to \textbf{64\(\times\)64
+px} (from 640\(\times\)640) --- 1 channel in the small variant \textbf{MMSP(S)}
+(10 plants), 4 visible/near-infrared channels in the full
+\textbf{MMSP(L)} (88 plants); and \textbf{ECMWF NWP} (17 weather
+features: radiation, temperature, pressure, cloud cover, wind). The task
+is \textbf{day-ahead} forecasting: 24 h of history \(\rightarrow\) next 24 h. (The
+paper reports the method deployed on 300+ plants / \textgreater15 GW in
+production; MMSP is the released research subset.)
+
+Like ClimateHackAI, it differs structurally from the dataset of record
+--- hourly cadence, fixed day-ahead 24-in \(\rightarrow\) 24-out windows over China
+with Himawari imagery and per-window NWP tensors --- so it would need
+re-windowing/re-sampling before serving the longer-history, cross-plant
+protocol used here.
+
+\newpage
+
+\subsection{2. Data Splits}\label{data-splits}
+
+Cross-plant, seeded per-dataset partition over the 106 sites. Counts
+combine both datasets.
+
+\begin{longtable}[]{@{}lcc@{}}
+\toprule\noalign{}
+& Plants & Rows \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\textbf{Train} & 75 & 918 158 \\
+\textbf{Validation} & 16 & 193 553 \\
+\textbf{Test} & 15 & 185 304 \\
+\end{longtable}
+
+Per-dataset plants --- uk\_\allowbreak{}pv: 69/15/14 (train/val/test); goes\_\allowbreak{}pvdaq:
+6/1/1.
+
+\subsection{3. Configurations}\label{configurations}
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\linewidth - 2\tabcolsep) * \real{0.4444}}
+  >{\centering\arraybackslash}p{(\linewidth - 2\tabcolsep) * \real{0.5556}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Dimension
+\end{minipage} & \begin{minipage}[b]{\linewidth}\centering
+Specs
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+\textbf{History} & 14 days (steps: 672 uk and 1344 pvdaq) \\
+\textbf{Horizon} & 6 hours (steps: 12 uk and 24 pvdaq) \\
+\textbf{Frames} & 8 frames @ 60-min cadence (last 8 h ending at forecast
+time) \\
+\end{longtable}
+
+Models should be tested also at intra-hour frame cadence. On
+\texttt{uk\_\allowbreak{}pv} 30 min and on \texttt{goes\_\allowbreak{}pvdaq} 15 min can be used
+(longer training).
+
+\subsection{2. Leaderboard}\label{leaderboard}
+
+\textbf{Rank} is the global position by skill score (SS \(\uparrow\)) across all
+models; each subtable is sorted best-first. Metrics: SS \(\uparrow\), R\textsuperscript{2} \(\uparrow\), CRPS \(\downarrow\).
+Reference floor is \texttt{smart\_\allowbreak{}persistence} (SS \(\equiv\) 0).
+
+\textbf{Metric intuition.} All point metrics run on the
+capacity-normalized target (\texttt{norm\_\allowbreak{}power} \(\in\) {[}0,1{]}) over
+daylight, valid steps, so values read as fraction-of-nameplate error and
+compare across plants.
+
+\begin{itemize}
+\tightlist
+\item
+  \textbf{R\textsuperscript{2}} \(\uparrow\) --- squared Pearson correlation between predicted and
+  true power, r\textsuperscript{2} = corr(true, pred)\textsuperscript{2}, pooled across test plants on
+  daylight, valid steps. Measures how much of the \emph{variance} the
+  forecast tracks (shape/timing), independent of bias or scale. 1 =
+  perfectly correlated, 0 = no linear relation.
+\item
+  \textbf{SS (skill score)} \(\uparrow\) --- how much a model beats the
+  \texttt{smart\_\allowbreak{}persistence} baseline on root-mean-square error: 0 = no
+  better than baseline, 1 = perfect, negative = worse.
+\item
+  \textbf{CRPS} \(\downarrow\) --- scores the \emph{whole predictive distribution}
+  (via quantile pinball), not just the mean; rewards forecasts both
+  accurate \emph{and} honestly calibrated about uncertainty
+  (probabilistic models only).
+\end{itemize}
+
+\textbf{Cov flag.} Each table carries a \textbf{Cov} column: \(\checkmark\) = the
+model ingests the weather/solar covariate track
+
+\subsubsection{2.1 Reference / statistical}\label{reference-statistical}
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.0500}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.1500}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.0700}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.0700}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.0800}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.0500}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.5300}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Rank
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Model
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+\textbf{SS \(\uparrow\)}
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+R\textsuperscript{2} \(\uparrow\)
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+CRPS \(\downarrow\)
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Cov
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Description
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+23 & climatology\_\allowbreak{}hourly & 0.234 & 0.314 & --- & \(\times\) & Per-hour-of-day
+mean power from the training set; a fixed seasonal climatology. \\
+\midrule\noalign{}
+28 & seasonal\_\allowbreak{}naive & 0.107 & 0.276 & --- & \(\times\) & Copies power from the
+same clock time on the previous day. \\
+\midrule\noalign{}
+30 & persistence & 0.014 & 0.171 & --- & \(\times\) & Carries the last observed
+power flat across the horizon. \\
+\midrule\noalign{}
+--- & smart\_\allowbreak{}persistence & 0.000 & 0.210 & --- & \(\times\) & Persistence
+rescaled by the clear-sky ratio --- the sun-adjusted reference floor \\
+\end{longtable}
+
+\newpage
+
+\subsubsection{2.2 Classical ML}\label{classical-ml}
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.0500}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.1500}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.0700}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.0700}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.0800}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.0500}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.5300}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Rank
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Model
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+\textbf{SS \(\uparrow\)}
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+R\textsuperscript{2} \(\uparrow\)
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+CRPS \(\downarrow\)
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Cov
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Description
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+11 & LightGBM & 0.384 & 0.555 & 0.0768 & \(\checkmark\) & Gradient-boosted decision
+trees over lagged power + covariate features. \\
+\end{longtable}
+
+\subsubsection{2.3 Tabular foundation
+models}\label{tabular-foundation-models}
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.0500}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.1500}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.0700}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.0700}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.0800}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.0500}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.5300}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Rank
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Model
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+\textbf{SS \(\uparrow\)}
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+R\textsuperscript{2} \(\uparrow\)
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+CRPS \(\downarrow\)
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Cov
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Paper
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+17 & TabPFN 3 & 0.339 & 0.499 & 0.0815 & \(\checkmark\) &
+\href{https://arxiv.org/abs/2605.13986}{arXiv:2605.13986} \\
+\midrule\noalign{}
+--- & TabFM 1.0 & TBD & --- & TBD & \(\checkmark\) &
+\href{https://research.google/blog/introducing-tabfm-a-zero-shot-foundation-model-for-tabular-data/}{Google
+Research} \\
+\end{longtable}
+
+\subsubsection{2.4 Supervised DL}\label{supervised-dl}
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.0500}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.1500}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.0700}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.0700}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.0800}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.0500}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.5300}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Rank
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Model
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+\textbf{SS \(\uparrow\)}
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+R\textsuperscript{2} \(\uparrow\)
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+CRPS \(\downarrow\)
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Cov
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Description
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+1 & \textbf{iTransformer} & \textbf{0.552} & 0.765 & --- & \(\checkmark\) &
+\href{https://arxiv.org/pdf/2310.06625}{arXiv:2310.06625} \\
+\midrule\noalign{}
+7 & PatchTST & 0.458 & 0.651 & --- & \(\checkmark\) & Splits each series into patches
+for a channel-independent transformer. \\
+\midrule\noalign{}
+9 & TFT & 0.423 & 0.626 & 0.0689 & \(\checkmark\) & Temporal Fusion Transformer;
+gated attention with quantile outputs. \\
+\midrule\noalign{}
+10 & MLP & 0.413 & 0.600 & --- & \(\checkmark\) & Plain multilayer perceptron over
+the flattened history window. \\
+\midrule\noalign{}
+20 & DLinear & 0.325 & 0.462 & --- & \(\times\) & Single linear layer on
+trend/seasonal decomposition --- target-only simplicity check. \\
+\end{longtable}
+
+\subsubsection{2.5 Zero-shot TSFM}\label{zero-shot-tsfm}
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.0500}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.1500}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.0700}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.0700}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.0800}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.0500}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.5300}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Rank
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Model
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+\textbf{SS \(\uparrow\)}
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+R\textsuperscript{2} \(\uparrow\)
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+CRPS \(\downarrow\)
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Cov
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Paper
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+21 & tirex\_\allowbreak{}zs & 0.287 & 0.440 & 0.0892 & \(\times\) &
+\href{https://arxiv.org/abs/2505.23719}{arXiv:2505.23719} \\
+\midrule\noalign{}
+22 & timesfm\_\allowbreak{}zs & 0.271 & 0.429 & 0.0923 & \(\times\) &
+\href{https://huggingface.co/google/timesfm-2.5-200m-pytorch}{TimesFM
+2.5} \\
+\midrule\noalign{}
+26 & chronos2\_\allowbreak{}zs & 0.187 & 0.277 & 0.1072 & \(\checkmark\) &
+\href{https://arxiv.org/abs/2510.15821}{arXiv:2510.15821} \\
+\midrule\noalign{}
+\(\times\) & ttm\_\allowbreak{}zs & \textbf{\(-\)0.081} & 0.155 & --- & \(\checkmark\) &
+\href{https://huggingface.co/ibm-granite/granite-timeseries-ttm-r2}{TTM-R2} \\
+\end{longtable}
+
+\subsubsection{2.6 Fine-tuned TSFM}\label{fine-tuned-tsfm}
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.0500}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.1500}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.0700}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.0700}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.0800}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.0500}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 12\tabcolsep) * \real{0.5300}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Rank
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Model
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+\textbf{SS \(\uparrow\)}
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+R\textsuperscript{2} \(\uparrow\)
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+CRPS \(\downarrow\)
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Cov
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Paper
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+3 & chronos2\_\allowbreak{}oracle\_\allowbreak{}ft & 0.504 & 0.706 & 0.0630 & \(\checkmark\) &
+\href{https://arxiv.org/abs/2510.15821}{arXiv:2510.15821} \\
+\midrule\noalign{}
+6 & chronos2\_\allowbreak{}oracle & 0.474 & 0.679 & 0.0635 & \(\checkmark\) &
+\href{https://arxiv.org/abs/2510.15821}{arXiv:2510.15821} \\
+\midrule\noalign{}
+13 & ttm\_\allowbreak{}ft & 0.364 & 0.520 & --- & \(\checkmark\) &
+\href{https://huggingface.co/ibm-granite/granite-timeseries-ttm-r2}{TTM-R2} \\
+\midrule\noalign{}
+19 & chronos2\_\allowbreak{}ft & 0.331 & 0.475 & 0.0855 & \(\checkmark\) &
+\href{https://arxiv.org/abs/2510.15821}{arXiv:2510.15821} \\
+\end{longtable}
+
+\begin{quote}
+\textbf{\texttt{chronos2\_\allowbreak{}*} vs \texttt{chronos2\_\allowbreak{}oracle\_\allowbreak{}*}} --- same
+Chronos-2 model; the only difference is \emph{which covariates are
+exposed over the forecast horizon}. The plain variants
+(\texttt{chronos2\_\allowbreak{}zs}, \texttt{chronos2\_\allowbreak{}ft}) uses only deterministic
+future covariates (solar geometry + calendar) that are known ahead. The
+\texttt{oracle} variants feed the model the \textbf{future observed
+weather} (temperature, cloud cover, irradiance, \ldots) over the
+horizon.
+\end{quote}
+
+\subsubsection{2.7 Retrieval / frozen-FM
+adaptation}\label{retrieval-frozen-fm-adaptation}
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\linewidth - 14\tabcolsep) * \real{0.0500}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 14\tabcolsep) * \real{0.1200}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 14\tabcolsep) * \real{0.0700}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 14\tabcolsep) * \real{0.0700}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 14\tabcolsep) * \real{0.0800}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 14\tabcolsep) * \real{0.0500}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 14\tabcolsep) * \real{0.2800}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 14\tabcolsep) * \real{0.2800}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Rank
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Model
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+\textbf{SS \(\uparrow\)}
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+R\textsuperscript{2} \(\uparrow\)
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+CRPS \(\downarrow\)
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Cov
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Regime
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Paper
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+4 & ts\_\allowbreak{}rag & 0.478 & 0.331 & --- & \(\times\) & Zero-shot (frozen FM +
+retrieval) &
+\href{https://arxiv.org/abs/2503.07649}{arXiv:2503.07649} \\
+\midrule\noalign{}
+5 & cross\_\allowbreak{}rag & 0.477 & 0.375 & --- & \(\times\) & Zero-shot (frozen FM +
+retrieval) &
+\href{https://arxiv.org/abs/2603.14709}{arXiv:2603.14709} \\
+\midrule\noalign{}
+12 & cora & 0.374 & 0.550 & 0.0816 & \(\checkmark\) & Fine-tuned (adapter, frozen FM)
+& \href{https://arxiv.org/abs/2510.12681}{arXiv:2510.12681} \\
+\end{longtable}
+
+\subsubsection{2.8 Endogenous multimodal (second modality synthesized
+from the numeric track --- no external
+sensor)}\label{endogenous-multimodal-second-modality-synthesized-from-the-numeric-track-no-external-sensor}
+
+Pseudo-images rendered from the series (time\_\allowbreak{}vlm, visionts\_\allowbreak{}pp) or
+weather-text templated from the covariates (aurora). No satellite/sky
+frames consumed.
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\linewidth - 14\tabcolsep) * \real{0.0500}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 14\tabcolsep) * \real{0.1200}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 14\tabcolsep) * \real{0.0700}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 14\tabcolsep) * \real{0.0700}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 14\tabcolsep) * \real{0.0800}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 14\tabcolsep) * \real{0.0500}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 14\tabcolsep) * \real{0.2800}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 14\tabcolsep) * \real{0.2800}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Rank
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Model
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+\textbf{SS \(\uparrow\)}
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+R\textsuperscript{2} \(\uparrow\)
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+CRPS \(\downarrow\)
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Cov
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Regime
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Paper
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+2 & \textbf{time\_\allowbreak{}vlm} & \textbf{0.540} & 0.487 & --- & \(\times\) & Fine-tuned
+(frozen VLM backbones) &
+\href{https://arxiv.org/abs/2502.04395}{arXiv:2502.04395} \\
+\midrule\noalign{}
+24 & aurora & 0.232 & 0.440 & --- & \(\checkmark\) & Zero-shot &
+\href{https://arxiv.org/abs/2509.22295}{arXiv:2509.22295} \\
+\midrule\noalign{}
+29 & visionts\_\allowbreak{}pp & 0.017 & 0.397 & --- & \(\times\) & Zero-shot (frozen image
+MAE) & \href{https://arxiv.org/abs/2508.04379}{arXiv:2508.04379} \\
+\end{longtable}
+
+\subsubsection{2.9 Exogenous multimodal (external satellite
+imagery)}\label{exogenous-multimodal-external-satellite-imagery}
+
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\linewidth - 14\tabcolsep) * \real{0.0500}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 14\tabcolsep) * \real{0.1200}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 14\tabcolsep) * \real{0.0700}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 14\tabcolsep) * \real{0.0700}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 14\tabcolsep) * \real{0.0800}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 14\tabcolsep) * \real{0.0500}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 14\tabcolsep) * \real{0.2800}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 14\tabcolsep) * \real{0.2800}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Rank
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Model
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+\textbf{SS \(\uparrow\)}
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+R\textsuperscript{2} \(\uparrow\)
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+CRPS \(\downarrow\)
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Cov
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Regime
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Paper
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+8 & solar\_\allowbreak{}vlm & 0.443 & 0.660 & --- & \(\checkmark\) & Fine-tuned (pretrained
+vision) & \href{https://arxiv.org/abs/2604.04145}{arXiv:2604.04145} \\
+\midrule\noalign{}
+14 & crossvivit & 0.349 & 0.565 & --- & \(\checkmark\) & From scratch &
+\href{https://arxiv.org/abs/2306.01112}{arXiv:2306.01112} \\
+\midrule\noalign{}
+16 & \textbf{mmtsfm\_\allowbreak{}grassmann\_\allowbreak{}interleaved} & \textbf{0.3429} & --- &
+0.0805 & \(\checkmark\) & Fine-tuned (frozen FM + vision) & ours (this work) \\
+\midrule\noalign{}
+25 & sunset & 0.216 & 0.359 & --- & \(\times\) & From scratch &
+\href{https://github.com/YuchiSun/SUNSET}{github: YuchiSun/SUNSET} \\
+\midrule\noalign{}
+27 & unicast & 0.121 & 0.371 & --- & \(\times\) & Fine-tuned (soft-prompt, frozen
+FM) & \href{https://arxiv.org/abs/2508.11954}{arXiv:2508.11954} \\
+\midrule\noalign{}
+--- & FusionSF & TBD & --- & TBD & \(\checkmark\) & TBD &
+\href{https://arxiv.org/abs/2402.05823}{arXiv:2402.05823} \\
+\midrule\noalign{}
+--- & PIPE & TBD & --- & TBD & \(\checkmark\) & TBD &
+\href{https://arxiv.org/abs/2506.14786}{arXiv:2506.14786} \\
+\midrule\noalign{}
+--- & MATE & TBD & --- & TBD & \(\checkmark\) & TBD &
+\href{https://openreview.net/forum?id=jn7GJdyuVn}{OpenReview} \\
+\end{longtable}
+
+\newpage
+
+\subsection{4. Conclusions}\label{conclusions}
+
+Drawn from the cross-plant leaderboard. All numbers are zero-shot on
+\textbf{disjoint test plants} --- no test-plant data in training.
+
+\textbf{1. A well-tuned supervised transformer is the model to beat.}
+iTransformer tops every metric (SS 0.552, R\textsuperscript{2} 0.765), ahead of every
+foundation model, retrieval scheme, and multimodal system. On this
+cross-plant PV task, architecture + in-domain supervised training still
+outperforms large pretrained backbones.
+
+\textbf{2. Zero-shot time-series foundation models underdeliver on PV.}
+The zero-shot TSFMs (chronos2\_\allowbreak{}zs SS 0.187, timesfm\_\allowbreak{}zs 0.271, tirex\_\allowbreak{}zs
+0.287, ttm\_\allowbreak{}zs \textbf{\(-\)0.081} --- worse than the naive floor) trail
+even classical baselines. PV's sharp, weather-driven dynamics are
+out-of-distribution for generic TS pretraining; the models need
+adaptation to be useful.
+
+\textbf{3. Adaptation closes the gap, and retrieval is the best
+frozen-backbone lever.} Every adaptation step helps: Chronos-2 jumps
+zero-shot \(\rightarrow\) fine-tuned, and TTM flips from below-baseline to SS 0.364
+once fine-tuned. Notably, \textbf{retrieval over a frozen backbone}
+(ts\_\allowbreak{}rag SS 0.478, cross\_\allowbreak{}rag 0.477) rivals fine-tuning \textbf{without
+updating any weights}, making it the most effective --- and cheapest ---
+frozen-FM strategy tested.
+
+\textbf{4. Multimodality has not yet paid off} The one multimodal model
+at the top (time\_\allowbreak{}vlm, SS 0.540, rank 2) uses \emph{endogenous
+pseudo-images synthesized from the numeric series} and no covariates.
+Every model that ingests genuine \textbf{exogenous satellite/sky
+imagery} ranks mid-pack or worse.
+
+\textbf{7. R\textsuperscript{2} and SS disagree for biased forecasters --- read them
+together.} Several models track the day's \emph{shape} well yet sit off
+the diagonal: e.g.~visionts\_\allowbreak{}pp has R\textsuperscript{2} 0.397 but SS 0.017, and
+solar\_\allowbreak{}vlm / sunset / crossvivit show systematic under-prediction. High
+variance-tracking (R\textsuperscript{2}) with low skill (SS) flags a \textbf{bias/scale}
+problem, not a timing problem --- fixable by calibration rather than a
+better temporal model.
+
+\end{document}

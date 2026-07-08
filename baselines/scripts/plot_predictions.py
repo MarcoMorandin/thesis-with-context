@@ -121,14 +121,14 @@ def load_metrics(results_dir: Path, site: str) -> dict[str, dict]:
                     plant_data = per_plant[str(site)]
                     nmae = plant_data.get("nmae")
                     nrmse_ramp = plant_data.get("nrmse_ramp")
-                    
+
                     if nmae is not None and nrmse_ramp is not None:
                         # If model already has a score, keep the one with lower nrmse_ramp
                         existing = metrics.get(model_name)
                         if existing is None or nrmse_ramp < existing["nrmse_ramp"]:
                             metrics[model_name] = {
                                 "nmae": nmae,
-                                "nrmse_ramp": nrmse_ramp
+                                "nrmse_ramp": nrmse_ramp,
                             }
         except Exception:
             pass
@@ -152,7 +152,7 @@ def find_best_models(datasets: dict, metrics: dict[str, dict]) -> dict[str, str]
         available = [m for m in model_list if m in datasets]
         if not available:
             continue
-        
+
         # Select available model with lowest Ramp NRMSE
         best_model = None
         best_score = float("inf")
@@ -162,16 +162,18 @@ def find_best_models(datasets: dict, metrics: dict[str, dict]) -> dict[str, str]
             if score < best_score:
                 best_score = score
                 best_model = m
-                
+
         # Fallback if no metric found
         if best_model is None:
             best_model = available[0]
-            
+
         best_models[cluster_name] = best_model
         # Print best model with its Ramp NRMSE score
         best_metrics = get_model_metric(best_model, metrics)
         score_str = f"{best_metrics['nrmse_ramp']:.4f}" if best_metrics else "inf"
-        print(f"  Best model for cluster '{cluster_name}': {best_model} (Ramp NRMSE: {score_str})")
+        print(
+            f"  Best model for cluster '{cluster_name}': {best_model} (Ramp NRMSE: {score_str})"
+        )
     return best_models
 
 
@@ -187,18 +189,32 @@ def plot_window(
 ):
     """Plot context, ground truth, and a specific list of models for a window."""
     plt.figure(figsize=(10, 6))
-    
+
     # 1. Plot ground truth (Context + Future)
     context_len = len(context_y)
     context_x = np.arange(-context_len, 0)
-    plt.plot(context_x, context_y, color="black", linestyle="--", linewidth=2.0, label="True Context")
-    
+    plt.plot(
+        context_x,
+        context_y,
+        color="black",
+        linestyle="--",
+        linewidth=2.0,
+        label="True Context",
+    )
+
     daylight_mask = ref_true > 1e-5
     ref_true_plot = ref_true.copy()
     ref_true_plot[~daylight_mask] = np.nan
-    
+
     future_x = np.arange(12)
-    plt.plot(future_x, ref_true_plot, color="black", linestyle="-", linewidth=2.5, label="True Future")
+    plt.plot(
+        future_x,
+        ref_true_plot,
+        color="black",
+        linestyle="-",
+        linewidth=2.5,
+        label="True Future",
+    )
 
     # Mark the forecast origin (last observed historical value)
     plt.plot(-1, context_y[-1], "ko", markersize=6, zorder=5, label="Forecast Origin")
@@ -207,80 +223,103 @@ def plot_window(
     for model_name in model_list:
         if model_name not in datasets:
             continue
-            
+
         d = datasets[model_name]
         m_true = d["true"]
         m_pred = d["pred"]
-        
+
         # Align by finding index j that minimizes MSE with ref_true
         diff = m_true[:, :12] - ref_true
-        mse = np.mean(diff ** 2, axis=1)
+        mse = np.mean(diff**2, axis=1)
         best_j = np.argmin(mse)
-        
+
         if mse[best_j] > 1e-2:  # Threshold allows slight scaling differences
             continue
-            
+
         pred_y = m_pred[best_j, :12]
         pred_y_plot = pred_y.copy()
         pred_y_plot[~daylight_mask] = np.nan
-        
+
         # Connect prediction to the last context point at x = -1
         plot_x = np.arange(-1, 12)
         plot_y = np.concatenate([[context_y[-1]], pred_y_plot])
-        
+
         # Legend label with metric if available
         label = model_name
         m_metrics = get_model_metric(model_name, metrics)
         if m_metrics:
             label += f" (R-NRMSE: {m_metrics['nrmse_ramp']:.4f})"
-            
-        plt.plot(plot_x, plot_y, linewidth=1.5, alpha=0.85, label=label, marker="o", markersize=4)
+
+        plt.plot(
+            plot_x,
+            plot_y,
+            linewidth=1.5,
+            alpha=0.85,
+            label=label,
+            marker="o",
+            markersize=4,
+        )
 
     plt.title(title, fontsize=12, fontweight="bold")
     plt.xlabel("Time Step (Relative to forecast start)", fontsize=10)
     plt.ylabel("Normalized PV Power", fontsize=10)
     plt.grid(True, linestyle=":", alpha=0.6)
     plt.axvline(x=0, color="gray", linestyle=":", linewidth=1.2)
-    
-    plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left", borderaxespad=0.)
+
+    plt.legend(bbox_to_anchor=(1.04, 1), loc="upper left", borderaxespad=0.0)
     plt.tight_layout()
     plt.savefig(save_path, dpi=150)
     plt.close()
 
 
-def plot_scatter_plots(datasets: dict, base_out_dir: Path, site: str, metrics: dict[str, dict]):
+def plot_scatter_plots(
+    datasets: dict, base_out_dir: Path, site: str, metrics: dict[str, dict]
+):
     """Generate actual vs predicted scatter plots for each model."""
     scatter_dir = base_out_dir / "scatter"
     scatter_dir.mkdir(parents=True, exist_ok=True)
-    
+
     for model_name, d in datasets.items():
         pred = d["pred"].flatten()
         true = d["true"].flatten()
-        
+
         # Filter out NaN values and night steps (true <= 1e-5)
         mask = ~np.isnan(pred) & ~np.isnan(true) & (true > 1e-5)
         pred = pred[mask]
         true = true[mask]
-        
+
         if len(true) == 0:
             continue
-            
+
+        # r^2 = squared Pearson correlation (true vs predicted) on daylight steps
+        r2 = float("nan")
+        if true.std() > 0 and pred.std() > 0:
+            r2 = float(np.corrcoef(true, pred)[0, 1] ** 2)
+
         plt.figure(figsize=(8, 8))
-        
+
         # Plot scatter
         plt.scatter(true, pred, alpha=0.3, color="blue", s=10, label="Predictions")
-        
+
         # Identity line
         min_val = min(true.min(), pred.min())
         max_val = max(true.max(), pred.max())
-        plt.plot([min_val, max_val], [min_val, max_val], color="red", linestyle="--", linewidth=1.5, label="y = x (Perfect Forecast)")
-        
+        plt.plot(
+            [min_val, max_val],
+            [min_val, max_val],
+            color="red",
+            linestyle="--",
+            linewidth=1.5,
+            label="y = x (Perfect Forecast)",
+        )
+
         # Labels and Title
         title = f"Actual vs Predicted — {model_name} (Site {site})"
+        title += f"\nr² = {r2:.3f}"
         m_metrics = get_model_metric(model_name, metrics)
         if m_metrics:
-            title += f"\nNMAE: {m_metrics['nmae']:.4f} | Ramp NRMSE: {m_metrics['nrmse_ramp']:.4f}"
-            
+            title += f" | NMAE: {m_metrics['nmae']:.4f} | Ramp NRMSE: {m_metrics['nrmse_ramp']:.4f}"
+
         plt.title(title, fontsize=12, fontweight="bold")
         plt.xlabel("Actual Normalized PV Power", fontsize=10)
         plt.ylabel("Predicted Normalized PV Power", fontsize=10)
@@ -289,7 +328,7 @@ def plot_scatter_plots(datasets: dict, base_out_dir: Path, site: str, metrics: d
         plt.ylim(min_val, max_val)
         plt.legend(loc="upper left")
         plt.tight_layout()
-        
+
         save_path = scatter_dir / f"scatter_{model_name}.png"
         plt.savefig(save_path, dpi=150)
         plt.close()
@@ -316,14 +355,11 @@ def main():
     # Load all npz datasets
     datasets = {}
     for f in pred_files:
-        name_part = f.name[:-len(f"_pred.npz")]
+        name_part = f.name[: -len(f"_pred.npz")]
         model_name = "_".join(name_part.split("_")[:-1])
         try:
             data = np.load(f)
-            datasets[model_name] = {
-                "pred": data["pred"],
-                "true": data["true"]
-            }
+            datasets[model_name] = {"pred": data["pred"], "true": data["true"]}
         except Exception as e:
             print(f"Warning: Failed to load {f.name}: {e}")
 
@@ -333,14 +369,18 @@ def main():
 
     # Pick reference model
     ref_candidates = [
-        m for m, d in datasets.items()
+        m
+        for m, d in datasets.items()
         if d["true"].ndim == 2 and d["true"].shape[1] == 12
     ]
     if not ref_candidates:
         print("Error: Could not find reference model with horizon 12.")
         return
 
-    ref_model = next((n for n in ["smart_persistence", "dlinear", "mlp"] if n in ref_candidates), ref_candidates[0])
+    ref_model = next(
+        (n for n in ["smart_persistence", "dlinear", "mlp"] if n in ref_candidates),
+        ref_candidates[0],
+    )
     ref_data = datasets[ref_model]
     n_windows = ref_data["true"].shape[0]
     global_true = ref_data["true"].flatten()
@@ -359,7 +399,9 @@ def main():
     else:
         # Seed for reproducible windows across runs
         random.seed(42)
-        windows_to_plot = sorted(random.sample(range(1, n_windows), min(args.num_plots, n_windows - 1)))
+        windows_to_plot = sorted(
+            random.sample(range(1, n_windows), min(args.num_plots, n_windows - 1))
+        )
 
     # Process each window
     for w_idx in windows_to_plot:
@@ -368,22 +410,24 @@ def main():
 
         ref_true = ref_data["true"][w_idx]
         s_idx = 12 * w_idx
-        
+
         # Context extraction
         context_len = 5
         if s_idx >= context_len:
             context_y = global_true[s_idx - context_len : s_idx]
         else:
-            context_y = np.pad(global_true[:s_idx], (context_len - s_idx, 0), constant_values=np.nan)
+            context_y = np.pad(
+                global_true[:s_idx], (context_len - s_idx, 0), constant_values=np.nan
+            )
 
         # 1. Plot per-cluster directories
         for cluster_name, model_list in CLUSTERS.items():
             cluster_dir = base_out_dir / cluster_name
             cluster_dir.mkdir(parents=True, exist_ok=True)
-            
+
             title = f"{cluster_name.replace('_', ' ').title()} Group — Site {args.site}, Window {w_idx}"
             save_path = cluster_dir / f"plot_site_{args.site}_w{w_idx}.png"
-            
+
             # Plot only models belonging to this cluster
             plot_window(
                 w_idx=w_idx,
@@ -400,15 +444,18 @@ def main():
         # 2. Plot overall best comparison
         comparison_dir = base_out_dir / "comparison"
         comparison_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Models to plot: best of each cluster + smart_persistence as base reference
         comparison_models = list(best_models.values())
-        if "smart_persistence" not in comparison_models and "smart_persistence" in datasets:
+        if (
+            "smart_persistence" not in comparison_models
+            and "smart_persistence" in datasets
+        ):
             comparison_models.append("smart_persistence")
-            
+
         title = f"Architecture Comparison (Best of Clusters) — Site {args.site}, Window {w_idx}"
         save_path = comparison_dir / f"plot_site_{args.site}_w{w_idx}.png"
-        
+
         plot_window(
             w_idx=w_idx,
             datasets=datasets,
