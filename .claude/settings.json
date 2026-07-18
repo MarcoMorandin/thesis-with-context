@@ -78,6 +78,7 @@
   "enabledPlugins": {
     "academic-research-skills@academic-research-skills": true,
     "caveman@caveman": true,
-    "superpowers@claude-plugins-official": true
+    "superpowers@claude-plugins-official": true,
+    "last30days@last30days-skill": true
   }
 }
