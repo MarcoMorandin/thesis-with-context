@@ -8,6 +8,34 @@
 
 ---
 
+## ⚠ Update 2026-07-20 — curriculum + fixes landed
+
+The gaps diagnosed below (single-fit runs, discarded tokenizer, inert covariates)
+have since been fixed. Sections 3–7 describe the **old `results/mmtsfm/` runs**;
+the current code now supports the full curriculum. What changed:
+
+- **Weight transfer** — `input_patch_size`/`output_patch_size` set to **16** to
+  match the `amazon/chronos-2` checkpoint (native d_model **768**, **12** layers,
+  patch 16, 21 quantiles — the YAML `d_model:512/num_layers:6` were always
+  ignored). The pretrained `input_patch_embedding` now transfers; only the small
+  output head reinits (9 protocol quantiles).
+- **Curriculum runner** — `scripts/slurm_curriculum.sh` +
+  `scripts/curriculum_stage.sbatch` chain S1→2a→2b→3 as dependency-linked SLURM
+  jobs per dataset, threading a stable `best.ckpt` (exported by `train.py`).
+  Per-stage configs in `configs/stage/{s1,s2a,s2b,s3}.yaml`.
+- **Grassmann warmup** — wired via `grassmann_warmup_steps` (S1=2000, S2b=1000).
+- **Vision unfreeze** — `freeze_visual_encoder="partial"` + progressive unfreeze
+  now drive `VisualEncoder.partial_unfreeze`/`set_freeze` per stage.
+- **Covariates** — known future weather now actually influences the forecast:
+  the covariate rows kept a mask=0 that zeroed their values pre-embedding, and
+  the interleaved branch dropped the rows entirely. Both fixed + regression-tested
+  (`tests/test_curriculum_features.py`).
+
+Design spec: `docs/superpowers/specs/2026-07-20-mmtsfm-curriculum-final-design.md`.
+The diagnosis below is retained as the record of *why* the old numbers were poor.
+
+---
+
 ## 0. TL;DR
 
 - The **model architecture** (Chronos-2 backbone + Grassmann mixing + V-JEPA
