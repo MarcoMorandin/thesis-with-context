@@ -1,0 +1,20 @@
+# @package _global_
+# Stage 2b — Grassmann cross-modal alignment, interleaved fusion. V-JEPA fully
+# re-frozen; Chronos-2 frozen except the Grassmann params (+ reinit'd
+# embeddings/head + last encoder blocks) and the LatentSummarizer. The Grassmann
+# layer sees cross-modal (ts, vis) Plücker pairs for the first time; a 1000-step
+# LR ramp mirrors the Stage-1 warmup to keep pure-TS subspaces stable.
+# Resume from the Stage-2a checkpoint (+ckpt_path=<s2a best>).
+model:
+  freeze_chronos: true
+  grassmann_warmup_steps: 1000
+  chronos_core_cfg:
+    use_grassmann: true
+  vision_cfg:
+    skip_vision_stack: false
+    fusion_mode: interleaved
+    freeze_visual_encoder: true
+    visual_dropout_prob: 0.5
+    numeric_dropout_prob: 0.1
+data:
+  emit_vision: true

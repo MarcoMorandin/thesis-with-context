@@ -1,0 +1,16 @@
+# @package _global_
+# Stage 1 — TS pretraining + Grassmann warmup. Vision stack skipped entirely
+# (skip_vision_stack + emit_vision=false → no frames decoded, no V-JEPA built).
+# Establishes numeric temporal geometry on PV and anchors the from-scratch
+# Grassmann layer to the pretrained residual stream via a 2000-step LR ramp.
+# Starts from the HF pretrained checkpoint (no +ckpt_path).
+model:
+  freeze_chronos: false
+  grassmann_warmup_steps: 2000
+  chronos_core_cfg:
+    use_grassmann: true
+  vision_cfg:
+    skip_vision_stack: true
+    fusion_mode: late
+data:
+  emit_vision: false

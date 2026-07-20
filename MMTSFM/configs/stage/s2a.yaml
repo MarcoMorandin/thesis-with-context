@@ -1,0 +1,20 @@
+# @package _global_
+# Stage 2a — Visual alignment, late fusion. Chronos-2 + Grassmann frozen; only
+# the vision stack (LatentSummarizer + CrossModalAdapter + MultimodalEmbedding)
+# and the last 4 V-JEPA blocks train. Aligns the visual embedding space to the
+# numeric space before any cross-modal Plücker pairs are introduced.
+# Resume the Chronos weights from the Stage-1 checkpoint (+ckpt_path=<s1 best>).
+model:
+  freeze_chronos: true
+  grassmann_warmup_steps: 0
+  n_visual_unfreeze_layers: 4
+  chronos_core_cfg:
+    use_grassmann: true
+  vision_cfg:
+    skip_vision_stack: false
+    fusion_mode: late
+    freeze_visual_encoder: partial
+    visual_dropout_prob: 0.3
+    numeric_dropout_prob: 0.1
+data:
+  emit_vision: true
