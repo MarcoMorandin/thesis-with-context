@@ -679,14 +679,23 @@ class VisionChronos2Model(nn.Module):
         cov_embed_rows: list[torch.Tensor] = []
         cov_mask_rows: list[torch.Tensor] = []
         cov_group_rows: list[torch.Tensor] = []
+        # Future-only covariate embeddings [B, T_fut, d] (context is zeros for all
+        # branches). The interleaved path pads the context to T_ctx+n_vis; the
+        # late/numeric paths pad to T_ctx. Kept separately so both can build rows.
+        cov_fut_rows: list[torch.Tensor] = []
 
         if covariate_channels:
             H_cov = covariate_channels[0].shape[-1]
-            cov_mask_zeros = torch.zeros(B, H_cov, device=device)
+            # Known future covariates: mask=1 (observed) so _prepare_patched_future
+            # KEEPS the values. Passing mask=0 (the old code) routed every value
+            # through `torch.where(mask>0, value, 0.0)` in model.py and zeroed them
+            # before embedding — the covariate token-rows carried only the
+            # embedding bias, so future weather never influenced the forecast.
+            cov_mask_ones = torch.ones(B, H_cov, device=device)
             for cov_ch in covariate_channels:
                 patched_cov, _ = self.chronos._prepare_patched_future(
                     future_covariates=cov_ch,
-                    future_covariates_mask=cov_mask_zeros,
+                    future_covariates_mask=cov_mask_ones,
                     loc_scale=loc_scale,
                     num_output_patches=num_output_patches,
                     batch_size=B,
@@ -709,6 +718,7 @@ class VisionChronos2Model(nn.Module):
                     cov_embeds = self.multimodal_embed.add_entity(
                         cov_embeds, entity_ids
                     )
+                cov_fut_rows.append(cov_embeds)
                 cov_full = torch.cat([cov_ctx, cov_embeds], dim=1)
                 cov_embed_rows.append(cov_full)
                 cov_mask_rows.append(
@@ -858,6 +868,42 @@ class VisionChronos2Model(nn.Module):
             position_ids = build_interleaved_position_ids(
                 T_M, n_vis, T_fut, device
             ).expand(B, -1)
+
+            # Covariate rows (batch-axis) — the interleaved path previously dropped
+            # them, so known future weather never reached the encoder in the final
+            # (interleaved) model. Context is zeros (length T_ctx+n_vis to match the
+            # interleaved target seq); only the future positions carry the covariate
+            # embedding and are valid for GroupSelfAttention. Rows are all-numeric,
+            # so their modality_mask is 0 everywhere.
+            if cov_fut_rows:
+                seq_len = T_ctx + n_vis + T_fut
+                cov_ctx_il = torch.zeros(
+                    B, T_ctx + n_vis, self.chronos.model_dim, device=device, dtype=dtype
+                )
+                cov_valid = torch.cat(
+                    [
+                        torch.zeros(B, T_ctx + n_vis, device=device, dtype=dtype),
+                        torch.ones(B, T_fut, device=device, dtype=dtype),
+                    ],
+                    dim=1,
+                )
+                cov_modality = torch.zeros(B, seq_len, dtype=torch.long, device=device)
+                embed_parts = [all_embeds]
+                mask_parts = [all_mask]
+                group_parts = [all_group_ids]
+                modality_parts = [modality_mask]
+                pos_parts = [position_ids]
+                for cov_fut in cov_fut_rows:
+                    embed_parts.append(torch.cat([cov_ctx_il, cov_fut], dim=1))
+                    mask_parts.append(cov_valid)
+                    group_parts.append(group_ids)
+                    modality_parts.append(cov_modality)
+                    pos_parts.append(position_ids)
+                all_embeds = torch.cat(embed_parts, dim=0)
+                all_mask = torch.cat(mask_parts, dim=0)
+                all_group_ids = torch.cat(group_parts, dim=0)
+                modality_mask = torch.cat(modality_parts, dim=0)
+                position_ids = torch.cat(pos_parts, dim=0)
 
             all_embeds = torch.nan_to_num(all_embeds, nan=0.0)
             encoder_out = self.chronos.encoder(
