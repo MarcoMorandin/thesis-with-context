@@ -27,9 +27,10 @@ grassmann_plucker_eps: 1.0e-8
 # Forecasting config (required by Chronos2Model)
 chronos_config:
   context_length: 2048   # covers the 14-day protocol history (uk_pv 672, goes_pvdaq 1344 steps); 512 silently truncated it
-  input_patch_size: 32
-  input_patch_stride: 32
-  output_patch_size: 32
+  # Match the amazon/chronos-2 checkpoint (native 16) so the pretrained tokenizer transfers.
+  input_patch_size: 16
+  input_patch_stride: 16
+  output_patch_size: 16
   quantiles: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
   use_reg_token: false
   use_arcsinh: false
