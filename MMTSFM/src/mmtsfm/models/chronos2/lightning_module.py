@@ -73,6 +73,14 @@ class VisionChronos2LightningModule(LightningModule):
         n_unfreeze_encoder_blocks: int = 1,
         backbone_lr_ratio: float = 0.1,
         grassmann_warmup_steps: int = 0,
+        # Vision unfreeze schedule (curriculum). freeze_visual_encoder="partial"
+        # (in vision_cfg) unfreezes the last ``n_visual_unfreeze_layers`` V-JEPA
+        # blocks at construction (Stage 2a). ``progressive_vision_unfreeze`` adds
+        # ``n_visual_unfreeze_layers`` more blocks every
+        # ``progressive_unfreeze_interval`` epochs (Stage 3).
+        n_visual_unfreeze_layers: int = 4,
+        progressive_vision_unfreeze: bool = False,
+        progressive_unfreeze_interval: int = 1,
         video_encoder: Optional[nn.Module] = None,
         pretrained_model_name_or_path: Optional[str] = "amazon/chronos-2",
         # Protocol evaluation (BASELINE_PROTOCOL.md §5): NMAE/NRMSE/SS written in
@@ -187,12 +195,44 @@ class VisionChronos2LightningModule(LightningModule):
                     for p in block.parameters():
                         p.requires_grad_(True)
 
+        # Vision unfreeze policy (curriculum Stage 2a / 3). freeze_visual_encoder
+        # may be True (frozen), False (fully trainable), or "partial" (unfreeze
+        # the last n_visual_unfreeze_layers blocks now). The V-JEPA encoder is
+        # built frozen when truthy; "partial" then reopens the top blocks.
+        self._apply_vision_unfreeze_policy(
+            vision_cfg.get("freeze_visual_encoder", True)
+        )
+
         self._output_patch_size: int = (
             self.model.chronos.chronos_config.output_patch_size
         )
         self._num_output_patches: int = max(
             1, math.ceil(horizon / self._output_patch_size)
         )
+
+    def _apply_vision_unfreeze_policy(self, freeze_visual_encoder) -> None:
+        """Apply the initial V-JEPA freeze/unfreeze for the current stage."""
+        enc = getattr(self.model, "video_encoder", None)
+        if enc is None:
+            return
+        policy = str(freeze_visual_encoder).lower()
+        if policy == "partial" and hasattr(enc, "partial_unfreeze"):
+            enc.partial_unfreeze(self.hparams.n_visual_unfreeze_layers)
+        elif policy in ("false", "0") and hasattr(enc, "set_freeze"):
+            enc.set_freeze(False)
+        # True / "true" → leave frozen as constructed.
+
+    def on_train_epoch_start(self) -> None:
+        """Stage 3 progressive unfreeze: reopen more V-JEPA blocks over epochs."""
+        if not self.hparams.progressive_vision_unfreeze:
+            return
+        enc = getattr(self.model, "video_encoder", None)
+        if enc is None or not hasattr(enc, "partial_unfreeze"):
+            return
+        interval = max(1, self.hparams.progressive_unfreeze_interval)
+        step = self.hparams.n_visual_unfreeze_layers
+        n_open = step * (self.current_epoch // interval + 1)
+        enc.partial_unfreeze(n_open)
 
     # ------------------------------------------------------------------
     # Checkpoint compatibility
