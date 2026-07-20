@@ -1,0 +1,3 @@
+_target_: lightning.pytorch.loggers.CSVLogger
+save_dir: ${trainer.default_root_dir}
+name: csv

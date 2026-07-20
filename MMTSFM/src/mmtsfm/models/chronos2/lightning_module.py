@@ -628,8 +628,17 @@ class VisionChronos2LightningModule(LightningModule):
         quantiles = q[:, :, :H].permute(0, 2, 1)  # [B, H, Q]
         y = inputs["future_target"][:, :H].float()  # [B, H]
         mask = inputs["future_target_mask"][:, :H].float()
-        daylight = batch["daylight_future"].reshape(y.shape[0], -1)[:, :H].float()
-        site_ids = [str(s) for s in batch["site_id"]]
+        # daylight/site_id come from the real PV loader; default gracefully so the
+        # protocol path also runs on synthetic batches (smoke) — daylight=all-on,
+        # site_id=row index.
+        if "daylight_future" in batch:
+            daylight = batch["daylight_future"].reshape(y.shape[0], -1)[:, :H].float()
+        else:
+            daylight = torch.ones_like(y)
+        if "site_id" in batch:
+            site_ids = [str(s) for s in batch["site_id"]]
+        else:
+            site_ids = [str(i) for i in range(y.shape[0])]
         # S6 ramp inputs — same rule as baselines/common/runner._future_deltas:
         # |Δy| vs the previous step (step 0 uses the last history step), validity
         # = mask_future·daylight·prev_mask. Thresholding happens in finalize().

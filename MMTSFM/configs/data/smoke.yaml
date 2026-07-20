@@ -1,0 +1,25 @@
+_target_: mmtsfm.data.datamodule.MMTSFMDataModule
+
+# Synthetic tiny dataset for the local curriculum dry-run (SMOKE=1). dataset_name
+# NOT in PV_RECORD_DATASETS → MMTSFMDataModule builds the in-memory MMTSFMDataset,
+# so no parquet / h5 / cluster paths are touched. Small dims → fast on CPU.
+data_dir: ./data
+dataset_name: synthetic
+batch_size: 2
+num_workers: 0
+num_entities: 2
+hist_steps: 96          # > input_patch_size(16) so several context patches exist
+horizon: 12
+target_dim: 1
+covariate_dim: 14       # matches the protocol covariate count
+video_frames: 8
+img_channels: 3
+img_size: 64            # small frames — cheap V-JEPA forward on the cluster smoke
+imagenet_norm: false
+emit_vision: true
+num_samples_train: 8
+num_samples_val: 4
+num_samples_test: 4
+train_frac: 0.7
+val_frac: 0.1
+vis_cadence_multiplier: 1

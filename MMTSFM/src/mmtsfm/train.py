@@ -87,6 +87,19 @@ def main(cfg: DictConfig):
         ckpt_path = cfg.get("ckpt_path", None) or None
         trainer.fit(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
 
+        # Export a stable best.ckpt so the curriculum runner can thread stages
+        # deterministically (+ckpt_path=<stage_dir>/best.ckpt). Lightning's own
+        # filename embeds val/loss and is not a fixed path.
+        if int(os.environ.get("LOCAL_RANK", 0)) == 0:
+            best = _best_finite_checkpoint_path(trainer)
+            if best is not None:
+                import shutil
+
+                stable = os.path.join(trainer.default_root_dir, "best.ckpt")
+                if os.path.abspath(best) != os.path.abspath(stable):
+                    shutil.copyfile(best, stable)
+                log.info(f"Exported best checkpoint → {stable}")
+
     if cfg.get("test", True):
         ckpt_path = "best"
         if cfg.get("train", True):
