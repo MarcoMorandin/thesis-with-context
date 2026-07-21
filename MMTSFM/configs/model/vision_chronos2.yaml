@@ -43,9 +43,13 @@ vision_cfg:
   fusion_mode: "late"              # "late" (Stage 1/2a) | "interleaved" (Stage 2b/3)
 
   # --- LatentSummarizer + CrossModalAdapter ---
-  n_visual_context_steps: 3        # most-recent context patches given visual tokens.
-                                   # Derivation: ceil((visual_window_hours/24 * steps_per_day) / input_patch_size)
-                                   # — goes_pvdaq 15-min: ceil(24/8)=3; uk_pv 30-min: ceil(12/8)=2.
+  n_visual_context_steps: 1        # most-recent TS patches given visual tokens.
+                                   # Derivation (patch=16): ceil((visual_window_hours/24 * steps_per_day) / input_patch_size)
+                                   # — uk_pv 30-min: ceil(12/16)=1 ; goes_pvdaq 15-min: ceil(24/16)=2.
+                                   # One patch now spans input_patch_size*cadence (uk_pv 8h, goes 4h), so the 6h
+                                   # visual window only overlaps ~1-2 patches — vision must not be spread wider,
+                                   # or summary tokens attach to TS patches the frames never covered.
+                                   # The curriculum/run_all scripts override this per dataset (N_VIS knob).
                                    # Must be <= T_ctx = ceil(hist_steps / input_patch_size); asserted at model init (W7).
   n_soft_tokens: 1
   adapter_type: linear

@@ -51,6 +51,10 @@ declare -A ST_TIME=(   [s1]="${S1_TIME:-12:00:00}" [s2a]="${S2A_TIME:-08:00:00}"
 STAGES=(s1 s2a s2b s3)
 
 dcfg_for() { case "$1" in uk_pv) echo ukpv;; goes_pvdaq) echo goespvdaq;; *) echo "$1";; esac; }
+# n_visual_context_steps per dataset for patch=16: the 6h visual window spans
+# ceil(window_steps/16) TS patches — uk_pv (30-min) = ceil(12/16)=1, goes_pvdaq
+# (15-min) = ceil(24/16)=2. Override globally with N_VIS for the vision ablation.
+nvis_for() { [[ -n "${N_VIS:-}" ]] && { echo "$N_VIS"; return; }; case "$1" in uk_pv) echo 1;; goes_pvdaq) echo 2;; *) echo 1;; esac; }
 sp_ref_for() {
   local f="${RESULTS_DIR}/smart_persistence_s2_$(dcfg_for "$1").json"
   [[ -f "$f" ]] && echo "$f" || echo ""
@@ -96,6 +100,7 @@ command -v sbatch >/dev/null || { echo "FATAL: sbatch not found (run on a Leonar
 
 for ds in $DATASETS; do
   dcfg="$(dcfg_for "$ds")"
+  nvis="$(nvis_for "$ds")"
   vjepa_cache="${VJEPA_CACHE_ROOT}/${ds}/${VJEPA_CACHE_VER}"
   sp_ref="$(sp_ref_for "$ds")"
   echo "=== dataset ${ds} (data=${dcfg}) ==="
@@ -115,7 +120,7 @@ for ds in $DATASETS; do
     exports="ALL,STAGE=${st},DS=${ds},DCFG=${dcfg},MODEL_CFG=${MODEL_CFG},TAG=${tag}"
     exports+=",DATA_DIR=${DATA_DIR},CKPT_DIR=${CKPT_DIR},RESULTS_DIR=${RESULTS_DIR}"
     exports+=",MAX_EPOCHS=${ST_EPOCHS[$st]},BATCH_SIZE=${BATCH_SIZE},NUM_WORKERS=${NUM_WORKERS}"
-    exports+=",SEED=${SEED},TRAIN_STRIDE=${TRAIN_STRIDE}"
+    exports+=",SEED=${SEED},TRAIN_STRIDE=${TRAIN_STRIDE},N_VIS=${nvis}"
     [[ -n "$prev_ckpt" ]] && exports+=",PREV_CKPT=${prev_ckpt}"
     [[ -n "$sp_ref" ]]   && exports+=",SP_REF=${sp_ref}"
     # S1 skips vision (emit_vision=false); no cache needed there.

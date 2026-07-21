@@ -36,7 +36,8 @@ vision_cfg:
   freeze_visual_encoder: true
   skip_vision_stack: false
   fusion_mode: "interleaved"
-  n_visual_context_steps: 3  # last 3 TS patches get visual summary tokens (decoupled refinement window per proposal §1)
+  n_visual_context_steps: 1  # patch=16: uk_pv 6h window = ceil(12/16)=1 TS patch (goes=2). Runner
+                             # overrides per dataset (N_VIS). Was 3 under patch=8 — now over-spreads vision.
   n_soft_tokens: 1
   adapter_type: linear
   adapter_n_layers: 2

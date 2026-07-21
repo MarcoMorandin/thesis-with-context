@@ -57,6 +57,8 @@ declare -a CMD=(
 [[ "${RESUME:-1}" == "1" && -f "${STAGE_DIR}/last.ckpt" ]] && CMD+=("ckpt_path=${STAGE_DIR}/last.ckpt")
 # Pre-extracted V-JEPA latents (skipped for S1 which sets emit_vision=false).
 [[ -n "${VJEPA_CACHE:-}" && -d "${VJEPA_CACHE}" ]] && CMD+=("data.vjepa_cache_dir=${VJEPA_CACHE}")
+# n_visual_context_steps per dataset (patch=16 alignment) — see slurm_curriculum.sh:nvis_for.
+[[ -n "${N_VIS:-}" ]] && CMD+=("model.vision_cfg.n_visual_context_steps=${N_VIS}")
 [[ -n "${SP_REF:-}" ]] && CMD+=("model.sp_reference_path=${SP_REF}")
 [[ -n "${TRAIN_STRIDE:-}" ]] && CMD+=("+data.train_stride=${TRAIN_STRIDE}")
 [[ -n "${LIMIT_TRAIN_BATCHES:-}" ]] && CMD+=("+trainer.limit_train_batches=${LIMIT_TRAIN_BATCHES}")

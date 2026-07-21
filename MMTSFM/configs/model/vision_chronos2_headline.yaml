@@ -36,8 +36,8 @@ vision_cfg:
   freeze_visual_encoder: true
   skip_vision_stack: false
   fusion_mode: "interleaved"
-  n_visual_context_steps: 3  # most-recent context patches given visual tokens; derived from
-                             # visual_window_hours/cadence (goes 15-min: ceil(24/8)=3). Asserted <= T_ctx (W7).
+  n_visual_context_steps: 1  # patch=16: uk_pv 6h = ceil(12/16)=1 TS patch (goes=2). Runner overrides
+                             # per dataset (N_VIS). Asserted <= T_ctx (W7).
   n_soft_tokens: 1
   adapter_type: linear
   adapter_n_layers: 2

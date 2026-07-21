@@ -117,6 +117,7 @@ MODEL_CFG=vision_chronos2_timeselfattn \
 | `S1_EPOCHS … S3_EPOCHS` | 40 / 20 / 20 / 50 | per-stage max epochs |
 | `S1_TIME … S3_TIME` | 12h / 8h / 8h / 20h | per-stage SLURM walltime |
 | `TRAIN_STRIDE` | 12 | train window stride (must match the latent cache) |
+| `N_VIS` | per-dataset (uk_pv 1, goes 2) | visual summary tokens per row; ablation knob for the vision-compression axis |
 | `BATCH_SIZE` | 16 | per-GPU batch |
 | `CKPT_DIR` | `…/checkpoints/curriculum` | stage checkpoints (separate per variant!) |
 | `ACCOUNT` / `PARTITION` | `IscrC_MTSFM` / `boost_usr_prod` | SLURM account/partition |
@@ -156,7 +157,8 @@ Backbone = **Chronos-2** at its native size (`amazon/chronos-2`): **d_model 768,
 Vision = **V-JEPA 2.1 ViT-L/16** (spatiotemporal, frozen→progressively unfrozen).
 
 Reference shapes: `uk_pv`, batch `B`, one entity/row. `T_ctx = ceil(672/16) = 42`,
-`n_vis = 3`, `T_fut = ceil(12/16) = 1`.
+`n_vis = 1` (uk_pv: the 6h visual window = `ceil(12/16)=1` TS patch; goes_pvdaq = 2),
+`T_fut = ceil(12/16) = 1`.
 
 ```text
                           INPUTS  (per entity row)
@@ -171,7 +173,7 @@ Reference shapes: `uk_pv`, batch `B`, one entity/row. `T_ctx = ceil(672/16) = 42
   context [B,42,768]                              LatentSummarizer  (Perceiver, causal,
   future  [B, 1,768]                              spatial compress, null token)
   14 cov rows [B,1,768] each ──┐                         │
-                               │                  visual summary [B,3,768]
+                               │                  visual summary [B,1,768]  (n_vis, uk_pv)
                                │                         │
                                ▼                         ▼
         MultimodalEmbedding (additive): modality{num=0,vis=1} · segment{ctx,fut}
@@ -183,8 +185,9 @@ Reference shapes: `uk_pv`, batch `B`, one entity/row. `T_ctx = ceil(672/16) = 42
               │  late (S2a)          │  interleaved (S2b/S3)     │
               │  vis → CrossModal-   │  weave vis into refinement│
               │  Adapter → N_soft=1  │  window only:             │
-              │  batch rows          │  [ts…ts, ts,v, ts,v, ts,v,│
-              │                      │   fut]  seq = 42+3+1 = 46  │
+              │  batch rows          │  [ts … ts, ts, v, fut]    │
+              │                      │  seq = 42+n_vis+1 (uk_pv  │
+              │                      │  n_vis=1 → 44)            │
               └──────────┬───────────┴─────────────┬─────────────┘
                          │                          │
    sequence per row:  [B, T_ctx(+n_vis) + T_fut, 768]

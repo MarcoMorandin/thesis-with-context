@@ -268,6 +268,11 @@ launch_job() {
     # yet: the evaluator then omits the Skill-Score instead of silently falling
     # back to the committed uk_pv reference (wrong dataset).
     [[ -n "$ref" ]] && CMD+=("model.sp_reference_path=$ref")
+    # n_visual_context_steps per dataset for patch=16 (uk_pv 6h=1 patch, goes=2).
+    # Override globally with N_VIS. Keeps the visual window from spreading onto TS
+    # patches the frames never covered. Harmless for vision-off ablations.
+    local nvis="${N_VIS:-}"; [[ -z "$nvis" ]] && { [[ "$ds" == "goes_pvdaq" ]] && nvis=2 || nvis=1; }
+    CMD+=("model.vision_cfg.n_visual_context_steps=$nvis")
     # devices=1 → no DDP process group; skips slurm.yaml's ddp strategy (and the
     # per-run MASTER_PORT juggling it required).
     CMD+=("trainer.strategy=auto")
