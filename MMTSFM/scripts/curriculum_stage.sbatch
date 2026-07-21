@@ -8,6 +8,9 @@
 #SBATCH --account=IscrC_MTSFM
 #SBATCH --output=logs/slurm/%j_%x.out
 #SBATCH --error=logs/slurm/%j_%x.err
+# Mail notifications are injected by the submitter (slurm_curriculum.sh) via
+# `sbatch --mail-type/--mail-user` when MAIL_USER is set — the CINECA-recommended
+# alternative to polling squeue. Never run `watch -n N squeue` against the controller.
 # =============================================================================
 # ONE curriculum stage. Driven entirely by environment (exported by the
 # submitter scripts/slurm_curriculum.sh via `sbatch --export`). Never run this

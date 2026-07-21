@@ -10,6 +10,11 @@
 #SBATCH --account=IscrC_MTSFM
 #SBATCH --output=logs/slurm/%j_%x.out
 #SBATCH --error=logs/slurm/%j_%x.err
+# Job status via email (CINECA-recommended) — uncomment and set your address, or
+# submit with `sbatch --mail-type=END,FAIL --mail-user=<addr> run_all_mmtsfm.sh`.
+# Do NOT monitor with `watch -n N squeue` — polling the controller is discouraged.
+##SBATCH --mail-type=END,FAIL
+##SBATCH --mail-user=
 # =============================================================================
 # MMTSFM OFFLINE ORCHESTRATOR — train ALL ablations in parallel on a GPU node.
 # =============================================================================

@@ -39,6 +39,11 @@ NUM_WORKERS="${NUM_WORKERS:-8}"
 TRAIN_STRIDE="${TRAIN_STRIDE:-12}"
 ACCOUNT="${ACCOUNT:-IscrC_MTSFM}"
 PARTITION="${PARTITION:-boost_usr_prod}"
+# Job status via Slurm email notifications (CINECA-recommended) instead of
+# polling squeue. Set MAIL_USER to receive BEGIN/END/FAIL mails; leave empty to
+# disable. Never poll the controller in a loop (no `watch -n N squeue`).
+MAIL_USER="${MAIL_USER:-}"
+MAIL_TYPE="${MAIL_TYPE:-END,FAIL}"
 
 # Per-stage max epochs + walltime (S1/S3 heavier than the two alignment stages).
 declare -A ST_EPOCHS=( [s1]="${S1_EPOCHS:-40}" [s2a]="${S2A_EPOCHS:-20}" [s2b]="${S2B_EPOCHS:-20}" [s3]="${S3_EPOCHS:-50}" )
@@ -116,7 +121,8 @@ for ds in $DATASETS; do
     # S1 skips vision (emit_vision=false); no cache needed there.
     [[ "$st" != "s1" ]]  && exports+=",VJEPA_CACHE=${vjepa_cache}"
 
-    jid="$(sbatch --parsable "${DEP[@]}" \
+    declare -a MAIL=(); [[ -n "$MAIL_USER" ]] && MAIL=(--mail-type="${MAIL_TYPE}" --mail-user="${MAIL_USER}")
+    jid="$(sbatch --parsable "${DEP[@]}" "${MAIL[@]}" \
       --job-name="${tag}" --account="${ACCOUNT}" --partition="${PARTITION}" \
       --time="${ST_TIME[$st]}" --export="${exports}" \
       scripts/curriculum_stage.sbatch)" || { echo "sbatch failed for ${tag}"; exit 1; }
@@ -124,4 +130,6 @@ for ds in $DATASETS; do
     prev_jid="$jid"; prev_ckpt="${stage_dir}/best.ckpt"
   done
 done
-echo ">>> submitted. Watch: squeue -u \$USER   Results: ${RESULTS_DIR}/mmtsfm_*.json"
+echo ">>> submitted. Job status arrives by email when MAIL_USER is set"
+echo "    (BEGIN/END/FAIL). Do NOT poll the controller — no 'watch -n N squeue'."
+echo "    One-off status check is fine: squeue -u \$USER   Results: ${RESULTS_DIR}/mmtsfm_*.json"
