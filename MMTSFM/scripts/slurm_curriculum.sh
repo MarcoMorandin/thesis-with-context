@@ -80,7 +80,7 @@ if [[ "${SMOKE:-0}" == "1" ]]; then
     uv run "${C[@]}" || { echo "SMOKE FAILED at ${st}"; exit 1; }
     prev="${sd}/best.ckpt"
   done
-  echo ">>> SMOKE OK — all 4 stages ran and threaded best.ckpt"
+  echo ">>> SMOKE OK — stages [${SMK_STAGES[*]}] ran and threaded best.ckpt via init_ckpt"
   exit 0
 fi
 
@@ -94,6 +94,14 @@ for ds in $DATASETS; do
   vjepa_cache="${VJEPA_CACHE_ROOT}/${ds}/${VJEPA_CACHE_VER}"
   sp_ref="$(sp_ref_for "$ds")"
   echo "=== dataset ${ds} (data=${dcfg}) ==="
+  # The vision stages read a pre-extracted V-JEPA latent cache. If it is absent
+  # the worker omits data.vjepa_cache_dir and V-JEPA runs LIVE per batch on the
+  # GPU (correct, but re-encodes every step). Pre-extract once with
+  # scripts/extract_video_embeddings.py (as run_all_mmtsfm.sh's PREEXTRACT does),
+  # writing to VJEPA_CACHE_ROOT/<ds>/<arch>_f8_s224, and keep TRAIN_STRIDE aligned.
+  if [[ ! -d "$vjepa_cache" ]]; then
+    echo "  ! WARN: no V-JEPA latent cache at ${vjepa_cache} — s2a/s2b/s3 will encode live (slow)."
+  fi
   prev_jid=""; prev_ckpt=""
   for st in "${STAGES[@]}"; do
     tag="mmtsfm_${st}_${dcfg}"
