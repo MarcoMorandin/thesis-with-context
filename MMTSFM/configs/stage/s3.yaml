@@ -11,8 +11,7 @@ model:
   n_visual_unfreeze_layers: 4
   progressive_vision_unfreeze: true
   progressive_unfreeze_interval: 1
-  chronos_core_cfg:
-    use_grassmann: true
+  # use_grassmann is decided by the model config, not the stage.
   vision_cfg:
     skip_vision_stack: false
     fusion_mode: interleaved
