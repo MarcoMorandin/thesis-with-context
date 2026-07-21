@@ -82,6 +82,21 @@ def main(cfg: DictConfig):
 
     _allowlist_lightning_checkpoint_globals()
 
+    # Weights-only warm start for chaining curriculum stages. Distinct from
+    # ckpt_path (full-state resume): load only the prior stage's model weights so
+    # the new stage starts at epoch 0 with a fresh optimizer whose param groups
+    # match the CURRENT freezing. strict=False tolerates added/removed modules
+    # (e.g. S1 numeric-only -> S2a with vision) and the reinit'd output head.
+    init_ckpt = cfg.get("init_ckpt", None) or None
+    if init_ckpt:
+        log.info(f"Warm-starting weights from: {init_ckpt}")
+        state = torch.load(init_ckpt, map_location="cpu", weights_only=False)
+        sd = state.get("state_dict", state)
+        missing, unexpected = model.load_state_dict(sd, strict=False)
+        log.info(
+            f"Warm start: loaded (missing={len(missing)}, unexpected={len(unexpected)})"
+        )
+
     if cfg.get("train", True):
         log.info("Starting training!")
         ckpt_path = cfg.get("ckpt_path", None) or None

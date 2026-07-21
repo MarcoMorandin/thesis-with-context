@@ -75,8 +75,8 @@ if [[ "${SMOKE:-0}" == "1" ]]; then
       "data.batch_size=2" "data.num_workers=0"
       'hydra.run.dir='"${sd}"'/hydra'
     )
-    [[ -n "$prev" && -f "$prev" ]] && C+=("+ckpt_path=${prev}")
-    echo ">>> SMOKE stage ${st}  prev=${prev:-<none>}"
+    [[ -n "$prev" && -f "$prev" ]] && C+=("init_ckpt=${prev}")
+    echo ">>> SMOKE stage ${st}  warm-start=${prev:-<none>}"
     uv run "${C[@]}" || { echo "SMOKE FAILED at ${st}"; exit 1; }
     prev="${sd}/best.ckpt"
   done

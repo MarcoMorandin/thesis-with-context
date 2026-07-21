@@ -9,7 +9,12 @@ defaults:
 seed: 42
 project_name: mmtsfm
 run_name: ${now:%Y-%m-%d_%H-%M-%S}_run
-ckpt_path: null   # pass +ckpt_path=/path/to/stage2a.ckpt to resume for Stage 2b/3
+# ckpt_path = FULL-STATE resume (optimizer + epoch), for same-stage requeue only.
+ckpt_path: null
+# init_ckpt = WEIGHTS-ONLY warm start (fresh optimizer + epoch 0), for chaining
+# curriculum stages (S1 -> S2a -> ...). Loads the prior stage's model weights
+# with strict=False so added/removed modules and changed freezing are tolerated.
+init_ckpt: null
 
 hydra:
   run:

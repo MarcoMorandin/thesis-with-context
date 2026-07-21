@@ -46,9 +46,11 @@ declare -a CMD=(
   'hydra.run.dir=logs/experiments/runs/${now:%Y-%m-%d_%H-%M-%S}_'"${TAG}"
 )
 
-# Cross-stage resume: thread the previous stage's best.ckpt (S1 has none).
-[[ -n "${PREV_CKPT:-}" && -f "${PREV_CKPT}" ]] && CMD+=("+ckpt_path=${PREV_CKPT}")
-# Requeue-safety: continue this same stage from its own last.ckpt if present.
+# Cross-stage: WEIGHTS-ONLY warm start from the previous stage's best.ckpt (fresh
+# optimizer + epoch 0 — the freezing/param-groups differ per stage). S1 has none.
+[[ -n "${PREV_CKPT:-}" && -f "${PREV_CKPT}" ]] && CMD+=("init_ckpt=${PREV_CKPT}")
+# Requeue-safety: FULL-STATE resume of THIS same stage from its own last.ckpt.
+# Takes precedence — a mid-stage requeue continues where it left off.
 [[ "${RESUME:-1}" == "1" && -f "${STAGE_DIR}/last.ckpt" ]] && CMD+=("ckpt_path=${STAGE_DIR}/last.ckpt")
 # Pre-extracted V-JEPA latents (skipped for S1 which sets emit_vision=false).
 [[ -n "${VJEPA_CACHE:-}" && -d "${VJEPA_CACHE}" ]] && CMD+=("data.vjepa_cache_dir=${VJEPA_CACHE}")
