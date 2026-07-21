@@ -12,8 +12,7 @@
 # weights, the dataset, and (for S2a/S2b/S3) the pre-extracted V-JEPA latent
 # cache. Submit from MMTSFM/.
 #
-#   bash scripts/slurm_curriculum.sh                       # uk_pv + goes_pvdaq
-#   DATASETS="uk_pv" bash scripts/slurm_curriculum.sh      # one dataset
+#   bash scripts/slurm_curriculum.sh                       # uk_pv (protocol-compliant default)
 #   SMOKE=1 bash scripts/slurm_curriculum.sh               # local CPU dry-run, no sbatch
 # =============================================================================
 set -uo pipefail
@@ -32,7 +31,12 @@ VJEPA_CACHE_ROOT="${VJEPA_CACHE_ROOT:-/leonardo_work/IscrC_MTSFM/vjepa_cache}"
 VJEPA_ARCH="${VJEPA_ARCH:-vit_large}"
 VJEPA_CACHE_VER="${VJEPA_CACHE_VER:-${VJEPA_ARCH}_f8_s224}"
 MODEL_CFG="${MODEL_CFG:-vision_chronos2_grassmann}"
-DATASETS="${DATASETS:-uk_pv goes_pvdaq}"
+# uk_pv is the primary cross-plant benchmark and the only protocol-compliant
+# curriculum target. goes_pvdaq is intentionally NOT run here: BASELINE_PROTOCOL
+# §2/§4.1 require leave-one-plant-out for it (test share = 1 plant), which this
+# fixed-split runner does not implement. Pass DATASETS=goes_pvdaq only once a
+# LOPO harness exists.
+DATASETS="${DATASETS:-uk_pv}"
 SEED="${SEED:-42}"
 BATCH_SIZE="${BATCH_SIZE:-16}"
 NUM_WORKERS="${NUM_WORKERS:-8}"

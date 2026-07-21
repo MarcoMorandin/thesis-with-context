@@ -39,7 +39,7 @@ training `TRAIN_STRIDE`** or the cache keys won't be found:
 
 ```bash
 DATA_DIR=/leonardo_scratch/fast/IscrC_MTSFM/data
-for DS in uk_pv goes_pvdaq; do
+for DS in uk_pv; do          # uk_pv only — goes_pvdaq is out of scope (needs LOPO, see below)
   for SPLIT in train val test; do
     CACHE=/leonardo_work/IscrC_MTSFM/vjepa_cache/$DS/vit_large_f8_s224
     STRIDE=(); [ "$SPLIT" = train ] && STRIDE=(--stride 12)
@@ -52,7 +52,7 @@ for DS in uk_pv goes_pvdaq; do
 done
 ```
 
-> Shortcut: `PREEXTRACT_VJEPA=1 DATASETS="uk_pv goes_pvdaq" sbatch scripts/run_all_mmtsfm.sh`
+> Shortcut: `PREEXTRACT_VJEPA=1 DATASETS="uk_pv" sbatch scripts/run_all_mmtsfm.sh`
 > pre-extracts the same cache as part of its own run.
 
 > If the latent cache is absent the curriculum still runs — the vision stages just encode
@@ -87,7 +87,7 @@ MODEL_CFG=vision_chronos2_grassmann \
 ```
 
 - Temporal mixer = `CausalGrassmannMixing` (O(L) Plücker), `use_grassmann=true`.
-- Results → `baselines/results/mmtsfm_{s1,s2a,s2b,s3}_{ukpv,goespvdaq}.json`.
+- Results → `baselines/results/mmtsfm_{s1,s2a,s2b,s3}_ukpv.json`.
 
 #### 2b. TimeSelfAttention variant (diagnostic ablation)
 
@@ -112,7 +112,7 @@ MODEL_CFG=vision_chronos2_timeselfattn \
 
 | Var | Default | Meaning |
 |-----|---------|---------|
-| `DATASETS` | `uk_pv goes_pvdaq` | space-separated list |
+| `DATASETS` | `uk_pv` | primary benchmark. goes_pvdaq excluded — needs LOPO (BASELINE_PROTOCOL §2/§4.1) |
 | `MAIL_USER` | *(empty)* | email for `--mail-type=END,FAIL`; empty disables |
 | `S1_EPOCHS … S3_EPOCHS` | 40 / 20 / 20 / 50 | per-stage max epochs |
 | `S1_TIME … S3_TIME` | 12h / 8h / 8h / 20h | per-stage SLURM walltime |
