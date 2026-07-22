@@ -38,7 +38,9 @@ MODEL_CFG="${MODEL_CFG:-vision_chronos2_grassmann}"
 # LOPO harness exists.
 DATASETS="${DATASETS:-uk_pv}"
 SEED="${SEED:-42}"
-BATCH_SIZE="${BATCH_SIZE:-16}"
+# Empty → use the per-stage ST_BATCH defaults below; set to force one batch size
+# across all stages (e.g. BATCH_SIZE=2 for a very tight GPU).
+BATCH_SIZE="${BATCH_SIZE:-}"
 NUM_WORKERS="${NUM_WORKERS:-8}"
 TRAIN_STRIDE="${TRAIN_STRIDE:-12}"
 ACCOUNT="${ACCOUNT:-IscrC_MTSFM}"
@@ -52,6 +54,14 @@ MAIL_TYPE="${MAIL_TYPE:-END,FAIL}"
 # Per-stage max epochs + walltime (S1/S3 heavier than the two alignment stages).
 declare -A ST_EPOCHS=( [s1]="${S1_EPOCHS:-40}" [s2a]="${S2A_EPOCHS:-20}" [s2b]="${S2B_EPOCHS:-20}" [s3]="${S3_EPOCHS:-50}" )
 declare -A ST_TIME=(   [s1]="${S1_TIME:-12:00:00}" [s2a]="${S2A_TIME:-08:00:00}" [s2b]="${S2B_TIME:-08:00:00}" [s3]="${S3_TIME:-20:00:00}" )
+# Per-stage micro-batch + grad accumulation (effective batch = batch*accum ≈ 16).
+# GroupSelfAttention flattens BS*num_entities*(1+covariates) rows into one attention
+# axis (uk_pv: 16*4*15 = 960 rows) → O(rows²) activations OOM a 64 GB A100 at
+# batch 16. Small micro-batches keep it on-GPU; accumulation preserves the effective
+# batch. Vision stages (s2a+) add V-JEPA + visual rows, so they go smaller. Set
+# BATCH_SIZE to override all stages; drop to 2 (accum 8) if a stage still OOMs.
+declare -A ST_BATCH=( [s1]="${S1_BATCH:-8}" [s2a]="${S2A_BATCH:-4}" [s2b]="${S2B_BATCH:-4}" [s3]="${S3_BATCH:-4}" )
+declare -A ST_ACCUM=( [s1]="${S1_ACCUM:-2}" [s2a]="${S2A_ACCUM:-4}" [s2b]="${S2B_ACCUM:-4}" [s3]="${S3_ACCUM:-4}" )
 STAGES=(s1 s2a s2b s3)
 
 dcfg_for() { case "$1" in uk_pv) echo ukpv;; goes_pvdaq) echo goespvdaq;; *) echo "$1";; esac; }
@@ -120,10 +130,12 @@ for ds in $DATASETS; do
   for st in "${STAGES[@]}"; do
     tag="mmtsfm_${st}_${dcfg}"
     stage_dir="${CKPT_DIR}/${ds}_${st}"
+    bs="${BATCH_SIZE:-${ST_BATCH[$st]}}"    # global override else per-stage default
+    accum="${ST_ACCUM[$st]}"
     declare -a DEP=(); [[ -n "$prev_jid" ]] && DEP=(--dependency="afterok:${prev_jid}")
     exports="ALL,STAGE=${st},DS=${ds},DCFG=${dcfg},MODEL_CFG=${MODEL_CFG},TAG=${tag}"
     exports+=",DATA_DIR=${DATA_DIR},CKPT_DIR=${CKPT_DIR},RESULTS_DIR=${RESULTS_DIR}"
-    exports+=",MAX_EPOCHS=${ST_EPOCHS[$st]},BATCH_SIZE=${BATCH_SIZE},NUM_WORKERS=${NUM_WORKERS}"
+    exports+=",MAX_EPOCHS=${ST_EPOCHS[$st]},BATCH_SIZE=${bs},ACCUM=${accum},NUM_WORKERS=${NUM_WORKERS}"
     exports+=",SEED=${SEED},TRAIN_STRIDE=${TRAIN_STRIDE},N_VIS=${nvis}"
     [[ -n "$prev_ckpt" ]] && exports+=",PREV_CKPT=${prev_ckpt}"
     [[ -n "$sp_ref" ]]   && exports+=",SP_REF=${sp_ref}"

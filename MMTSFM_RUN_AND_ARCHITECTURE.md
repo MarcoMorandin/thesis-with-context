@@ -133,7 +133,8 @@ MODEL_CFG=vision_chronos2_timeselfattn \
 | `S1_TIME … S3_TIME` | 12h / 8h / 8h / 20h | per-stage SLURM walltime |
 | `TRAIN_STRIDE` | 12 | train window stride (must match the latent cache) |
 | `N_VIS` | per-dataset (uk_pv 1, goes 2) | visual summary tokens per row; ablation knob for the vision-compression axis |
-| `BATCH_SIZE` | 16 | per-GPU batch |
+| `BATCH_SIZE` | *(per-stage: s1 8, s2a/b/3 4)* | micro-batch; set to force all stages. Drop to 2 if a stage OOMs |
+| `S1_BATCH … S3_BATCH` / `S1_ACCUM … S3_ACCUM` | 8/4/4/4 · 2/4/4/4 | per-stage micro-batch + grad accumulation (effective batch ≈ 16) |
 | `CKPT_DIR` | `…/checkpoints/curriculum` | stage checkpoints (separate per variant!) |
 | `ACCOUNT` / `PARTITION` | `IscrC_MTSFM` / `boost_usr_prod` | SLURM account/partition |
 

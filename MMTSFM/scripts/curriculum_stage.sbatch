@@ -33,7 +33,7 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 : "${STAGE:?STAGE not set}" "${DS:?DS not set}" "${DCFG:?DCFG not set}" "${TAG:?TAG not set}"
 : "${MODEL_CFG:=vision_chronos2_grassmann}"
 : "${DATA_DIR:?DATA_DIR not set}" "${CKPT_DIR:?CKPT_DIR not set}" "${RESULTS_DIR:?RESULTS_DIR not set}"
-: "${MAX_EPOCHS:=50}" "${BATCH_SIZE:=16}" "${NUM_WORKERS:=8}" "${SEED:=42}"
+: "${MAX_EPOCHS:=50}" "${BATCH_SIZE:=8}" "${ACCUM:=2}" "${NUM_WORKERS:=8}" "${SEED:=42}"
 
 STAGE_DIR="${CKPT_DIR}/${DS}_${STAGE}"
 mkdir -p "$STAGE_DIR" logs/slurm
@@ -44,7 +44,10 @@ declare -a CMD=(
   trainer=slurm trainer.devices=1 trainer.strategy=auto
   "seed=${SEED}" "trainer.max_epochs=${MAX_EPOCHS}"
   "trainer.default_root_dir=${STAGE_DIR}"
-  "data.data_dir=${DATA_DIR}" "data.batch_size=${BATCH_SIZE}" "data.num_workers=${NUM_WORKERS}"
+  # GroupSelfAttention is O((BS*num_entities*(1+covariates))^2) in activations —
+  # keep the micro-batch small and recover the effective batch via accumulation.
+  "data.batch_size=${BATCH_SIZE}" "trainer.accumulate_grad_batches=${ACCUM}"
+  "data.num_workers=${NUM_WORKERS}"
   "model.results_dir=${RESULTS_DIR}" "model.results_tag=${TAG}"
   'hydra.run.dir=logs/experiments/runs/${now:%Y-%m-%d_%H-%M-%S}_'"${TAG}"
 )
