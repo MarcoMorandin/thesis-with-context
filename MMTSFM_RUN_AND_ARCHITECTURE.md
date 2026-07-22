@@ -32,28 +32,43 @@ cd MMTSFM
 sbatch scripts/precache_login.sh        # uv sync + Chronos-2 + V-JEPA weights + data check
 ```
 
-Then pre-extract the V-JEPA latents for both datasets (avoids re-encoding video every
-training step — highly recommended). The extractor uses argparse (not Hydra); the cache dir
-must be `<root>/<dataset>/<arch>_f<frames>_s<size>` and the **train stride must equal the
-training `TRAIN_STRIDE`** or the cache keys won't be found:
+Then pre-extract the V-JEPA latents on a **GPU node** (avoids re-encoding video every
+training step). This is a dedicated SLURM job — it needs a GPU, so it must not run on a
+login node:
 
 ```bash
-DATA_DIR=/leonardo_scratch/fast/IscrC_MTSFM/data
-for DS in uk_pv; do          # uk_pv only — goes_pvdaq is out of scope (needs LOPO, see below)
-  for SPLIT in train val test; do
-    CACHE=/leonardo_work/IscrC_MTSFM/vjepa_cache/$DS/vit_large_f8_s224
-    STRIDE=(); [ "$SPLIT" = train ] && STRIDE=(--stride 12)
-    uv run python scripts/extract_video_embeddings.py \
-      --encoder vjepa2 --vjepa-arch vit_large --dataset $DS --split $SPLIT \
-      --video-frames 8 --img-size 224 --imagenet-norm \
-      --data-dir $DATA_DIR --cache-dir $CACHE \
-      --batch-size 8 --num-workers 4 "${STRIDE[@]}"
-  done
-done
+sbatch scripts/extract_vjepa.sbatch          # uk_pv, splits train/val/test → cache
 ```
 
-> Shortcut: `PREEXTRACT_VJEPA=1 DATASETS="uk_pv" sbatch scripts/run_all_mmtsfm.sh`
-> pre-extracts the same cache as part of its own run.
+It writes one `<key>.pt` per plant/window under
+`/leonardo_work/IscrC_MTSFM/vjepa_cache/uk_pv/vit_large_f8_s224/`, and is **idempotent**
+(re-running skips files already present). The **train stride must equal the training
+`TRAIN_STRIDE`** (default 12) or the cache keys won't match. Override via env:
+
+```bash
+DATASET=uk_pv SPLITS="train val test" TRAIN_STRIDE=12 VIDEO_FRAMES=8 IMG_SIZE=224 \
+  sbatch scripts/extract_vjepa.sbatch
+```
+
+#### Check the pre-extraction is complete and correct
+
+```bash
+CACHE=/leonardo_work/IscrC_MTSFM/vjepa_cache/uk_pv/vit_large_f8_s224
+
+# 1. Files present + total size (instant, login node):
+find "$CACHE" -name '*.pt' | wc -l        # expect ~113k for uk_pv (train stride 12 + val/test)
+du -sh "$CACHE"
+
+# 2. A sample latent has the right shape/dtype ([T_lat, P, D_v] = [4, 196, 1024], fp16):
+uv run python -c "import torch,glob; f=sorted(glob.glob('$CACHE/*.pt'))[0]; \
+z=torch.load(f, map_location='cpu'); print(f, tuple(z.shape), z.dtype)"
+
+# 3. Authoritative completeness — re-submit; if extraction is done, every split logs
+#    'done=0 skip=<N>' (nothing left to encode, no GPU work):
+sbatch scripts/extract_vjepa.sbatch
+#    then, in logs/slurm/<jobid>_mmtsfm-extract-vjepa.out:
+grep -E 'DONE done=|\[extract\] DONE' logs/slurm/*mmtsfm-extract-vjepa.out | tail
+```
 
 > If the latent cache is absent the curriculum still runs — the vision stages just encode
 > V-JEPA **live** on the GPU (correct, slower). The submitter warns you per dataset.
