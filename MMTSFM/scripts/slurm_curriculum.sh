@@ -13,6 +13,7 @@
 # cache. Submit from MMTSFM/.
 #
 #   bash scripts/slurm_curriculum.sh                       # uk_pv (protocol-compliant default)
+#   START_STAGE=s2a bash scripts/slurm_curriculum.sh       # skip finished S1, warm-start S2a from S1/best.ckpt
 #   SMOKE=1 bash scripts/slurm_curriculum.sh               # local CPU dry-run, no sbatch
 # =============================================================================
 set -uo pipefail
@@ -63,6 +64,17 @@ declare -A ST_TIME=(   [s1]="${S1_TIME:-12:00:00}" [s2a]="${S2A_TIME:-08:00:00}"
 declare -A ST_BATCH=( [s1]="${S1_BATCH:-8}" [s2a]="${S2A_BATCH:-4}" [s2b]="${S2B_BATCH:-4}" [s3]="${S3_BATCH:-4}" )
 declare -A ST_ACCUM=( [s1]="${S1_ACCUM:-2}" [s2a]="${S2A_ACCUM:-4}" [s2b]="${S2B_ACCUM:-4}" [s3]="${S3_ACCUM:-4}" )
 STAGES=(s1 s2a s2b s3)
+
+# START_STAGE: resume the curriculum from a later stage (e.g. after S1 is done).
+# RUN_STAGES = STAGES from START_STAGE onward; STAGE_BEFORE_START = the stage just
+# before it, whose best.ckpt warm-starts START_STAGE (no in-submission dependency).
+START_STAGE="${START_STAGE:-s1}"
+RUN_STAGES=(); STAGE_BEFORE_START=""; _seen=0
+for _st in "${STAGES[@]}"; do
+  [[ "$_st" == "$START_STAGE" ]] && _seen=1
+  if [[ $_seen -eq 1 ]]; then RUN_STAGES+=("$_st"); else STAGE_BEFORE_START="$_st"; fi
+done
+[[ ${#RUN_STAGES[@]} -gt 0 ]] || { echo "FATAL: START_STAGE='${START_STAGE}' not in [${STAGES[*]}]"; exit 1; }
 
 dcfg_for() { case "$1" in uk_pv) echo ukpv;; goes_pvdaq) echo goespvdaq;; *) echo "$1";; esac; }
 # n_visual_context_steps per dataset for patch=16: the 6h visual window spans
@@ -126,8 +138,14 @@ for ds in $DATASETS; do
   if [[ ! -d "$vjepa_cache" ]]; then
     echo "  ! WARN: no V-JEPA latent cache at ${vjepa_cache} — s2a/s2b/s3 will encode live (slow)."
   fi
+  # Seed the warm-start ckpt from the stage before START_STAGE (already trained in
+  # a previous submission). prev_jid stays empty → no in-submission dependency.
   prev_jid=""; prev_ckpt=""
-  for st in "${STAGES[@]}"; do
+  if [[ -n "$STAGE_BEFORE_START" ]]; then
+    prev_ckpt="${CKPT_DIR}/${ds}_${STAGE_BEFORE_START}/best.ckpt"
+    [[ -f "$prev_ckpt" ]] || echo "  ! WARN: warm-start ckpt missing: ${prev_ckpt} — ${START_STAGE} will start from scratch"
+  fi
+  for st in "${RUN_STAGES[@]}"; do
     tag="mmtsfm_${st}_${dcfg}"
     stage_dir="${CKPT_DIR}/${ds}_${st}"
     bs="${BATCH_SIZE:-${ST_BATCH[$st]}}"    # global override else per-stage default

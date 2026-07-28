@@ -128,6 +128,7 @@ MODEL_CFG=vision_chronos2_timeselfattn \
 | Var | Default | Meaning |
 |-----|---------|---------|
 | `DATASETS` | `uk_pv` | primary benchmark. goes_pvdaq excluded — needs LOPO (BASELINE_PROTOCOL §2/§4.1) |
+| `START_STAGE` | `s1` | begin the chain at a later stage (e.g. `s2a`); warm-starts from the prior stage's `best.ckpt`, no s1 re-run |
 | `MAIL_USER` | *(empty)* | email for `--mail-type=END,FAIL`; empty disables |
 | `S1_EPOCHS … S3_EPOCHS` | 40 / 20 / 20 / 50 | per-stage max epochs |
 | `S1_TIME … S3_TIME` | 12h / 8h / 8h / 20h | per-stage SLURM walltime |
