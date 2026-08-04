@@ -88,15 +88,29 @@ class CausalGrassmannMixing(nn.Module):
         p = p / p_norm
         return p
 
+    def _pair_validity(
+        self,
+        valid_mask: torch.Tensor,  # [B, L] bool
+        valid_offsets: list,
+        dtype: torch.dtype,
+    ) -> torch.Tensor:
+        """[B, L, n_valid] — 1 where BOTH endpoints of the (i-δ, i) pair are valid."""
+        B, L = valid_mask.shape
+        out = torch.zeros(
+            B, L, len(valid_offsets), device=valid_mask.device, dtype=dtype
+        )
+        for k, delta in enumerate(valid_offsets):
+            out[:, delta:, k] = (valid_mask[:, : L - delta] & valid_mask[:, delta:]).to(
+                dtype
+            )
+        return out
+
     def _process_offset(
         self,
         z: torch.Tensor,
-        valid_mask: torch.Tensor,
         delta: int,
-        weight: torch.Tensor,
+        weight: torch.Tensor,  # [B, L, 1] — already masked AND renormalised
         g_sum: torch.Tensor,
-        weight_sum: torch.Tensor,
-        target_dtype: torch.dtype,
     ) -> None:
         """Process a single offset: Plücker + project + accumulate."""
         L_eff = z.shape[1] - delta
@@ -109,20 +123,13 @@ class CausalGrassmannMixing(nn.Module):
         z_past = z[:, :L_eff, :]  # [B, L-δ, r]  — the earlier tokens
         z_curr = z[:, delta:, :]  # [B, L-δ, r]  — the later tokens (present)
 
-        # Validity mask: both z_past[i-δ] and z_curr[i] must be valid
-        v = (
-            (valid_mask[:, :L_eff] & valid_mask[:, delta:])
-            .unsqueeze(-1)
-            .to(target_dtype)
-        )
-
         # Plücker encoding + projection
         plucker = self._compute_plucker(z_past, z_curr)
         g = self.W_plu(plucker)
 
-        # Weighted accumulation into positions δ..L-1 (causal write target)
-        g_sum[:, delta:, :] += g * v * weight
-        weight_sum[:, delta:, :] += v * weight
+        # Weighted accumulation into positions δ..L-1 (causal write target).
+        # `weight` already carries the pair-validity mask, so no separate v here.
+        g_sum[:, delta:, :] += g * weight[:, delta:, :].to(g.dtype)
 
     def _compute_modality_biases(
         self,
@@ -148,29 +155,60 @@ class CausalGrassmannMixing(nn.Module):
             pair_biases[:, :, k] = self.modality_pair_bias[pair_type]
         return pair_biases  # [B, L, n_valid]
 
-    def _process_offset_positional(
+    def _offset_weights_for(
         self,
-        z: torch.Tensor,  # [B, L, r]
-        valid_mask: torch.Tensor,  # [B, L]
-        delta: int,
-        weight: torch.Tensor,  # [B, L]  position-wise weight
-        g_sum: torch.Tensor,
-        weight_sum: torch.Tensor,
-        target_dtype: torch.dtype,
-    ) -> None:
-        L_eff = z.shape[1] - delta
-        z_past = z[:, :L_eff, :]
-        z_curr = z[:, delta:, :]
-        v = (
-            (valid_mask[:, :L_eff] & valid_mask[:, delta:])
-            .unsqueeze(-1)
-            .to(target_dtype)
+        valid_offsets: list,
+        valid_mask: torch.Tensor,  # [B, L] bool
+        modality_mask: Optional[torch.Tensor],
+        seq_len: int,
+        device: torch.device,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Per-position offset mixing weights, renormalised over VALID pairs.
+
+        Returns (mixing_weights [B, L, n_valid], softmax_weights) — the first is
+        what multiplies each offset's Plücker term, the second is the raw softmax
+        kept for the `output_attentions` diagnostic.
+
+        Computed in fp32 on purpose. This branch is a gradient SINK: nothing
+        reads it except `offset_weights` / `modality_pair_bias`, and its backward
+        is a reduction over d_model — the largest in the layer. A single +inf in
+        it turns *every* offset weight into NaN, because softmax's backward is
+        y*(ĝ - Σ y·ĝ) and inf - inf = NaN. That is exactly the failure observed
+        on Leonardo job 50574535 (`3:layer.0.offset_weights(6/6)` non-finite on
+        every step while every other parameter stayed finite), which silently
+        zeroed all gradients and froze training for 6.5 GPU-hours.
+        """
+        # Index the in-range offsets directly instead of torch.where(-inf) +
+        # prefix slice: the old form only produced finite logits because
+        # window_offsets happens to be sorted ascending.
+        valid_idx = torch.tensor(
+            [i for i, d in enumerate(self.window_offsets) if d < seq_len],
+            device=device,
         )
-        plucker = self._compute_plucker(z_past, z_curr)
-        g = self.W_plu(plucker)
-        w = weight[:, delta:].unsqueeze(-1).to(target_dtype)  # [B, L_eff, 1]
-        g_sum[:, delta:, :] += g * v * w
-        weight_sum[:, delta:, :] += v * w
+        logits = self.offset_weights[valid_idx].float().view(1, 1, -1)  # [1,1,n]
+
+        if self.use_modality_pair_bias and modality_mask is not None:
+            logits = logits + self._compute_modality_biases(
+                modality_mask, valid_offsets, torch.float32
+            )  # [B, L, n]
+
+        softmax_weights = torch.softmax(logits, dim=-1)
+
+        # Renormalise over the offsets that actually have a valid pair at this
+        # position, BEFORE accumulation. Algebraically identical to the old
+        # accumulate-then-divide, Σ(v·w·g) / Σ(v·w), but keeps 1/Σ(v·w) out of
+        # the g_sum backward. The old form clamped that denominator at 1e-6, so
+        # positions with no valid pair at all amplified dL/dg_sum by up to 1e6 —
+        # five orders of magnitude of headroom handed to the sink above.
+        pair_valid = self._pair_validity(valid_mask, valid_offsets, torch.float32)
+        wv = softmax_weights * pair_valid
+        denom = wv.sum(dim=-1, keepdim=True)
+        # torch.where (not a bare clamp) so the all-invalid positions contribute
+        # exactly zero gradient rather than a 1e6-scaled one.
+        mixing = torch.where(
+            denom > 0, wv / denom.clamp(min=1e-6), torch.zeros_like(wv)
+        )
+        return mixing, softmax_weights
 
     def forward(
         self,
@@ -203,55 +241,20 @@ class CausalGrassmannMixing(nn.Module):
 
         if num_offsets == 0:
             g = torch.zeros_like(hidden_states)
+            normalized_weights = None
         else:
-            # Build base logits for valid offsets (mask out-of-range offsets)
-            offset_mask = torch.tensor(
-                [d < seq_len for d in self.window_offsets], device=hidden_states.device
+            mixing, normalized_weights = self._offset_weights_for(
+                valid_offsets, valid_mask, modality_mask, seq_len, hidden_states.device
             )
-            masked_logits = torch.where(
-                offset_mask,
-                self.offset_weights,
-                torch.full_like(self.offset_weights, float("-inf")),
-            )[:num_offsets]  # [n_valid]
-
-            position_wise = self.use_modality_pair_bias and modality_mask is not None
-
-            if position_wise:
-                # [B, L, n_valid] = base[n_valid] + modality_bias[B, L, n_valid]
-                pair_biases = self._compute_modality_biases(
-                    modality_mask, valid_offsets, hidden_states.dtype
-                )
-                logits = masked_logits.unsqueeze(0).unsqueeze(0) + pair_biases
-                normalized_weights = torch.softmax(logits, dim=-1)  # [B, L, n_valid]
-            else:
-                normalized_weights = torch.softmax(masked_logits, dim=0)  # [n_valid]
 
             g_sum = torch.zeros(
                 batch_size, seq_len, d_model, device=z.device, dtype=hidden_states.dtype
             )
-            weight_sum = torch.zeros(
-                batch_size, seq_len, 1, device=z.device, dtype=hidden_states.dtype
-            )
-
             for i, delta in enumerate(valid_offsets):
-                if position_wise:
-                    w = normalized_weights[:, :, i]  # [B, L]
-                    self._process_offset_positional(
-                        z, valid_mask, delta, w, g_sum, weight_sum, hidden_states.dtype
-                    )
-                else:
-                    self._process_offset(
-                        z,
-                        valid_mask,
-                        delta,
-                        normalized_weights[i],
-                        g_sum,
-                        weight_sum,
-                        hidden_states.dtype,
-                    )
+                self._process_offset(z, delta, mixing[:, :, i : i + 1], g_sum)
 
-            weight_sum = torch.clamp(weight_sum, min=1e-6)
-            g = g_sum / weight_sum
+            # No trailing division: `mixing` is already normalised per position.
+            g = g_sum
 
         # Step 5: Gated fusion
         u = torch.cat([hidden_states, g], dim=-1)  # [B, L, 2*d]
