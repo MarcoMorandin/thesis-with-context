@@ -1,19 +1,24 @@
-# MMTSFM — Leonardo Run Guide & Architecture
+# Runbook — how to run everything
 
-Two parts:
-1. [How to train MMTSFM on Leonardo, step by step](#1-training-on-leonardo) — for **both** the
-   Grassmann-mixing and TimeSelfAttention variants.
-2. [The model architecture as implemented in the code](#2-architecture-as-implemented).
+Operational single source of truth. **What** the model is and **why** → [architecture.md](architecture.md).
 
-All commands run from `MMTSFM/`. Shapes are the `uk_pv` reference config.
+| I want to… | Go to |
+|---|---|
+| Train MMTSFM on Leonardo (both mixer variants) | §1 below |
+| Run the baseline suite | [../baselines/README.md](../baselines/README.md) · [../baselines/RUNNING_ON_LEONARDO.md](../baselines/RUNNING_ON_LEONARDO.md) |
+| Register a new ablation | [ablations.md](ablations.md) · `/register-experiment` |
+| Scaffold a new tier baseline | `/new-baseline` |
+| Refresh the graphs | `node .gitnexus/run.cjs analyze` (code) · `graphify update knowledge/` (prose+papers) |
+
+MMTSFM commands run from `MMTSFM/`. Shapes are the `uk_pv` reference config.
 
 ---
 
-## 1. Training on Leonardo
+## 1. Training MMTSFM on Leonardo
 
 The model trains through a **4-stage curriculum** (S1 → S2a → S2b → S3), submitted as
 four dependency-linked SLURM jobs per dataset. Each stage warm-starts (weights only) from
-the previous stage's `best.ckpt`.
+the previous stage's `best.ckpt`. Stage semantics and rationale: [architecture.md §2.6](architecture.md).
 
 | Stage | Fusion | Vision | Chronos | Purpose |
 |-------|--------|--------|---------|---------|
@@ -165,101 +170,15 @@ resume (same-stage requeue only).
 
 ---
 
-## 2. Architecture as implemented
+## 2. Local development
 
-Backbone = **Chronos-2** at its native size (`amazon/chronos-2`): **d_model 768, 12 layers,
-12 heads (d_kv 64), d_ff 3072, patch 16, 9 protocol quantiles, arcsinh norm**. The YAML
-`d_model:512/num_layers:6` are ignored — `from_pretrained` keeps the checkpoint's size.
+```bash
+uv run pytest                                    # all smoke tests
+uv run pytest MMTSFM/tests/test_vision_chronos2.py
 
-Vision = **V-JEPA 2.1 ViT-L/16** (spatiotemporal, frozen→progressively unfrozen).
-
-Reference shapes: `uk_pv`, batch `B`, one entity/row. `T_ctx = ceil(672/16) = 42`,
-`n_vis = 1` (uk_pv: the 6h visual window = `ceil(12/16)=1` TS patch; goes_pvdaq = 2),
-`T_fut = ceil(12/16) = 1`.
-
-```text
-                          INPUTS  (per entity row)
-  Y hist [B,672]      X_cov [B,672+12,14]      V frames [B,3,8,224,224]
-  PV power            14 protocol covariates    8 RGB sky/sat frames, 6h window
-       │                    │  (future 12 steps)          │
-       │ arcsinh + patch16  │ (each channel → its own     │ whole clip → V-JEPA 2.1
-       ▼                    │  covariate token-row)       ▼ (tubelet, temporal stride 2)
-  input_patch_embedding ◄───┘                      [B, 4, 196, 1024]   (T_lat,P,D_v)
-  (PRETRAINED — transfers)                                │  ViT-L/16: 4 time × 196 patches
-       │                                                  ▼
-  context [B,42,768]                              LatentSummarizer  (Perceiver, causal,
-  future  [B, 1,768]                              spatial compress, null token)
-  14 cov rows [B,1,768] each ──┐                         │
-                               │                  visual summary [B,1,768]  (n_vis, uk_pv)
-                               │                         │
-                               ▼                         ▼
-        MultimodalEmbedding (additive): modality{num=0,vis=1} · segment{ctx,fut}
-        · token-type{target,cov,vis} · entity · RoPE positions
-                               │
-              ┌────────────────┴───────────────────────────────┐
-              │  FUSION  (VisionChronos2Config.fusion_mode)     │
-              ├──────────────────────┬──────────────────────────┤
-              │  late (S2a)          │  interleaved (S2b/S3)     │
-              │  vis → CrossModal-   │  weave vis into refinement│
-              │  Adapter → N_soft=1  │  window only:             │
-              │  batch rows          │  [ts … ts, ts, v, fut]    │
-              │                      │  seq = 42+n_vis+1 (uk_pv  │
-              │                      │  n_vis=1 → 44)            │
-              └──────────┬───────────┴─────────────┬─────────────┘
-                         │                          │
-   sequence per row:  [B, T_ctx(+n_vis) + T_fut, 768]
-   + covariate rows + (late) visual rows on the BATCH axis, sharing group_id
-                         │
-                         ▼
-   ┌─────────────────────────────────────────────────────────────────────┐
-   │  Chronos2Encoder  ×12 blocks                                          │
-   │                                                                       │
-   │   1. TEMPORAL MIX  (choose one — this is the variant switch)          │
-   │      ├─ CausalGrassmannMixing   [vision_chronos2_grassmann]           │
-   │      │    O(L) Plücker: reduce→RoPE→wedge p=z_{i-δ}∧z_i on G(2,32),    │
-   │      │    offsets {1,2,4,8,12,16}, softmax multi-scale, gated α,       │
-   │      │    +4 modality-pair biases. FROM SCRATCH.                      │
-   │      └─ TimeSelfAttention + RoPE [vision_chronos2_timeselfattn]       │
-   │           O(L²) causal self-attention over the time axis.             │
-   │                                                                       │
-   │   2. GroupSelfAttention  — BATCH axis; fuses target + 14 covariate    │
-   │      rows (+ late visual rows) across rows sharing group_id. PRETRAINED│
-   │                                                                       │
-   │   3. FeedForward  (LN → 768→3072 → ReLU → 3072→768, residual). PRETR. │
-   └─────────────────────────────────────────────────────────────────────┘
-                         │  last T_fut hidden states (target rows only)
-                         ▼
-   output_patch_embedding → quantiles×patch  →  reshape → arcsinh⁻¹
-                         │
-                         ▼
-              Ŷ  [B, 12, 9]   (horizon × 9 quantiles)
-                         │
-                         ▼
-              Masked pinball loss   →   NMAE / NRMSE / Skill-Score
+uv run python -m mmtsfm.train                    # synthetic-data smoke train
+uv run python -m mmtsfm.train data.dataset_name=uk_pv \
+  data.data_dir=/leonardo_scratch/fast/IscrC_MTSFM/data
 ```
 
-### Component map (file → role)
-
-| Component | File | Notes |
-|-----------|------|-------|
-| Assembly, fusion routing, interleave | `models/chronos2/vision_chronos2.py` | `VisionChronos2Model` |
-| Encoder stack, GroupSelfAttention, FFN | `models/chronos2/model.py` | native Chronos-2, 12 blocks |
-| Grassmann mixer | `models/chronos2/grassmann.py` | `CausalGrassmannMixing`, O(L) |
-| TimeSelfAttention + RoPE | `models/chronos2/layers.py` | O(L²) diagnostic mixer |
-| V-JEPA 2.1 wrapper | `models/vision/visual_encoder.py` | ViT-L/16, torch.hub |
-| Spatial summarizer | `models/vision/latent_summarizer.py` | Perceiver, causal, null token |
-| Late-fusion soft tokens | `models/vision/cross_modal_adapter.py` | `N_soft=1` batch rows |
-| Training loop, freeze/warmup/unfreeze | `models/chronos2/lightning_module.py` | per-stage policy |
-| Hydra entry, warm-start / resume | `train.py` | `init_ckpt` vs `ckpt_path` |
-
-### Notes on what actually happens (verified)
-
-- **Pretrained tokenizer transfers** — `input_patch_size=16` matches the checkpoint, so
-  `input_patch_embedding` loads pretrained (only the 9-quantile output head reinitializes).
-- **Known future covariates are live** — the 14 covariate channels enter as batch-axis
-  token-rows (mask=1 so values survive) and reach the encoder in **both** late and
-  interleaved fusion; perturbing a covariate changes the forecast (regression-tested).
-- **Variant switch is clean** — `MODEL_CFG` alone selects Grassmann vs TimeSelfAttention;
-  the stage schedule is identical.
-- **V-JEPA is a video encoder**, not a per-frame image encoder — it consumes the whole
-  8-frame clip and encodes motion internally (temporal stride 2 → 4 latent steps).
+`uv` only — never `pip`, `poetry`, or `conda`. Add deps with `uv add <pkg>` / `uv sync`.

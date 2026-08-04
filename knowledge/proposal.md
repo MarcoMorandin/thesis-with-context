@@ -185,7 +185,7 @@ All embeddings use `std=0.02` initialization to avoid saturating the pretrained 
 
 ### 6. Selective Temporal Interleaving
 
-> Full documentation: `docs/temporal-interleaving.md`
+> Full documentation: `knowledge/architecture.md` §2.3
 
 Visual summary tokens are interleaved with TS tokens **exclusively in the visual refinement window** before the temporal mixing layer — not across the full context.
 
@@ -401,7 +401,7 @@ Progressive V-JEPA 2.1 unfreezing (4 more layers per epoch) prevents early-stage
 
 ## Evaluation Protocol
 
-Evaluation follows `knowledge/protocol.md` so MMTSFM is directly
+Evaluation follows `protocol.md` so MMTSFM is directly
 comparable to every baseline (Smart Persistence, LightGBM, Chronos-2 ZS/FT,
 Solar-VLM, TS-RAG, …). Key rules:
 
@@ -541,7 +541,7 @@ benchmark.
 
 Both are scored on NMAE / NRMSE / Skill-Score vs Smart Persistence; splits are
 committed to `baselines/configs/splits.json` (seed 42, `bad_site_flag` sites
-excluded). See `knowledge/protocol.md` for the authoritative
+excluded). See `protocol.md` for the authoritative
 split membership.
 
 ### Optional pretraining / external-validation PV datasets

@@ -1,4 +1,9 @@
-# Dataset Contract
+# Dataset — contract of record
+
+**Canonical for**: schema, physical paths, plant splits, the batch dict. Anything else
+needing these facts must link here, not restate them.
+Companions: [protocol.md](protocol.md) (how the splits are *used*) ·
+[../report/REPORT.md](../report/REPORT.md) (exploratory statistics, provenance, construction).
 
 This document defines the schema, file structures, expected modalities, and tensor formatting for the standardized dataset used in PV power forecasting. All models (including the main foundation model and all baseline implementations) must consume the dataset according to this contract.
 

@@ -1,13 +1,13 @@
 # Tested-Baselines Report — `uk_pv` cross-plant (S2)
 
 **Status**: Living synthesis. Generated from the live results
-([`baselines/results/ALL_RESULTS.md`](../../baselines/results/ALL_RESULTS.md),
+([`baselines/results/ALL_RESULTS.md`](../baselines/results/ALL_RESULTS.md),
 `ALL_RESULTS.json`), the qualitative forecast plots and the per-model
-actual-vs-predicted scatter under [`baselines/plots/`](../../baselines/plots/)
+actual-vs-predicted scatter under [`baselines/plots/`](../baselines/plots/)
 (`plots/scatter/` covers all 28 models incl. the fixed time_vlm). Companion to
-[knowledge/protocol.md](knowledge/protocol.md) (fairness rules),
-[knowledge/baselines.md](knowledge/baselines.md) (suite design) and
-[BASELINE_RESULTS_UKPV.md](BASELINE_RESULTS_UKPV.md) (the superseded laptop-era snapshot).
+[knowledge/protocol.md](../knowledge/protocol.md) (fairness rules),
+[knowledge/baselines.md](../knowledge/baselines.md) (suite design) and
+[BASELINE_RESULTS_UKPV.md](../baselines/results/ALL_RESULTS.md) (the superseded laptop-era snapshot).
 
 **Purpose**: one place that says *what has actually been run, what it scored, what the
 plots show, and what the next steps are* — so the PVTSFM target bar and the open gaps

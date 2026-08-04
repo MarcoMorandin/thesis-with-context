@@ -1,9 +1,9 @@
 # Baseline Comparison, Tests & Evaluation Protocols — PVTSFM
 
-**Status**: Living document. Companion to [knowledge/protocol.md](knowledge/protocol.md) (fairness rules) and [knowledge/ablations.md](knowledge/ablations.md) (run tracking).
+**Status**: Living document. Companion to [knowledge/protocol.md](protocol.md) (fairness rules) and [knowledge/ablations.md](ablations.md) (run tracking).
 **Goal**: Define the complete baseline suite, the comparison matrix, the test battery, and the evaluation protocols required to position PVTSFM as a top-tier contribution (NeurIPS / ICLR / ICML grade).
 
-**Research claim under test** (from [RESEARCH_SCOPE.md](../context/RESEARCH_SCOPE.md)):
+**Research claim under test** (from [RESEARCH_SCOPE.md](scope.md)):
 > A frozen multimodal foundation model stack (Chronos-2 + V-JEPA 2.1) with deep token-level fusion achieves cross-plant PV power forecasting on disjoint test plants, beating late fusion, unimodal FMs, and domain-specific architectures.
 
 Every baseline below exists to falsify one part of that claim. A reviewer must not be able to say "the gain could come from X and you never tested X".
@@ -137,7 +137,7 @@ What this buys at review time: every cell of the rebuttal matrix is covered — 
 
 ## 3. Input-parity matrix (fairness contract)
 
-Every model consumes only the canonical dict from [knowledge/dataset.md](../context/knowledge/dataset.md). No baseline may receive inputs the others cannot access in their tier.
+Every model consumes only the canonical dict from [knowledge/dataset.md](dataset.md). No baseline may receive inputs the others cannot access in their tier.
 
 | Tier | `Y` | `X_cov` | `V` | Retrieval | Text |
 |---|---|---|---|---|---|
@@ -323,34 +323,77 @@ Mandatory assertions:
 7. **Solar-VLM runs** (port exists; SLURM).
 8. P1/P2 stragglers (SPIRIT, UniCast, TTM, Aurora) only if time or reviewers demand.
 
-Register every run in [knowledge/ablations.md](knowledge/ablations.md) before launch; new IDs A09–A15 defined in §1 Tier 7.
+Register every run in [ablations.md](ablations.md) before launch; new IDs A09–A15 defined in §1 Tier 7.
 
 ---
 
-## 9. References
+## 9. Literature catalog
+
+What each candidate model *is*. The tier tables above say which we run and why; this section
+says what the paper claims. PDFs live in [papers/](papers/) and are indexed by Graphify —
+prefer `graphify query "<question>"` over reading a PDF.
+
+### 9.1 PV-power specialized
+
+| Model | Author | Published | Cov | Vision | Architecture & key features |
+|---|---|---|:-:|:-:|---|
+| **[Solar-VLM](https://arxiv.org/abs/2604.04145)** | Hang Fan et al. (NCEPU / Tsinghua) | Apr 2026 | ✅ | ✅ satellite | LLM-driven (Qwen VLM) framework fusing temporal data, satellite cloud imagery, and textual weather descriptions for multi-site PV forecasting. |
+| **[SUNSET](https://github.com/YuchiSun/SUNSET)** | Yuchi Sun (Stanford) | 2019 | ❌ | ✅ sky/sat | CNN specialized for short-term solar power forecasting from PV history + sky/satellite images. Used as a comparison in many related works. |
+| **[MDCTL-MCI](https://doi.org/10.1016/j.apenergy.2025.126771)** | Ke Yan et al. (Hunan Univ.) | 2025 | ✅ | ❌ | Missingness-aware forecasting via Multivariate Singular Spectrum Analysis + multi-domain collaborative transfer learning. |
+| **[SPIRIT](https://arxiv.org/abs/2502.10307)** | Aditya Mishra et al. (IIIT Hyderabad / Microsoft) | Feb 2025 | ✅ | ✅ sky cams | Zero-shot transfer using vision FMs (ViT) + physics-inspired features for short-term irradiance. |
+| **[PV-VLM](https://arxiv.org/abs/2504.13624)** · **[M3S-Net](https://arxiv.org/abs/2602.19832)** · **[CrossViViT](https://arxiv.org/abs/2306.01112)** | — | 2023–2026 | ✅ | ✅ | Related PV multimodal work; CrossViViT (NeurIPS 2023) is the heaviest port in tier 6. |
+
+### 9.2 General time-series foundation models
+
+**TS + covariates + text**
+
+| Model | Author | Published | Architecture & key features |
+|---|---|---|---|
+| **[NEXUS](https://arxiv.org/abs/2605.14389)** | Google | May 2026 | LLM multi-agent framework decomposing predictions to reason over numerical series *and* unstructured textual context. |
+| **[TabPFN-3](https://arxiv.org/abs/2605.13986)** | Prior Labs | May 2026 | Tabular FM pretrained on synthetic data; supports classification, regression, time-series, tabular-text. |
+
+**TS + covariates**
+
+| Model | Author | Published | Architecture & key features |
+|---|---|---|---|
+| **[Chronos-2](https://arxiv.org/abs/2510.15821)** | Amazon | Oct 2025 | Pretrained transformer handling univariate, multivariate and covariate-informed forecasting zero-shot. **Our backbone.** |
+| **[TTM-R2](https://huggingface.co/ibm-granite/granite-timeseries-ttm-r2)** | IBM Research | 2024–25 | Fast lightweight (~1–5 M param) MLP-Mixer zero/few-shot TSFM with gated mixing. Repo uses **R2** via `tsfm_public.get_model`; the r3 trend–residual checkpoint is incompatible with `tsfm_public 0.3.2` (weights load random). |
+
+**TS only**
+
+| Model | Author | Published | Architecture & key features |
+|---|---|---|---|
+| **[TiRex](https://arxiv.org/abs/2505.23719)** | NXAI | Nov 2025 | xLSTM-based FM with strong in-context learning for zero-shot forecasting across long and short horizons. |
+| **[TimesFM 2.5](https://huggingface.co/google/timesfm-2.5-200m-pytorch)** | Google Research | Sep 2025 | 200 M decoder-only FM for time-series forecasting. |
+| **[Toto 2](https://www.datadoghq.com/blog/ai/toto-2/)** | Datadog | Apr 2026 | TSFM family up to 2.5 B params, optimized for single-pass and block decoding; trained on observability metrics. |
+| **[Time-VLM](https://arxiv.org/abs/2502.04395)** | S. Zhong et al. (HKUST / Squirrel AI) | May 2025 | Converts series into images + text *internally* to exploit pretrained VLMs — but consumes only raw time series as input. |
+| **[Reverso](https://arxiv.org/abs/2602.17634)** | Xinghong Fu et al. (MIT / AI2) | Feb 2026 | Efficient TSFMs (0.2–2.6 M params) using long convolutions + linear RNNs (DeltaNet) for zero-shot forecasting. |
+
+### 9.3 Adaptation techniques for frozen FMs
+
+| Model | Author | Published | Architecture & key features |
+|---|---|---|---|
+| **[TS-RAG](https://arxiv.org/abs/2503.07649)** | Kanghui Ning et al. (UConn / Morgan Stanley) | Mar 2025 | Augments frozen TSFMs with RAG: retrieved historical exemplars concatenated as extra context at inference, no parameter updates. |
+| **[Cross-RAG](https://arxiv.org/abs/2603.14709)** | Wonbin Ahn et al. (LG AI Research) | Mar 2026 | Plug-in RAG fusing query with top-k retrieved samples via query–retrieval cross-attention; more robust than naive concatenation. |
+| **[CoRA](https://arxiv.org/abs/2510.12681)** | — | Oct 2025 | Retrieval wrapper over frozen Chronos-2; shares our tier-4 harness. |
+| **[TS-Memory](https://arxiv.org/abs/2602.11550)** | Sisuo Lyu et al. (HKUST / Tencent) | Feb 2026 | Trains a lightweight PlugMem adapter internalizing the corrections kNN retrieval would induce — retrieval-quality adaptation at O(1) latency. |
+| **[MEMTS](https://arxiv.org/abs/2602.13783)** | Xiaoyun Yu et al. (ECNU / Shanghai AI Lab) | Feb 2026 | Parametric memory encoding domain-specific patterns into learnable latent prototypes offline; adaptive fusion gate applies them to a frozen TSFM. |
+| **[TRACE](https://arxiv.org/abs/2506.09114)** | Jialin Chen et al. (Yale / McGill) | Jan 2026 | Multimodal retriever aligning TS embeddings with text via dual-level contrastive learning; retrieved context injected as soft tokens. |
+| **[FeDaL](https://arxiv.org/abs/2508.04045)** | Shengchao Chen et al. (UTS) | Mar 2026 | Federated training of TSFMs over heterogeneous decentralized data; domain + global bias elimination align local updates. |
+
+### 9.4 Evaluation frameworks
+
+| Framework | Author | Published | Description |
+|---|---|---|---|
+| **[TEMPLATE](https://papers.neurips.cc/paper_files/paper/2025/file/3adfe6e3d8da4a75d174f466e1efc039-Paper-Conference.pdf)** | Weiyang Zhang et al. (HIT) | NeurIPS 2025 | Transferability evaluation for pretrained TSFMs — Dependency / Pattern / Task-Adaptation Learning Scores rank models without fine-tuning. P1 metric here. |
+| **[GIFT-Eval](https://arxiv.org/abs/2410.10393)** | — | 2024 | Aggregation conventions adopted in §4.4. |
+| **[fev-bench](https://arxiv.org/abs/2509.26468)** | — | 2025 | Win-rate / bootstrap-CI conventions adopted in §4.4. |
+
+### 9.5 Remaining links
 
 | Model / framework | Link |
 |---|---|
-| Chronos-2 | https://arxiv.org/abs/2510.15821 |
-| TimesFM 2.5 | https://huggingface.co/google/timesfm-2.5-200m-pytorch |
-| TiRex | https://arxiv.org/abs/2505.23719 |
-| TTM-R2 (used; r3 incompatible with tsfm_public 0.3.2) | https://huggingface.co/ibm-granite/granite-timeseries-ttm-r2 |
-| CoRA | https://arxiv.org/abs/2510.12681 |
-| TS-RAG | https://arxiv.org/abs/2503.07649 |
-| Cross-RAG | https://arxiv.org/abs/2603.14709 |
-| MEMTS / TS-Memory | https://arxiv.org/abs/2602.13783 / https://arxiv.org/abs/2602.11550 |
-| Time-VLM | https://arxiv.org/abs/2502.04395 |
 | UniCast | https://arxiv.org/abs/2508.11954 |
 | Aurora | https://arxiv.org/abs/2509.22295 |
 | VisionTS++ | https://arxiv.org/abs/2508.04379 |
-| Solar-VLM | https://arxiv.org/abs/2604.04145 |
-| PV-VLM | https://arxiv.org/abs/2504.13624 |
-| M3S-Net | https://arxiv.org/abs/2602.19832 |
-| SUNSET | https://github.com/YuchiSun/SUNSET |
-| CrossViVit | https://arxiv.org/abs/2306.01112 (NeurIPS 2023) |
-| SPIRIT | https://arxiv.org/abs/2502.10307 |
 | PatchTST / iTransformer / DLinear | https://github.com/thuml/Time-Series-Library |
-| TabPFN-3 | https://arxiv.org/abs/2605.13986 |
-| GIFT-Eval (aggregation conventions) | https://arxiv.org/abs/2410.10393 |
-| fev-bench (win rate / bootstrap CI conventions) | https://arxiv.org/abs/2509.26468 |
-| TEMPLATE (transferability scores, P1 metric) | NeurIPS 2025 |

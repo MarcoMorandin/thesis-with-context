@@ -1,4 +1,9 @@
-# Ablation Registry
+# Ablation registry
+
+**Canonical for**: which experiments exist and their status. Every run is registered here
+**before** it launches (`/register-experiment`). Hypothesis ladder →
+[scope.md](scope.md) · fairness rules → [protocol.md](protocol.md) ·
+measured numbers → `../baselines/results/ALL_RESULTS.md`.
 
 | ID | Hypothesis | Config | Branch | Status | Result |
 |----|------------|--------|--------|--------|--------|

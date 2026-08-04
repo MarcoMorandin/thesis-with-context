@@ -1,4 +1,8 @@
-# Research Scope  -  PVTSFM
+# Scope — research question, hypotheses, venue
+
+**Canonical for**: what this project is and is not trying to answer. Read this before
+proposing any experiment. Design → [architecture.md](architecture.md) ·
+Evaluation → [protocol.md](protocol.md) · Run tracking → [ablations.md](ablations.md).
 
 ## Research question (AI framing)
 
