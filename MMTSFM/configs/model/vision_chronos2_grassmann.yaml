@@ -58,6 +58,10 @@ horizon: ${data.horizon}     # inherit from data config
 freeze_chronos: false        # set true to train vision modules only (adapter pilot)
 n_unfreeze_encoder_blocks: 3  # number of encoder blocks to unfreeze when freeze_chronos=true
 backbone_lr_ratio: 0.1       # LR multiplier for pretrained Chronos-2 backbone
+# Abort after this many CONSECUTIVE non-finite-gradient steps. Each is zeroed by
+# on_before_optimizer_step, so an unbroken streak means zero weight updates —
+# job 50574535 sat frozen like that for 6.5 GPU-hours. 0 disables the guard.
+max_nonfinite_grad_steps: 50
 
 # ---- Protocol evaluation ----
 results_dir: results

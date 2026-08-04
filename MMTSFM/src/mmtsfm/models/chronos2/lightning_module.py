@@ -94,6 +94,12 @@ class VisionChronos2LightningModule(LightningModule):
         # W6: run a second vision-off pass at test time and report the visual
         # marginal gain (Δ on/off). Off by default — doubles the test forward.
         compute_marginal_gain: bool = False,
+        # Abort after this many CONSECUTIVE optimizer steps whose gradients were
+        # non-finite. Each such step is zeroed (see on_before_optimizer_step), so
+        # an unbroken streak means the run is not learning at all — job 50574535
+        # burned 6.5 GPU-hours in exactly that state, val/loss pinned at 6.3977,
+        # and would have poisoned every downstream curriculum stage.
+        max_nonfinite_grad_steps: int = 50,
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["video_encoder"])
@@ -104,6 +110,7 @@ class VisionChronos2LightningModule(LightningModule):
         self.grassmann_warmup_steps = grassmann_warmup_steps
         self.n_unfreeze_encoder_blocks = n_unfreeze_encoder_blocks
         self._last_loss = None
+        self._nonfinite_grad_streak = 0
 
         # Build Chronos-2 core
         core_config = Chronos2CoreConfig(**chronos_core_cfg)
@@ -803,6 +810,7 @@ class VisionChronos2LightningModule(LightningModule):
         # subsequent steps), zero every grad on this rank for this step.
         # Lightning's gradient_clip_val=1.0 then clips a no-op vector.
         if not grad_finite:
+            self._nonfinite_grad_streak += 1
             self.log(
                 "train/grad_skipped", 1.0, on_step=True, on_epoch=False, prog_bar=False
             )
@@ -832,21 +840,33 @@ class VisionChronos2LightningModule(LightningModule):
                         "block",
                         None,
                     )
+                    # List EVERY offending param in a block, not just the first:
+                    # knowing whether the blow-up is confined to the
+                    # offset_weights/modality_pair_bias sink or has also reached
+                    # W_plu/W_red is what distinguishes "the offset-logit branch
+                    # overflowed" from "the whole layer is exploding".
                     nan_blocks = []
                     if enc_blocks is not None:
                         for bi, blk in enumerate(enc_blocks):
+                            peak = 0.0
+                            offenders = []
                             for pname, p in blk.named_parameters():
-                                if (
-                                    p.grad is not None
-                                    and not torch.isfinite(p.grad).all()
-                                ):
-                                    n = (~torch.isfinite(p.grad)).sum().item()
-                                    nan_blocks.append(
+                                if p.grad is None:
+                                    continue
+                                finite = torch.isfinite(p.grad)
+                                if not finite.all():
+                                    n = (~finite).sum().item()
+                                    offenders.append(
                                         f"{bi}:{pname}({n}/{p.grad.numel()})"
                                     )
-                                    break
+                                elif p.grad.numel():
+                                    peak = max(peak, p.grad.abs().max().item())
+                            if offenders:
+                                nan_blocks.extend(offenders)
+                                nan_blocks.append(f"{bi}:max_finite_grad={peak:.3e}")
                     print(
                         f"[NaN-grad] epoch={epoch} step={step} "
+                        f"streak={self._nonfinite_grad_streak} "
                         f"nan_groups={nan_groups} nan_enc_params={nan_blocks}",
                         flush=True,
                     )
@@ -863,7 +883,21 @@ class VisionChronos2LightningModule(LightningModule):
             for p in self.model.parameters():
                 if p.grad is not None:
                     p.grad.detach().zero_()
+
+            # An unbroken streak means every step is a no-op: the run is burning
+            # GPU-hours without moving a single weight. Fail loudly instead of
+            # letting the walltime expire on a frozen model.
+            limit = self.hparams.max_nonfinite_grad_steps
+            if limit and self._nonfinite_grad_streak >= limit:
+                raise RuntimeError(
+                    f"Non-finite gradients on {self._nonfinite_grad_streak} "
+                    f"consecutive optimizer steps (limit "
+                    f"max_nonfinite_grad_steps={limit}). Every one of them was "
+                    "zeroed, so no weight has been updated — training is frozen. "
+                    "See the [NaN-grad] lines above for the offending parameters."
+                )
         else:
+            self._nonfinite_grad_streak = 0
             self.log(
                 "train/grad_skipped", 0.0, on_step=True, on_epoch=False, prog_bar=False
             )

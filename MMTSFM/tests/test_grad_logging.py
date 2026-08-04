@@ -107,3 +107,47 @@ def test_nan_grad_zeroes_param_grads(lit_module):
 
     for p in trainable:
         assert torch.all(p.grad == 0), "NaN grad must trigger global zeroing"
+
+
+def _seed_nan_grads(module):
+    trainable = [p for p in module.model.parameters() if p.requires_grad]
+    for p in trainable:
+        p.grad = torch.zeros_like(p)
+    trainable[0].grad = torch.full_like(trainable[0], float("nan"))
+    return trainable
+
+
+def test_sustained_nan_grads_abort_the_run(lit_module):
+    """Every zeroed step is a no-op, so an unbroken streak means the run is not
+    learning at all. Leonardo job 50574535 sat in that state for 6.5 GPU-hours
+    with val/loss pinned at 6.3977; the streak limit must end it instead."""
+    lit_module.log = lambda *a, **kw: None
+    lit_module.trainer.is_global_zero = False  # skip the diagnostic print
+    limit = lit_module.hparams.max_nonfinite_grad_steps
+    assert limit > 1
+
+    for _ in range(limit - 1):
+        _seed_nan_grads(lit_module)
+        lit_module.on_before_optimizer_step(optimizer=MagicMock())
+
+    _seed_nan_grads(lit_module)
+    with pytest.raises(RuntimeError, match="consecutive optimizer steps"):
+        lit_module.on_before_optimizer_step(optimizer=MagicMock())
+
+
+def test_one_finite_step_resets_the_streak(lit_module):
+    """A single healthy step clears the counter — only an UNBROKEN streak is
+    evidence that training is frozen."""
+    lit_module.log = lambda *a, **kw: None
+    lit_module.trainer.is_global_zero = False
+    limit = lit_module.hparams.max_nonfinite_grad_steps
+
+    for _ in range(limit * 2):
+        _seed_nan_grads(lit_module)
+        lit_module.on_before_optimizer_step(optimizer=MagicMock())
+        for p in lit_module.model.parameters():
+            if p.requires_grad:
+                p.grad = torch.ones_like(p)
+        lit_module.on_before_optimizer_step(optimizer=MagicMock())
+
+    assert lit_module._nonfinite_grad_streak == 0

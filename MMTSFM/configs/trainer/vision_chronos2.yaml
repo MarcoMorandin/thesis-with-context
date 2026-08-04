@@ -16,7 +16,14 @@ callbacks:
   # Best val loss checkpoint
   - _target_: lightning.pytorch.callbacks.ModelCheckpoint
     dirpath: ${trainer.default_root_dir}/
+    # auto_insert_metric_name=false is REQUIRED here: the monitored metric is
+    # "val/loss", and with the metric name auto-inserted Lightning writes
+    # "…-val/loss=6.3977.ckpt" — the slash makes a DIRECTORY, so every
+    # checkpoint lands one level deeper than dirpath and no *.ckpt glob (nor
+    # train.py's best.ckpt export) sees it. Observed on uk_pv_s1/ and
+    # uk_pv_s2a/, which are full of "vision_chronos2-epoch=NNN-val/" dirs.
     filename: "vision_chronos2-{epoch:03d}-{val/loss:.4f}"
+    auto_insert_metric_name: false
     monitor: "val/loss"
     mode: min
     save_top_k: 3
