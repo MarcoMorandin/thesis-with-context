@@ -1,7 +1,7 @@
 """Sliding-window dataset over the curated parquet.
 
 Produces, per window, the numerical subset of the canonical dict defined in
-docs/context/DATASET_CONTRACT.md §4 (no visual tensors — tiers 0-2 are
+knowledge/dataset.md §4 (no visual tensors — tiers 0-2 are
 TS/covariate-only):
 
     y_hist        (T,)      normalized target history, NaN→0

@@ -8,7 +8,7 @@ from lightning.pytorch import LightningDataModule
 
 from mmtsfm.data.dataset import MMTSFMDataset
 
-# Dataset-of-record backends (BASELINE_PROTOCOL.md): disjoint cross-plant splits,
+# Dataset-of-record backends (knowledge/protocol.md): disjoint cross-plant splits,
 # physical-time windows, protocol covariates incl. known future weather + frames.
 PV_RECORD_DATASETS = ("uk_pv", "goes_pvdaq")
 
@@ -41,7 +41,7 @@ class MMTSFMDataModule(LightningDataModule):
         num_entities: int = 10,
         hist_steps: int = 24,
         horizon: int = 12,
-        history_days: float = 14.0,  # pv_record physical-time history (BASELINE_PROTOCOL §3)
+        history_days: float = 14.0,  # pv_record physical-time history (knowledge/protocol.md §3)
         horizon_hours: float = 6.0,  # pv_record physical-time horizon
         h5_path: Optional[
             str

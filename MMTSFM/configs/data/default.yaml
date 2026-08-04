@@ -6,7 +6,7 @@ batch_size: 16
 num_workers: 8
 num_entities: 4
 
-# Dataset-of-record defaults (BASELINE_PROTOCOL.md): 14-day history / 6-hour
+# Dataset-of-record defaults (knowledge/protocol.md): 14-day history / 6-hour
 # horizon, resolved per dataset cadence by PVRecordDataset.
 history_days: 14.0
 horizon_hours: 6.0

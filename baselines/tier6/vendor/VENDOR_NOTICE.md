@@ -1,7 +1,7 @@
 # Vendored Tier-6 baselines (PV-specialized multimodal, domain SOTA) — provenance & licensing
 
 Unmodified **code-only** copies of the upstream repos so Tier-6 runs the authors'
-*original* implementations (BASELINE_COMPARISON.md §1, Tier 6), adapted to our
+*original* implementations (knowledge/baselines.md §1, Tier 6), adapted to our
 contract/dataset rather than reimplemented. Stripped on copy: `.git`, images,
 GIFs, videos, notebooks-as-figures, PDFs, bundled datasets, checkpoints. No
 upstream source edited (see "Adaptations").
@@ -24,7 +24,7 @@ Solar-VLM is the third Tier-6 P0 model, now vendored in-tree (moved from
 co-located stations jointly (GNN + cross-station attention), so it does **not**
 use `tier6/uk_multimodal.py`; it has its own grouped multi-station data adapter
 (see "Adaptations"). SPIRIT (P1), PV-VLM / M3S-Net / MDCTL-MCI (P2) are cite-only
-for now — add here if reviewers demand (BASELINE_COMPARISON.md §1 Tier 6).
+for now — add here if reviewers demand (knowledge/baselines.md §1 Tier 6).
 
 ## What each model is
 
@@ -117,4 +117,4 @@ Both models train from scratch on uk_pv — no pretrained weights. The data
 (`dataset_all.parquet` + `images_all.h5`) lives on the read-only dataset of record
 (`/leonardo_scratch/fast/IscrC_MTSFM/data/`) / staged to `$TEAM_SCRATCH` on the cluster; checkpoints
 (`*_best.pt`, `repetition_*/`) and the dumped `*_pred.npz` are run outputs, not
-committed. See `docs/experiments/TIER6_INTEGRATION.md`.
+committed. See `baselines/README.md`.

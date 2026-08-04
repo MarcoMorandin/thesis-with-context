@@ -1,5 +1,5 @@
 """Dataset-of-record backend (``uk_pv`` / ``goes_pvdaq``) aligned to the baseline
-protocol (BASELINE_PROTOCOL.md).
+protocol (knowledge/protocol.md).
 
 This is the bridge that makes MMTSFM *comparable* to every baseline: it reuses
 ``baselines/common`` for all numerical logic — the committed disjoint plant

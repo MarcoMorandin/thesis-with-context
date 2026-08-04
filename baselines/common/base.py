@@ -1,4 +1,4 @@
-"""Baseline interface and registry (BASELINE_COMPARISON.md §6, contract test).
+"""Baseline interface and registry (knowledge/baselines.md §6, contract test).
 
 Every baseline implements ``fit`` (no-op for zero-shot/reference models) and
 ``predict``, which consumes a batch dict from ``WindowDataset.batch`` and

@@ -101,7 +101,7 @@ def _synthetic_series(steps_per_day: int, days: int = 40, sid: str = "p",
 
 
 def test_physical_time_resolves_per_dataset_steps():
-    """history_days/horizon_hours → per-cadence step counts (BASELINE_PROTOCOL §3)."""
+    """history_days/horizon_hours → per-cadence step counts (knowledge/protocol.md §3)."""
     uk = WindowDataset([_synthetic_series(48)], history_days=14, horizon_hours=6)
     go = WindowDataset([_synthetic_series(96, dataset="goes_pvdaq")],
                        history_days=14, horizon_hours=6)

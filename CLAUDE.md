@@ -149,8 +149,8 @@ Build a **research-grade AI foundation model** for PV power forecasting. Primary
 Every experiment must define:
 1. **Hypothesis**: A single-sentence statement of what you are testing.
 2. **Config Diff**: A config diff file under `configs/ablation/` (or within baseline-specific configs).
-3. **Registry Entry**: Register the run in `docs/experiments/ABLATION_REGISTRY.md`.
-4. **Baseline Comparison**: Compare against the standard baselines defined in `docs/experiments/BASELINE_PROTOCOL.md`.
+3. **Registry Entry**: Register the run in `knowledge/ablations.md`.
+4. **Baseline Comparison**: Compare against the standard baselines defined in `knowledge/protocol.md`.
 
 ### Evaluation Splits
 * `intra_plant`: Same plant, held-out time (sanity check only).

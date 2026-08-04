@@ -2,7 +2,7 @@
 
 > ⚠ **Superseded snapshot.** This EDA predates the consolidated **dataset of
 > record** `/leonardo_scratch/fast/IscrC_MTSFM/data/` (`dataset_all.parquet` + `images_all.h5`;
-> DATASET_CONTRACT.md §1.0). Two numbers below changed after the full `goes_pvdaq`
+> knowledge/dataset.md §1.0). Two numbers below changed after the full `goes_pvdaq`
 > download — rerun `run_eda.py` against `dataset_all.parquet` to regenerate the
 > figures/tables. Corrected top-line facts:
 >

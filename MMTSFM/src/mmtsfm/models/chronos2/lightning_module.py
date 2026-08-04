@@ -83,7 +83,7 @@ class VisionChronos2LightningModule(LightningModule):
         progressive_unfreeze_interval: int = 1,
         video_encoder: Optional[nn.Module] = None,
         pretrained_model_name_or_path: Optional[str] = "amazon/chronos-2",
-        # Protocol evaluation (BASELINE_PROTOCOL.md §5): NMAE/NRMSE/SS written in
+        # Protocol evaluation (knowledge/protocol.md §5): NMAE/NRMSE/SS written in
         # the baselines results schema so aggregate_all.py ingests MMTSFM too.
         results_dir: str = "results",
         results_tag: str = "mmtsfm_s2_ukpv",

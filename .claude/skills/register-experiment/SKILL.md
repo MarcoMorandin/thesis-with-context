@@ -4,13 +4,13 @@ description: Register a new ablation per the project protocol — add the ABLATI
 disable-model-invocation: true
 ---
 
-You enforce the experiment protocol (AGENTS.md §4, `docs/experiments/BASELINE_PROTOCOL.md`). The user invokes `/register-experiment <id> "<hypothesis>"` (e.g. `/register-experiment A07 "TS-RAG on frozen Chronos-2 beats Chronos-2 ZS cross-plant"`). If id or hypothesis missing, ask once.
+You enforce the experiment protocol (AGENTS.md §4, `knowledge/protocol.md`). The user invokes `/register-experiment <id> "<hypothesis>"` (e.g. `/register-experiment A07 "TS-RAG on frozen Chronos-2 beats Chronos-2 ZS cross-plant"`). If id or hypothesis missing, ask once.
 
-Read `docs/experiments/ABLATION_REGISTRY.md` first to see the existing format and confirm the ID is free / matches an existing TODO row.
+Read `knowledge/ablations.md` first to see the existing format and confirm the ID is free / matches an existing TODO row.
 
 ## Steps
 
-1. **Registry row** (`docs/experiments/ABLATION_REGISTRY.md`):
+1. **Registry row** (`knowledge/ablations.md`):
    - If a TODO row for `<id>` exists, fill it; else add a new row in ID order.
    - Columns: `ID | Hypothesis | Config | Branch | Status | Result`.
    - Hypothesis = one declarative testable sentence (no vague wording).
@@ -26,7 +26,7 @@ Read `docs/experiments/ABLATION_REGISTRY.md` first to see the existing format an
 
 4. **Protocol assertions** (state these in the config/notes, do not silently assume):
    - Eval on `cross_plant` (disjoint test plants), seed-42 split from `baselines/configs/splits.json`.
-   - Compare against ≥1 standard baseline (Smart Persistence, Chronos-2 ZS, Solar-VLM, MMTSFM) per BASELINE_PROTOCOL §4.
+   - Compare against ≥1 standard baseline (Smart Persistence, Chronos-2 ZS, Solar-VLM, MMTSFM) per knowledge/protocol.md §4.
    - Metrics: NMAE + NRMSE + Skill Score per §5.
    - GPU runs via `sbatch`. No committed data/checkpoints/logs.
 

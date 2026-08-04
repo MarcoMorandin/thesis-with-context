@@ -22,7 +22,7 @@ We use a **Disjoint Cross-Plant Protocol** rather than a few-shot context-matchi
 * **Val Plants**: Disjoint from Train; used for hyperparameter tuning and early stopping.
 * **Test Plants**: Disjoint from both Train and Val; used strictly for final reporting.
 
-Numerical track data of record: `/leonardo_scratch/fast/IscrC_MTSFM/data/dataset_all.parquet` (+ frames `images_all.h5`, pointer `image_h5_index`) — both `uk_pv` and `goes_pvdaq` are now fully present (DATASET_CONTRACT.md §1.0). For the numerical track the split is generated once (seed 42, per-dataset 70/15/15, `bad_site_flag` sites excluded) and committed to `baselines/configs/splits.json`; disjointness is asserted at every load (`baselines/common/splits.py`). **`goes_pvdaq` (10 plants) must additionally be evaluated leave-one-plant-out** — its 15 % test share is 1-2 plants and per-plant variance would dominate a fixed split (see BASELINE_COMPARISON §4.1).
+Numerical track data of record: `/leonardo_scratch/fast/IscrC_MTSFM/data/dataset_all.parquet` (+ frames `images_all.h5`, pointer `image_h5_index`) — both `uk_pv` and `goes_pvdaq` are now fully present (knowledge/dataset.md §1.0). For the numerical track the split is generated once (seed 42, per-dataset 70/15/15, `bad_site_flag` sites excluded) and committed to `baselines/configs/splits.json`; disjointness is asserted at every load (`baselines/common/splits.py`). **`goes_pvdaq` (10 plants) must additionally be evaluated leave-one-plant-out** — its 15 % test share is 1-2 plants and per-plant variance would dominate a fixed split (see knowledge/baselines.md §4.1).
 
 ### Committed plant assignment — `uk_pv` (numerical track)
 
@@ -41,7 +41,7 @@ Exact `site_id` membership (source of truth: `baselines/configs/splits.json`):
 * **Validation (15)**: `6075 6481 6498 6732 7019 7356 7648 10973 12826 13057 16474 16769 18249 26901 26970`
 * **Test (14)**: `3432 6648 7315 7756 8066 9191 10793 11176 13388 13817 18989 26854 26933 27020`
 
-The `goes_pvdaq` companion split (used only when its dataset is in scope) is 7 train / 2 val / 1 test (sites: train `1202 1277 1278 1283 1289 1367 1420`, val `1203 51`, test `36`), and is additionally rotated leave-one-plant-out per §4.1 of BASELINE_COMPARISON. **`goes_pvdaq` is now fully downloaded** (10 plants, 104,792 rows, 2019-01-01 → 2019-09-30 UTC, 15-min, `(256,256,3)` RGB frames, 1.8–408 kW capacities). ⚠ The new dataset flags `goes_pvdaq` sites `1283` and `51` with `bad_site_flag`, yet the committed split still lists them (train/val) — reconcile (regenerate the split excluding the 2 bad sites → 8 usable) before running `goes_pvdaq`. The runs documented in `docs/experiments/BASELINE_RESULTS_UKPV.md` are restricted to `uk_pv` (`--train-datasets uk_pv --eval-datasets uk_pv`) — they predate the `goes_pvdaq` download and the consolidated `thesis-dataset`.
+The `goes_pvdaq` companion split (used only when its dataset is in scope) is 7 train / 2 val / 1 test (sites: train `1202 1277 1278 1283 1289 1367 1420`, val `1203 51`, test `36`), and is additionally rotated leave-one-plant-out per §4.1 of knowledge/baselines.md. **`goes_pvdaq` is now fully downloaded** (10 plants, 104,792 rows, 2019-01-01 → 2019-09-30 UTC, 15-min, `(256,256,3)` RGB frames, 1.8–408 kW capacities). ⚠ The new dataset flags `goes_pvdaq` sites `1283` and `51` with `bad_site_flag`, yet the committed split still lists them (train/val) — reconcile (regenerate the split excluding the 2 bad sites → 8 usable) before running `goes_pvdaq`. The runs documented in `baselines/results/ALL_RESULTS.md` are restricted to `uk_pv` (`--train-datasets uk_pv --eval-datasets uk_pv`) — they predate the `goes_pvdaq` download and the consolidated `thesis-dataset`.
 
 ### Inference Setup
 During evaluation on a test plant:
@@ -56,10 +56,10 @@ During evaluation on a test plant:
 Unless overridden by a specific dataset-level configuration, the default temporal configurations are:
 
 * **Granularity**: Intra-hour, native per dataset — no resampling. Numerical track: `uk_pv` 30-minute, `goes_pvdaq` 15-minute steps.
-* **History Window (\(T\))**: **14 days, defined in physical time** and resolved per dataset via each series' cadence — `uk_pv` **672 steps** (30-min), `goes_pvdaq` **1344 steps** (15-min). This is deployment-realistic (≥2 weeks of history is available for a new plant) and gives every model multiple diurnal cycles, which sub-daily contexts denied the foundation models. `common/config.py` holds `HISTORY_DAYS = 14`; `common/windows.py` converts it to steps via `steps_per_day`. The step-based `--history` flag overrides it (low-history robustness sweep, §5 of BASELINE_COMPARISON). Foundation models with a fixed maximum context (e.g. TimesFM 1024) consume their most-recent supported window.
+* **History Window (\(T\))**: **14 days, defined in physical time** and resolved per dataset via each series' cadence — `uk_pv` **672 steps** (30-min), `goes_pvdaq` **1344 steps** (15-min). This is deployment-realistic (≥2 weeks of history is available for a new plant) and gives every model multiple diurnal cycles, which sub-daily contexts denied the foundation models. `common/config.py` holds `HISTORY_DAYS = 14`; `common/windows.py` converts it to steps via `steps_per_day`. The step-based `--history` flag overrides it (low-history robustness sweep, §5 of knowledge/baselines.md). Foundation models with a fixed maximum context (e.g. TimesFM 1024) consume their most-recent supported window.
 * **Forecasting Horizon (\(H\))**: **6 h** (`uk_pv` 12 steps, `goes_pvdaq` 24 steps); `common/config.py` holds `HORIZON_HOURS = 6`. Report the skill-decay curve at `DECAY_HORIZONS_HOURS = (1, 6, 24)` h (day-ahead included). Step-based `--horizon` overrides for the long-horizon scenario (S4).
 * **Visual Frame Cadence (\(T_v\))**: 8 frames over a short recent window (3–6 h), decoupled from the TS history (long TS context + short visual window). Vision carries signal only over the cloud-advection horizon, so widening it past a few hours adds cost, not signal.
-* **Cadence rule**: physical-time windows make the *step* count differ across datasets (672 vs 1344 at 14 days). Report the physical lead time next to every per-dataset table and aggregate across datasets only with scale-free statistics (win rate / geometric-mean skill / rank — BASELINE_COMPARISON §4.4); never pool raw step-horizon metrics across cadences. See BASELINE_COMPARISON §4.1.1.
+* **Cadence rule**: physical-time windows make the *step* count differ across datasets (672 vs 1344 at 14 days). Report the physical lead time next to every per-dataset table and aggregate across datasets only with scale-free statistics (win rate / geometric-mean skill / rank — knowledge/baselines.md §4.4); never pool raw step-horizon metrics across cadences. See knowledge/baselines.md §4.1.1.
 
 ---
 
@@ -94,7 +94,7 @@ All models must output forecasts in the normalized range. Metrics must be comput
    \]
 
 3. **Forecast Skill Score (SS)**:
-   Relative improvement over the Smart Persistence baseline. **The headline SS is NRMSE-based** (matches BASELINE_COMPARISON §4.2 and the `baselines/` implementation); an NMAE-based SS may be reported as a secondary column but must be labeled as such:
+   Relative improvement over the Smart Persistence baseline. **The headline SS is NRMSE-based** (matches knowledge/baselines.md §4.2 and the `baselines/` implementation); an NMAE-based SS may be reported as a secondary column but must be labeled as such:
    \[
    \text{Skill Score} = 1 - \frac{\text{NRMSE}_{\text{Model}}}{\text{NRMSE}_{\text{Smart Persistence}}}
    \]

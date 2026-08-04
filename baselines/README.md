@@ -1,15 +1,15 @@
 # PV Baselines — Tiers 0–2
 
 Implements the Tier 0–2 baseline suite from
-[docs/experiments/BASELINE_COMPARISON.md](../docs/experiments/BASELINE_COMPARISON.md)
+[knowledge/baselines.md](../knowledge/baselines.md)
 on the disjoint cross-plant protocol
-([BASELINE_PROTOCOL.md](../docs/experiments/BASELINE_PROTOCOL.md)).
+([knowledge/protocol.md](../knowledge/protocol.md)).
 
 Data source (dataset of record): `/leonardo_scratch/fast/IscrC_MTSFM/data/dataset_all.parquet`
 (+ frames `images_all.h5`, canonical pointer `image_h5_index`). Native 30-min
 `uk_pv` (100 plants, 128px gray) and 15-min `goes_pvdaq` (10 plants, 256px RGB)
 grids, capacity-normalized `norm_power` target. Both datasets fully present
-(DATASET_CONTRACT.md §1.0).
+(knowledge/dataset.md §1.0).
 
 > **Note:** point `common/config.py::DEFAULT_DATA_PATH` at
 > `thesis-dataset/dataset_all.parquet` (and frame pointer `image_h5_index`).
@@ -97,7 +97,7 @@ uv run pytest                    # contract + metric tests (synthetic, no SSD ne
 ```
 
 Results land in `results/<model>.json` with a reproducibility manifest
-(git SHA, config hash, seed, dataset version) per BASELINE_COMPARISON.md §6.7.
+(git SHA, config hash, seed, dataset version) per knowledge/baselines.md §6.7.
 
 ## Cluster execution (SLURM)
 
@@ -126,7 +126,7 @@ UKPV_CSV_DIR=…,BASE_CKPT=…,MIXER_CKPT=… scripts/slurm_rag_original.sh
 # full run: drop CONTRACT_CHECK=1
 ```
 
-See `docs/experiments/TIER4_RAG_INTEGRATION.md` for the full recipe.
+See `baselines/README.md` for the full recipe.
 
 ### Leonardo (ISCRA-C) readiness checklist
 
@@ -165,15 +165,15 @@ Not in-process registry baselines — `make_tables.py` ingests their results by 
 stem via `scripts/import_predictions.py`.
 
 - **Tier 5** (generic multimodal TS): Time-VLM, VisionTS++ (numerical track, runnable),
-  UniCast, Aurora (multimodal track, gated). See `docs/experiments/TIER5_INTEGRATION.md`,
+  UniCast, Aurora (multimodal track, gated). See `baselines/README.md`,
   `scripts/slurm_{time_vlm,visionts_pp,unicast,aurora}.sh`.
 - **Tier 6** (PV-specialized multimodal, domain SOTA): CrossViViT (`tier6/vendor/crossvivit`,
   MIT) + SUNSET (`tier6/vendor/sunset`, MIT) — run on the **uk_pv multimodal track**
   (curated `Y` + `images_all.h5` satellite frames, bridged by `tier6/uk_multimodal.py`);
   Solar-VLM is the third P0, already ported under `solar_vlm/`. See
-  `docs/experiments/TIER6_INTEGRATION.md`, `scripts/slurm_{crossvivit,sunset}.sh`.
+  `baselines/README.md`, `scripts/slurm_{crossvivit,sunset}.sh`.
 
 ## Not in this package (other tiers)
 
 MEMTS (T4, P2) and the Tier-6 P1/P2 cite-only rows (SPIRIT, PV-VLM, M3S-Net,
-MDCTL-MCI) follow per the execution order in BASELINE_COMPARISON.md §8.
+MDCTL-MCI) follow per the execution order in knowledge/baselines.md §8.

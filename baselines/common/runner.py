@@ -1,4 +1,4 @@
-"""Evaluation loop + reproducibility manifest (BASELINE_COMPARISON.md §4, §6.7).
+"""Evaluation loop + reproducibility manifest (knowledge/baselines.md §4, §6.7).
 
 ``evaluate_model`` streams batches through a baseline, accumulates per-plant
 masked errors, and returns macro-averaged metrics. ``write_results`` persists

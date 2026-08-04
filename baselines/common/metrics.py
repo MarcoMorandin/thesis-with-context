@@ -1,7 +1,7 @@
-"""Evaluation metrics (BASELINE_COMPARISON.md §4.2-4.3), numpy.
+"""Evaluation metrics (knowledge/baselines.md §4.2-4.3), numpy.
 
 All point metrics operate on capacity-normalized targets, so MAE/RMSE on
-this scale *are* NMAE/NRMSE as defined in BASELINE_PROTOCOL.md §5. Every
+this scale *are* NMAE/NRMSE as defined in knowledge/protocol.md §5. Every
 function takes an element-wise ``mask`` (mask_future · daylight); masked-out
 steps contribute nothing.
 
@@ -87,7 +87,7 @@ def quantile_ece(
     levels: np.ndarray,
     mask: np.ndarray,
 ) -> float:
-    """Mean over q of |q − empirical P(y ≤ q-quantile)| (BASELINE_COMPARISON §4.3)."""
+    """Mean over q of |q − empirical P(y ≤ q-quantile)| (knowledge/baselines.md §4.3)."""
     total = mask.sum()
     if total == 0:
         return float("nan")
@@ -187,7 +187,7 @@ class PerPlantAccumulator:
         return out
 
     def macro(self) -> dict[str, float | list[float]]:
-        """Macro-average over plants (BASELINE_COMPARISON.md §4.2)."""
+        """Macro-average over plants (knowledge/baselines.md §4.2)."""
         rows = self.per_plant()
         if not rows:
             return {}

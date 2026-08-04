@@ -1,4 +1,4 @@
-"""Evaluation-protocol tests (BASELINE_COMPARISON.md §6.2-6.3, §5).
+"""Evaluation-protocol tests (knowledge/baselines.md §6.2-6.3, §5).
 
 Split disjointness, normalizer leakage, daylight masking, the night/masked
 leakage check, ramp-subset and per-horizon correctness.

@@ -1,5 +1,5 @@
 """Guard tests: MMTSFM must train/test on the SAME splits and seed as the
-baselines so the reported numbers are comparable (BASELINE_PROTOCOL.md).
+baselines so the reported numbers are comparable (knowledge/protocol.md).
 
 If a baseline changes the canonical seed or regenerates splits.json, these
 tests fail loudly instead of letting MMTSFM drift onto a different protocol.

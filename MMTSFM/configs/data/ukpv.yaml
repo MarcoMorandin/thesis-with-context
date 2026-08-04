@@ -1,7 +1,7 @@
 _target_: mmtsfm.data.datamodule.MMTSFMDataModule
 
 # Dataset of record, uk_pv numerical+visual track, scored on the disjoint
-# cross-plant protocol (BASELINE_PROTOCOL.md). data_dir is the Leonardo dataset
+# cross-plant protocol (knowledge/protocol.md). data_dir is the Leonardo dataset
 # of record; the cluster orchestrator (scripts/run_all_mmtsfm.sh) overrides it
 # with DATA_DIR. PVRecordDataset resolves dataset_all.parquet +
 # images_all.h5 inside it (an explicit *.parquet path is also accepted).

@@ -1,4 +1,4 @@
-"""Cross-dataset aggregation (BASELINE_COMPARISON.md §4.4, fev-bench style).
+"""Cross-dataset aggregation (knowledge/baselines.md §4.4, fev-bench style).
 
 Never average raw metrics across datasets with different scales:
 * win rate vs a reference model,

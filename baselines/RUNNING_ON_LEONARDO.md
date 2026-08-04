@@ -196,5 +196,5 @@ uv run python scripts/aggregate_all.py --results results \
 - **Different ISCRA-C account** → submit with `sbatch --account=<your_account> …`.
 - **Quick smoke** → `sbatch --qos=boost_qos_dbg --time=00:30:00 …` (30-min cap).
 
-See `docs/experiments/TIER{4,5,6}_INTEGRATION.md` for per-tier detail and
-`docs/experiments/BASELINE_PROTOCOL.md` for the fairness contract.
+See `baselines/README.md` for per-tier detail and
+`knowledge/protocol.md` for the fairness contract.

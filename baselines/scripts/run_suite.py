@@ -1,4 +1,4 @@
-"""Full evaluation suite orchestrator (BASELINE_COMPARISON.md §8 + §4.1).
+"""Full evaluation suite orchestrator (knowledge/baselines.md §8 + §4.1).
 
 Maps scenarios S1-S6, the §5 robustness controls and the A15 RAG sweep onto
 run_eval.py invocations. Default is --dry-run: print the exact commands so
@@ -64,7 +64,7 @@ SUITE: dict[str, list[str]] = {
     ],
     # A15 (RAG datastore size / top-k sweep) moved to the vendored original
     # TS-RAG/Cross-RAG cluster path — see scripts/slurm_rag_original.sh and
-    # docs/experiments/TIER4_RAG_INTEGRATION.md.
+    # baselines/README.md.
 }
 
 

@@ -1,4 +1,4 @@
-"""Protocol-aligned evaluation for MMTSFM (BASELINE_PROTOCOL.md §5).
+"""Protocol-aligned evaluation for MMTSFM (knowledge/protocol.md §5).
 
 Reuses ``baselines/common`` metrics so MMTSFM's NMAE / NRMSE / per-horizon /
 CRPS and the Skill Score vs Smart Persistence are computed by the *identical*

@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 You scaffold a new baseline for the PV forecasting thesis. The user invokes `/new-baseline <tier> <name>` (e.g. `/new-baseline 4 my_rag`). If tier or name missing, ask once, then proceed.
 
-Read `AGENTS.md`, `docs/experiments/BASELINE_PROTOCOL.md`, and an existing peer script (e.g. `baselines/scripts/slurm_solar_vlm.sh`) to match current conventions before writing — do not hardcode values that may have drifted.
+Read `AGENTS.md`, `knowledge/protocol.md`, and an existing peer script (e.g. `baselines/scripts/slurm_solar_vlm.sh`) to match current conventions before writing — do not hardcode values that may have drifted.
 
 ## Steps
 
@@ -18,7 +18,7 @@ Read `AGENTS.md`, `docs/experiments/BASELINE_PROTOCOL.md`, and an existing peer 
 
 4. **Split discipline**: load the committed seed-42 split from `baselines/configs/splits.json` via `baselines/common/splits.py`; assert disjoint train/val/test plants. `goes_pvdaq` needs leave-one-plant-out + bad-site reconciliation (sites `1283`, `51`).
 
-5. **Registry stub**: add a row to `docs/experiments/ABLATION_REGISTRY.md` (or note it's a baseline, not an A-series ablation) and wire it into `baselines/scripts/run_all_baselines.sh` if it should run in the master orchestrator.
+5. **Registry stub**: add a row to `knowledge/ablations.md` (or note it's a baseline, not an A-series ablation) and wire it into `baselines/scripts/run_all_baselines.sh` if it should run in the master orchestrator.
 
 ## Rules
 

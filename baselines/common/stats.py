@@ -1,4 +1,4 @@
-"""Statistical rigor toolkit (BASELINE_COMPARISON.md §4.5).
+"""Statistical rigor toolkit (knowledge/baselines.md §4.5).
 
 * Diebold–Mariano test on per-sample loss differentials, with the
   Harvey–Leybourne–Newbold small-sample correction and Newey–West variance

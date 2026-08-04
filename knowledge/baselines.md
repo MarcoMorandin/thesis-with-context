@@ -1,6 +1,6 @@
 # Baseline Comparison, Tests & Evaluation Protocols — PVTSFM
 
-**Status**: Living document. Companion to [BASELINE_PROTOCOL.md](BASELINE_PROTOCOL.md) (fairness rules) and [ABLATION_REGISTRY.md](ABLATION_REGISTRY.md) (run tracking).
+**Status**: Living document. Companion to [knowledge/protocol.md](knowledge/protocol.md) (fairness rules) and [knowledge/ablations.md](knowledge/ablations.md) (run tracking).
 **Goal**: Define the complete baseline suite, the comparison matrix, the test battery, and the evaluation protocols required to position PVTSFM as a top-tier contribution (NeurIPS / ICLR / ICML grade).
 
 **Research claim under test** (from [RESEARCH_SCOPE.md](../context/RESEARCH_SCOPE.md)):
@@ -131,13 +131,13 @@ What this buys at review time: every cell of the rebuttal matrix is covered — 
 
 ### Deliberately excluded (state it in the paper, pre-empt the reviewer)
 
-**Few-shot in-context adaptation curves** (support set of K historical days per test plant, MAE-vs-K): excluded by design decision [A06 in ABLATION_REGISTRY.md] — the protocol is disjoint cross-plant zero-shot with short inference history, not few-shot context matching. If a reviewer requests it, the harness supports it as an appendix experiment: K ∈ {0, 1, 3, 7} days as RAG datastore (retrieval baselines) or linear-probe update (adapter models); keep it out of headline tables.
+**Few-shot in-context adaptation curves** (support set of K historical days per test plant, MAE-vs-K): excluded by design decision [A06 in knowledge/ablations.md] — the protocol is disjoint cross-plant zero-shot with short inference history, not few-shot context matching. If a reviewer requests it, the harness supports it as an appendix experiment: K ∈ {0, 1, 3, 7} days as RAG datastore (retrieval baselines) or linear-probe update (adapter models); keep it out of headline tables.
 
 ---
 
 ## 3. Input-parity matrix (fairness contract)
 
-Every model consumes only the canonical dict from [DATASET_CONTRACT.md](../context/DATASET_CONTRACT.md). No baseline may receive inputs the others cannot access in their tier.
+Every model consumes only the canonical dict from [knowledge/dataset.md](../context/knowledge/dataset.md). No baseline may receive inputs the others cannot access in their tier.
 
 | Tier | `Y` | `X_cov` | `V` | Retrieval | Text |
 |---|---|---|---|---|---|
@@ -148,8 +148,8 @@ Every model consumes only the canonical dict from [DATASET_CONTRACT.md](../conte
 | T5/T6 Multimodal | ✅ | ✅ | ✅ | model-specific | model-specific |
 | PVTSFM (ours) | ✅ | ✅ | ✅ | optional (H4) | — |
 
-Rules (inherited from BASELINE_PROTOCOL.md, restated as hard constraints):
-- Same context (`T` = 14 days physical → 672 steps `uk_pv` / 1344 `goes_pvdaq`), `H` (6 h primary, plus the {1,6,24} h decay set), `T_v`(=8 over a short recent window), cadence, and normalization for everyone (BASELINE_PROTOCOL §3). Context length is itself a fairness variable — never compare models at different `T`.
+Rules (inherited from knowledge/protocol.md, restated as hard constraints):
+- Same context (`T` = 14 days physical → 672 steps `uk_pv` / 1344 `goes_pvdaq`), `H` (6 h primary, plus the {1,6,24} h decay set), `T_v`(=8 over a short recent window), cadence, and normalization for everyone (knowledge/protocol.md §3). Context length is itself a fairness variable — never compare models at different `T`.
 - Disjoint train/val/test **plants**; no per-test-plant statistics anywhere (including normalizers — use train-plant or capacity normalization only).
 - No clear-sky-index physics inside models (Smart Persistence exempt, it *is* the physics reference).
 - Multimodal models that natively want text (Solar-VLM) may generate weather text only from covariates available to all — no external weather APIs.
@@ -176,7 +176,7 @@ Plant-split variants for S2: if test-plant count is small, use **leave-one-plant
 ### 4.1.1 Data and cadence semantics
 
 One dataset of record, `thesis-dataset/dataset_all.parquet` (+ frames `images_all.h5`,
-pointer `image_h5_index`; DATASET_CONTRACT.md §1.0), serves every tier — the
+pointer `image_h5_index`; knowledge/dataset.md §1.0), serves every tier — the
 numerical channels `Y, X_cov` (Tiers 0-4) and the satellite frames `V` (Tiers 5-6,
 PVTSFM, vision controls A09-A14):
 
@@ -196,7 +196,7 @@ S3, S5 and S6 are what separate a good paper from an accepted paper: zero-shot/f
 
 Computed per plant, then macro-averaged over plants (prevents large plants dominating):
 
-- **NMAE**, **NRMSE** — capacity-normalized, as defined in BASELINE_PROTOCOL.md §5.
+- **NMAE**, **NRMSE** — capacity-normalized, as defined in knowledge/protocol.md §5.
 - **Skill Score** `SS = 1 − NRMSE_model / NRMSE_smartpersistence` — solar-community headline number.
 - **Ramp-event NMAE/NRMSE** — same metrics restricted to the S6 ramp subset (ramp ≔ top-decile \|ΔY\| within plant). Report alongside overall metrics in the headline table; this is the direct evidence that cloud-motion information is captured.
 - **Per-horizon breakdown** — report NMAE(h) for h ∈ {1, …, H}; plot decay curves for S4.
@@ -323,7 +323,7 @@ Mandatory assertions:
 7. **Solar-VLM runs** (port exists; SLURM).
 8. P1/P2 stragglers (SPIRIT, UniCast, TTM, Aurora) only if time or reviewers demand.
 
-Register every run in [ABLATION_REGISTRY.md](ABLATION_REGISTRY.md) before launch; new IDs A09–A15 defined in §1 Tier 7.
+Register every run in [knowledge/ablations.md](knowledge/ablations.md) before launch; new IDs A09–A15 defined in §1 Tier 7.
 
 ---
 

@@ -1,7 +1,7 @@
 # Vendored Tier-5 baselines (generic multimodal TS) — provenance & licensing
 
 Unmodified **code-only** copies of four upstream repos so Tier-5 runs the authors'
-*original* implementations (BASELINE_COMPARISON.md §1, Tier 5), adapted to our
+*original* implementations (knowledge/baselines.md §1, Tier 5), adapted to our
 contract/dataset rather than reimplemented. Stripped on copy: `.git`, images,
 notebooks, PDFs, bundled CSV/parquet datasets, checkpoints. No source edited.
 
@@ -59,4 +59,4 @@ Aurora's own source is unedited.
 
 Pretrained weights (VLM/CLIP backbones for Time-VLM, the VisionTS++ MAE checkpoint,
 Chronos/Timer for UniCast, the Aurora checkpoint) and any datasets are downloaded on the
-login node — see `docs/experiments/TIER5_INTEGRATION.md` and `scripts/slurm_tier5.sh`.
+login node — see `baselines/README.md` and `scripts/slurm_tier5.sh`.

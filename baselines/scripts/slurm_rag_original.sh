@@ -18,7 +18,7 @@
 # pin numpy==1.25 + chronos-forecasting + faiss-gpu and conflict with the
 # baselines venv, so they run from a dedicated uv env and their own zeroshot.py.
 #
-# Full recipe + fairness mapping: docs/experiments/TIER4_RAG_INTEGRATION.md
+# Full recipe + fairness mapping: baselines/README.md
 #
 # Produces the two rows per method agreed in that doc:
 #   REGIME=orig  → native ctx-512/pred-64, released pretrained mixer checkpoint

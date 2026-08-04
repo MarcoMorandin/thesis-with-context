@@ -1,4 +1,4 @@
-"""Run baselines on the disjoint cross-plant protocol (BASELINE_COMPARISON §4).
+"""Run baselines on the disjoint cross-plant protocol (knowledge/baselines.md §4).
 
 Scenario flags compose (presets live in scripts/run_suite.py):
 

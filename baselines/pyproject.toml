@@ -1,7 +1,7 @@
 [project]
 name = "pv-baselines"
 version = "0.1.0"
-description = "Tier 0-2 baselines for PVTSFM (docs/experiments/BASELINE_COMPARISON.md)"
+description = "Tier 0-2 baselines for PVTSFM (knowledge/baselines.md)"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [

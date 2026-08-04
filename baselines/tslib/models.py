@@ -1,4 +1,4 @@
-"""Tier-2 supervised deep TS models (BASELINE_COMPARISON.md §1, Tier 2).
+"""Tier-2 supervised deep TS models (knowledge/baselines.md §1, Tier 2).
 
 Compact ports in the spirit of the Time-Series-Library reference
 implementations, sharing one forward signature:

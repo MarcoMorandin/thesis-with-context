@@ -1,7 +1,7 @@
 """Provenance checks for the vendored original TS-RAG / Cross-RAG code.
 
 These do not import the upstream modules (they need chronos-forecasting + faiss +
-numpy 1.25, a separate env — see docs/experiments/TIER4_RAG_INTEGRATION.md). They
+numpy 1.25, a separate env — see baselines/README.md). They
 only assert the unmodified sources and their provenance/licensing notice are present,
 so the "use original code" requirement can't silently rot.
 """

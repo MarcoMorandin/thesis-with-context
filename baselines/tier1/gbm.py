@@ -2,7 +2,7 @@
 
 One gradient-boosted model per quantile level (objective="quantile"),
 median used as the point forecast — fills the full probabilistic table
-(CRPS / pinball / coverage) per BASELINE_COMPARISON.md §4.3.
+(CRPS / pinball / coverage) per knowledge/baselines.md §4.3.
 """
 
 from __future__ import annotations

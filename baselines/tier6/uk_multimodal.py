@@ -3,7 +3,7 @@
 Tier-6's PV-specialized models (SUNSET, CrossViViT) need **real frames**. The
 dataset of record carries them: each row has an `image_h5_index` pointing into
 `images_all.h5` (per-site group `<dataset>_<site>` → `images` uint8 +
-`timestamps (N,) S20`), per DATASET_CONTRACT.md §1.0. `uk_pv` frames are
+`timestamps (N,) S20`), per knowledge/dataset.md §1.0. `uk_pv` frames are
 `(N,128,128)` grayscale (30-min daylight cadence), `goes_pvdaq` `(N,256,256,3)`
 RGB (15-min); with ``to_gray`` (default) both reduce to one channel so a site set
 can span both datasets in one run.

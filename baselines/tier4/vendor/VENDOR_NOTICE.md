@@ -2,9 +2,9 @@
 
 This directory holds **unmodified copies** of two upstream research repositories so
 the Tier-4 retrieval-augmented baselines run the authors' *original code* rather than
-a reimplementation (per BASELINE_COMPARISON.md §1, Tier 4). Images and `.git` were
+a reimplementation (per knowledge/baselines.md §1, Tier 4). Images and `.git` were
 stripped; no source files were edited. Integration lives in
-`baselines/tier4/rag_original.py` + `docs/experiments/TIER4_RAG_INTEGRATION.md`; the
+`baselines/tier4/rag_original.py` + `baselines/README.md`; the
 lightweight α-mix in `baselines/tier4/rag.py` is retained as a dependency-free
 fallback / contract-test backbone.
 

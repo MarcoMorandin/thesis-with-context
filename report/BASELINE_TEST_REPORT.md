@@ -5,8 +5,8 @@
 `ALL_RESULTS.json`), the qualitative forecast plots and the per-model
 actual-vs-predicted scatter under [`baselines/plots/`](../../baselines/plots/)
 (`plots/scatter/` covers all 28 models incl. the fixed time_vlm). Companion to
-[BASELINE_PROTOCOL.md](BASELINE_PROTOCOL.md) (fairness rules),
-[BASELINE_COMPARISON.md](BASELINE_COMPARISON.md) (suite design) and
+[knowledge/protocol.md](knowledge/protocol.md) (fairness rules),
+[knowledge/baselines.md](knowledge/baselines.md) (suite design) and
 [BASELINE_RESULTS_UKPV.md](BASELINE_RESULTS_UKPV.md) (the superseded laptop-era snapshot).
 
 **Purpose**: one place that says *what has actually been run, what it scored, what the

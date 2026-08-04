@@ -1,15 +1,15 @@
 """Shared experimental constants for all baselines.
 
 Single source of truth for window sizes, quantile levels, covariate scaling
-and column names, mirroring docs/experiments/BASELINE_PROTOCOL.md §3 and
-docs/context/DATASET_CONTRACT.md.
+and column names, mirroring knowledge/protocol.md §3 and
+knowledge/dataset.md.
 """
 
 from __future__ import annotations
 
 SEED = 42
 
-# Temporal configuration (BASELINE_PROTOCOL.md §3).
+# Temporal configuration (knowledge/protocol.md §3).
 # Windows are now defined in PHYSICAL TIME (deployment-realistic, cadence-fair):
 # context = HISTORY_DAYS, horizon = HORIZON_HOURS. WindowDataset converts these
 # to per-dataset step counts via each series' steps_per_day (uk_pv 30-min → 48/day,
@@ -23,7 +23,7 @@ HISTORY_STEPS = 24          # T (step-based fallback / synthetic default)
 HORIZON_STEPS = 12          # H (step-based fallback)
 LONG_HORIZONS = (12, 24, 48)
 
-# Probabilistic evaluation (BASELINE_COMPARISON.md §4.3)
+# Probabilistic evaluation (knowledge/baselines.md §4.3)
 QUANTILE_LEVELS = (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
 
 # Dataset columns (dataset_all.parquet)
@@ -79,7 +79,7 @@ DETERMINISTIC_COV_IDX: tuple[int, ...] = tuple(
 # Plant-split fractions per dataset (disjoint cross-plant protocol)
 SPLIT_FRACTIONS = {"train": 0.7, "val": 0.15, "test": 0.15}
 
-# Dataset of record (DATASET_CONTRACT.md §1.0): one flat numerical table +
+# Dataset of record (knowledge/dataset.md §1.0): one flat numerical table +
 # packed frames, covering both uk_pv and goes_pvdaq.
 DEFAULT_DATA_PATH = "/leonardo_scratch/fast/IscrC_MTSFM/data/dataset_all.parquet"
 DEFAULT_IMAGES_H5 = "/leonardo_scratch/fast/IscrC_MTSFM/data/images_all.h5"

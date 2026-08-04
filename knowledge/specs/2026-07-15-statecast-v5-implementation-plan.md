@@ -2540,7 +2540,7 @@ git commit -m "feat(statecast): uk_pv event-stream adapter over PVRecordDataset 
 Deliberately excluded so every task here is runnable on a laptop with no cluster or dataset-of-record access:
 
 1. **Stage-2 uk_pv training + ProtocolEvaluator wiring** (`lightning_stage2.py`, per-site batching across the shared-schedule constraint, results into `baselines/results` via MMTSFM's `ProtocolEvaluator`) — needs cluster + dataset of record; blocked on this plan's Task 16.
-2. **Gates G1–G3** (latent forecastability probe on cached V-JEPA latents, NWP information probe through existing baselines, synthetic-transfer probe) — run against *existing* MMTSFM/baselines code per STATECAST.md §5; zero new model code, so they belong to the experiment registry (`docs/experiments/ABLATION_REGISTRY.md`), not this build plan. G2 is "next action (1)" in STATECAST.md §9 and can run in parallel with Tasks 2–15.
+2. **Gates G1–G3** (latent forecastability probe on cached V-JEPA latents, NWP information probe through existing baselines, synthetic-transfer probe) — run against *existing* MMTSFM/baselines code per STATECAST.md §5; zero new model code, so they belong to the experiment registry (`knowledge/ablations.md`), not this build plan. G2 is "next action (1)" in STATECAST.md §9 and can run in parallel with Tasks 2–15.
 3. **Associative-scan parallelization** of the assimilation loop (the diagonal gate keeps it possible; v0 is sequential).
 4. **ψ-swap counterfactual (A8), amortized-vs-oracle ψ (A7), ablation arms A1–A13, Stage 1 public-corpora pretraining, MIMIC-IV testbed, AsyncBench public release packaging.**
 

@@ -1,4 +1,4 @@
-"""Per-baseline contract test (BASELINE_COMPARISON.md §6.1, §6.6).
+"""Per-baseline contract test (knowledge/baselines.md §6.1, §6.6).
 
 Every registered baseline: consumes the canonical batch dict → returns
 (N, H) float32, finite on valid steps, within the physical range, and

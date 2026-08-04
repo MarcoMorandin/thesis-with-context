@@ -3,7 +3,7 @@
 Multimodal (time-series + satellite vision) foundation model built on Chronos-2
 with a V-JEPA 2.1 / VidTok visual stream. This is the **thesis model**, compared
 against the baselines under the shared protocol in
-[`docs/experiments/BASELINE_PROTOCOL.md`](../docs/experiments/BASELINE_PROTOCOL.md).
+[`knowledge/protocol.md`](../knowledge/protocol.md).
 
 ## Protocol-aligned run (dataset of record)
 

@@ -9,7 +9,7 @@ graphify-out/graph.json exists: use `graphify query`/`explain` before reading so
 
 ## Procedure
 
-1. Read `docs/experiments/BASELINE_PROTOCOL.md` §4–5 for the expected baselines and metrics, and `BASELINE_RESULTS_UKPV.md` for which models/tiers should be present.
+1. Read `knowledge/protocol.md` §4–5 for the expected baselines and metrics, and `BASELINE_RESULTS_UKPV.md` for which models/tiers should be present.
 2. Discover the result JSONs (`baselines/results/*.json`) and the aggregate (`ALL_RESULTS.{json,md}` if present). Determine each file's actual key schema — do not assume; inspect one file.
 3. For each result, check:
    - **Metrics present & finite**: NMAE, NRMSE, Skill Score (NRMSE-based) — no missing keys, no `NaN`/`null`/`inf`.

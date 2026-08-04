@@ -3,7 +3,7 @@ Cross-RAG code consumes (Informer-style CSV: ``date`` + value columns + ``OT``).
 
 Numerical only — these are time-series foundation models, no images.
 
-Honours the BASELINE_PROTOCOL.md §2 fairness contract: the retrieval datastore
+Honours the knowledge/protocol.md §2 fairness contract: the retrieval datastore
 is built from **train plants only** (`uk_pv_train.csv`); each **test** plant is a
 separate query CSV (`uk_pv_test_<site>.csv`, `OT` = that plant). The vendored
 `Dataset_Custom_retrieve` reads `date` + variable columns + the `OT` target and
@@ -13,7 +13,7 @@ dense common 30-min grid (gaps → 0, the physical night value) and ship a
 
 Runnable in the baselines venv (pandas only); the retrieval-DB build + zeroshot
 run happen later in the upstream env on the cluster (see
-docs/experiments/TIER4_RAG_INTEGRATION.md and scripts/login_node_prep.sh).
+baselines/README.md and scripts/login_node_prep.sh).
 
     uv run python tier4/vendor/export_ukpv.py \
         --data /leonardo_scratch/fast/IscrC_MTSFM/data/dataset_all.parquet --out /tmp/ukpv_rag

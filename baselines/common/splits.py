@@ -1,4 +1,4 @@
-"""Disjoint cross-plant splits (BASELINE_PROTOCOL.md §2).
+"""Disjoint cross-plant splits (knowledge/protocol.md §2).
 
 Plants (site_ids) are partitioned per source dataset into train/val/test with
 a seeded shuffle, after dropping sites flagged `bad_site_flag`. The split is
@@ -50,7 +50,7 @@ def make_plant_splits(
 
 
 def assert_disjoint(splits: dict[str, dict[str, list[str]]]) -> None:
-    """Fail loud on any train/val/test overlap (BASELINE_COMPARISON.md §6.2)."""
+    """Fail loud on any train/val/test overlap (knowledge/baselines.md §6.2)."""
     for dataset, parts in splits.items():
         train, val, test = (set(parts[k]) for k in ("train", "val", "test"))
         overlap = (train & val) | (train & test) | (val & test)

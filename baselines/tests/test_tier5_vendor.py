@@ -1,7 +1,7 @@
 """Provenance guard for the vendored original Tier-5 multimodal-TS baselines.
 
 Like test_tier4_vendor.py: does not import the heavy upstream stacks (CLIP / uni2ts /
-Chronos / Aurora, GPU + conflicting deps — see docs/experiments/TIER5_INTEGRATION.md);
+Chronos / Aurora, GPU + conflicting deps — see baselines/README.md);
 only asserts the unmodified sources + provenance/licensing notice are present.
 """
 

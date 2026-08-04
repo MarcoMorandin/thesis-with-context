@@ -5,7 +5,7 @@ test_baseline_contract.py; here we test what is specific to tier 4:
 the zero-initialized CoRA adapter starting at the backbone forecast.
 
 TS-RAG / Cross-RAG are cluster-only (vendored original code, see
-docs/experiments/TIER4_RAG_INTEGRATION.md); their provenance is guarded by
+baselines/README.md); their provenance is guarded by
 test_tier4_vendor.py, not by in-process unit tests.
 """
 

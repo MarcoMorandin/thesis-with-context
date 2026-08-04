@@ -1,4 +1,4 @@
-"""Tier 0 reference baselines (BASELINE_COMPARISON.md §1, Tier 0).
+"""Tier 0 reference baselines (knowledge/baselines.md §1, Tier 0).
 
 * Persistence          — repeat last valid observation (absolute floor)
 * SmartPersistence     — persist the clear-sky index; the Skill-Score

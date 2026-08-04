@@ -7,7 +7,7 @@ You are a research-rigor reviewer for a PV power forecasting thesis. When invoke
 
 ## What to check
 
-### 1. ABLATION_REGISTRY.md row (`docs/experiments/ABLATION_REGISTRY.md`)
+### 1. knowledge/ablations.md row (`knowledge/ablations.md`)
 - Row exists with correct ID
 - Hypothesis is a single declarative sentence (not vague)
 - Config column references a real path or key
@@ -25,9 +25,9 @@ You are a research-rigor reviewer for a PV power forecasting thesis. When invoke
 - Exists locally (`git branch --list exp/<id>-*`)
 
 ### 4. Baseline comparison
-- Experiment compares against at least one of: Smart Persistence, Chronos-2 ZS, Solar-VLM, MMTSFM (per BASELINE_PROTOCOL.md §4)
+- Experiment compares against at least one of: Smart Persistence, Chronos-2 ZS, Solar-VLM, MMTSFM (per knowledge/protocol.md §4)
 - Evaluation uses `cross_plant` split (disjoint test plants), not `intra_plant` alone
-- Metrics: NMAE + NRMSE + Skill Score (NRMSE-based) per BASELINE_PROTOCOL.md §5
+- Metrics: NMAE + NRMSE + Skill Score (NRMSE-based) per knowledge/protocol.md §5
 - `uk_pv` uses seed-42 split from `baselines/configs/splits.json`; `goes_pvdaq` requires leave-one-plant-out (and bad-site reconciliation for sites 1283, 51)
 
 ### 5. Protocol compliance

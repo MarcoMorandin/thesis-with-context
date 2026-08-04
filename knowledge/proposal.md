@@ -401,7 +401,7 @@ Progressive V-JEPA 2.1 unfreezing (4 more layers per epoch) prevents early-stage
 
 ## Evaluation Protocol
 
-Evaluation follows `docs/experiments/BASELINE_PROTOCOL.md` so MMTSFM is directly
+Evaluation follows `knowledge/protocol.md` so MMTSFM is directly
 comparable to every baseline (Smart Persistence, LightGBM, Chronos-2 ZS/FT,
 Solar-VLM, TS-RAG, …). Key rules:
 
@@ -541,7 +541,7 @@ benchmark.
 
 Both are scored on NMAE / NRMSE / Skill-Score vs Smart Persistence; splits are
 committed to `baselines/configs/splits.json` (seed 42, `bad_site_flag` sites
-excluded). See `docs/experiments/BASELINE_PROTOCOL.md` for the authoritative
+excluded). See `knowledge/protocol.md` for the authoritative
 split membership.
 
 ### Optional pretraining / external-validation PV datasets

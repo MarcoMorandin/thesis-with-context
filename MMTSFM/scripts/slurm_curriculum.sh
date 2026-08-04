@@ -33,7 +33,7 @@ VJEPA_ARCH="${VJEPA_ARCH:-vit_large}"
 VJEPA_CACHE_VER="${VJEPA_CACHE_VER:-${VJEPA_ARCH}_f8_s224}"
 MODEL_CFG="${MODEL_CFG:-vision_chronos2_grassmann}"
 # uk_pv is the primary cross-plant benchmark and the only protocol-compliant
-# curriculum target. goes_pvdaq is intentionally NOT run here: BASELINE_PROTOCOL
+# curriculum target. goes_pvdaq is intentionally NOT run here: knowledge/protocol.md
 # §2/§4.1 require leave-one-plant-out for it (test share = 1 plant), which this
 # fixed-split runner does not implement. Pass DATASETS=goes_pvdaq only once a
 # LOPO harness exists.

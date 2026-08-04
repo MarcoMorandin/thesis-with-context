@@ -18,7 +18,7 @@
 # =============================================================================
 # MMTSFM OFFLINE ORCHESTRATOR — train ALL ablations in parallel on a GPU node.
 # =============================================================================
-# Trains + tests the protocol-aligned MMTSFM model (BASELINE_PROTOCOL.md) on each
+# Trains + tests the protocol-aligned MMTSFM model (knowledge/protocol.md) on each
 # requested dataset of record and writes NMAE/NRMSE/Skill-Score into
 # baselines/results (the baselines results schema), so aggregate_all.py lists
 # every MMTSFM ablation next to every baseline.

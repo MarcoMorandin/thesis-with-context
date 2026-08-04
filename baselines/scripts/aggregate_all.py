@@ -65,7 +65,7 @@ def scenario_of(tag: str) -> tuple[str | None, str]:
 
     S1 (same plants, held-out time) → intra-site; S2 (disjoint plants) → extra-
     site. Pairing the two for one model measures how much accuracy *transfers*
-    across the plant shift (BASELINE_COMPARISON §4.1, transferability metric).
+    across the plant shift (knowledge/baselines.md §4.1, transferability metric).
     """
     if tag.startswith("s1"):
         return "intra", tag[2:].lstrip("_") or "—"
