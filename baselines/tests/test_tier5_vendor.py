@@ -34,14 +34,16 @@ def test_all_four_vendor_dirs_present():
 
 
 def test_entry_points_present():
-    assert (VENDOR / "time_vlm" / "run.py").is_file()        # TSLib harness
+    assert (VENDOR / "time_vlm" / "run.py").is_file()  # TSLib harness
     assert (VENDOR / "unicast" / "test_multi_modal_chronos.py").is_file()
     assert (VENDOR / "aurora" / "runner.py").is_file()
     assert any((VENDOR / "visionts_pp").rglob("batch_evaluate.py"))
 
 
 def test_integration_doc_exists():
-    doc = (VENDOR.parents[2] / "docs" / "experiments" / "TIER5_INTEGRATION.md")
+    # The tier-5 recipe lives in the baselines README (the old standalone
+    # docs/experiments/TIER5_INTEGRATION.md was folded into it).
+    doc = VENDOR.parents[1] / "README.md"
     assert doc.is_file()
     text = doc.read_text()
     assert "Time-VLM" in text and "multimodal track" in text
@@ -49,8 +51,12 @@ def test_integration_doc_exists():
 
 def test_dedicated_slurm_scripts_present():
     scripts = VENDOR.parents[1] / "scripts"
-    for name in ("slurm_time_vlm.sh", "slurm_visionts_pp.sh",
-                 "slurm_unicast.sh", "slurm_aurora.sh"):
+    for name in (
+        "slurm_time_vlm.sh",
+        "slurm_visionts_pp.sh",
+        "slurm_unicast.sh",
+        "slurm_aurora.sh",
+    ):
         assert (scripts / name).is_file(), f"missing dedicated SLURM script: {name}"
 
 

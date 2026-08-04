@@ -126,7 +126,19 @@ UKPV_CSV_DIR=…,BASE_CKPT=…,MIXER_CKPT=… scripts/slurm_rag_original.sh
 # full run: drop CONTRACT_CHECK=1
 ```
 
-See `baselines/README.md` for the full recipe.
+#### Tier 4 regimes: `ts_rag_orig` vs `ts_rag_proto`
+
+Each vendored RAG baseline runs in two regimes, and both are reported:
+
+| Regime | Windows | Fair under [knowledge/protocol.md](../knowledge/protocol.md)? | Why it exists |
+|---|---|---|---|
+| `ts_rag_orig` / `cross_rag_orig` | 512 history / 64 horizon (the paper's own setting) | ❌ — different window than the protocol | Reproduces the published number, so a weak protocol result cannot be dismissed as a broken port |
+| `ts_rag_proto` / `cross_rag_proto` | 24 / 12 (protocol-aligned) | ✅ | The comparable number; this is the one that enters the leaderboard |
+
+Select with `REGIME=orig|proto`. Only `*_proto` rows may be compared against
+other tiers; `*_orig` rows are a port-sanity control and are labelled as such in
+`scripts/summarize_ukpv.py`. Vendored-source provenance:
+[`tier4/vendor/VENDOR_NOTICE.md`](tier4/vendor/VENDOR_NOTICE.md).
 
 ### Leonardo (ISCRA-C) readiness checklist
 
@@ -165,13 +177,13 @@ Not in-process registry baselines — `make_tables.py` ingests their results by 
 stem via `scripts/import_predictions.py`.
 
 - **Tier 5** (generic multimodal TS): Time-VLM, VisionTS++ (numerical track, runnable),
-  UniCast, Aurora (multimodal track, gated). See `baselines/README.md`,
+  UniCast, Aurora (multimodal track, gated). See `tier5/vendor/VENDOR_NOTICE.md`,
   `scripts/slurm_{time_vlm,visionts_pp,unicast,aurora}.sh`.
 - **Tier 6** (PV-specialized multimodal, domain SOTA): CrossViViT (`tier6/vendor/crossvivit`,
   MIT) + SUNSET (`tier6/vendor/sunset`, MIT) — run on the **uk_pv multimodal track**
   (curated `Y` + `images_all.h5` satellite frames, bridged by `tier6/uk_multimodal.py`);
   Solar-VLM is the third P0, already ported under `solar_vlm/`. See
-  `baselines/README.md`, `scripts/slurm_{crossvivit,sunset}.sh`.
+  `tier6/vendor/VENDOR_NOTICE.md`, `scripts/slurm_{crossvivit,sunset}.sh`.
 
 ## Not in this package (other tiers)
 
