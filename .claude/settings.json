@@ -89,7 +89,7 @@
           },
           {
             "type": "command",
-            "command": "bash -c 'git diff --name-only HEAD | grep -vE \"^graphify-out/\" | grep -qE \"^knowledge/\" && graphify update knowledge/ || true'",
+            "command": "bash -c 'git diff --name-only HEAD | grep -vE \"graphify-out/\" | grep -qE \"^knowledge/\" && graphify update knowledge/ || true'",
             "timeout": 120,
             "statusMessage": "Refreshing Graphify prose graph (knowledge/ only)..."
           }

@@ -100,7 +100,7 @@ Experiment run names: `{ablation}_{variant}_{date}` — e.g. `fusion_interleaved
 
 | Path | Regenerate with |
 |---|---|
-| `graphify-out/` | `graphify update knowledge/` |
+| `knowledge/graphify-out/` | `graphify update knowledge/` |
 | `.gitnexus/` | `node .gitnexus/run.cjs analyze` |
 | `baselines/results/ALL_RESULTS.md` | `python baselines/scripts/aggregate_all.py` |
 | `report/REPORT.pdf`, `manuscript/*.pdf` | `latexmk` |

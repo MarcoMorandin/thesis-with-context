@@ -58,7 +58,7 @@ Facts that exist in exactly one place. Anything else citing them must **link**, 
 | Tool | Domain | Index | Refresh |
 |---|---|---|---|
 | **GitNexus** | **Code** — call chains, blast radius, "how does X work" | `.gitnexus/` | `node .gitnexus/run.cjs analyze` |
-| **Graphify** | **Prose + papers** — this whole `knowledge/` tree | `graphify-out/` | `graphify update knowledge/` |
+| **Graphify** | **Prose + papers** — this whole `knowledge/` tree | `knowledge/graphify-out/` | `graphify update knowledge/` |
 
 ```bash
 graphify query   "<question>"     # scoped subgraph — start here for prose/literature
@@ -83,7 +83,7 @@ The point of this tree is that an agent reads *less*, not more.
    training logs to reconstruct history.
 4. **lean-ctx for I/O.** `ctx_read` caches — re-reads cost ~13 tokens. Prefer it over
    re-reading large files, and use `mode=map` for context-only files.
-5. **Exclude noise.** Artifacts, checkpoints, `logs/`, `graphify-out/`, `.gitnexus/` are
+5. **Exclude noise.** Artifacts, checkpoints, `logs/`, `knowledge/graphify-out/`, `.gitnexus/` are
    gitignored and must never be indexed.
 
 ## 5. Anti-patterns

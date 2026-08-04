@@ -66,7 +66,7 @@ Edits always use native `Edit` / `Write`. `ctx_edit` only when `Edit` needs a `R
 cannot do — never loop on a failing `Edit`.
 
 **Two graphs, never crossed:** GitNexus = code (`.gitnexus/`). Graphify = prose + papers
-(`knowledge/` → `graphify-out/`). Never run Graphify over the repo root.
+(`knowledge/` → `knowledge/graphify-out/`). Never run Graphify over the repo root.
 
 ---
 
@@ -103,7 +103,7 @@ Use `/register-experiment`; pre-flight with the `experiment-reviewer` agent.
 | `report/` | ongoing results: EDA, leaderboard synthesis | Numbers are **cited from** `baselines/results/ALL_RESULTS.md`, never retyped. State the run that produced them. |
 | `manuscript/` | thesis LaTeX | Every claim traces to `report/` or a `knowledge/papers/` citation. Never invent a number here. |
 
-Never hand-edit generated artifacts: `graphify-out/`, `.gitnexus/`,
+Never hand-edit generated artifacts: `knowledge/graphify-out/`, `.gitnexus/`,
 `baselines/results/ALL_RESULTS.md`, compiled PDFs.
 
 ---
@@ -123,7 +123,7 @@ Never hand-edit generated artifacts: `graphify-out/`, `.gitnexus/`,
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **thesis-with-context** (2169 symbols, 3832 relationships, 102 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **thesis-with-context** (2275 symbols, 4006 relationships, 104 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
@@ -166,7 +166,7 @@ This project is indexed by GitNexus as **thesis-with-context** (2169 symbols, 38
 
 ## Graphify — prose & literature graph
 
-Graphify indexes **`knowledge/` only** (project prose + `papers/`) into `graphify-out/`.
+Graphify indexes **`knowledge/` only** (project prose + `papers/`) into `knowledge/graphify-out/`.
 It is **not** a code graph — for code, use GitNexus above.
 
 ```bash
@@ -177,7 +177,7 @@ graphify update  knowledge/       # AST-only, free — keeps the graph current
 graphify knowledge/ --wiki        # full rebuild (costs API)
 ```
 
-- `graphify-out/wiki/index.md` for broad navigation; `GRAPH_REPORT.md` only for a full
+- `knowledge/graphify-out/wiki/index.md` for broad navigation; `knowledge/graphify-out/GRAPH_REPORT.md` only for a full
   literature sweep.
 - **Never** `graphify update .` or `graphify .` — the repo root floods the prose graph with
   code files.

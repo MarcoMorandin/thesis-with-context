@@ -14,7 +14,9 @@ import os
 import sys
 
 ROOT = os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd())
-GRAPHIFY_INDEX = os.path.join(ROOT, "graphify-out", "graph.json")
+# Graphify emits into its input dir, i.e. knowledge/graphify-out/ — NOT the repo
+# root. A root graphify-out/ is the code-polluted leftover of `graphify .`.
+GRAPHIFY_INDEX = os.path.join(ROOT, "knowledge", "graphify-out", "graph.json")
 GITNEXUS_INDEX = os.path.join(ROOT, ".gitnexus", "run.cjs")
 
 SOURCE_EXTS = (

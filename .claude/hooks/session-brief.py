@@ -70,10 +70,18 @@ if code_src > newest_mtime(".gitnexus/meta.json"):
         "Code graph is STALE → `node .gitnexus/run.cjs analyze` before code questions."
     )
 
+# Graphify emits into its input dir: knowledge/graphify-out/, not the repo root.
 prose = newest_mtime("knowledge", (".md", ".pdf"))
-if prose > newest_mtime("graphify-out/graph.json"):
+if prose > newest_mtime("knowledge/graphify-out/graph.json"):
     lines.append(
         "Prose graph is STALE → `graphify update knowledge/` before literature questions."
+    )
+
+if os.path.isdir(os.path.join(ROOT, "graphify-out")):
+    lines.append(
+        "A repo-root graphify-out/ exists — that is the code-polluted leftover of "
+        "`graphify .`, not the live index (knowledge/graphify-out/). Ignore it; "
+        "delete when convenient."
     )
 
 # Results newer than the narrative that interprets them.
