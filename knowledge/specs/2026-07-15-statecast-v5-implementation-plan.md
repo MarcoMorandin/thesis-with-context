@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the StateCast package (learned data assimilation for asynchronous multimodal forecasting, design of record [STATECAST.md](../STATECAST.md)) as a standalone project folder mirroring [MMTSFM](../MMTSFM), through Stage-0 (AsyncBench synthetic) training, state-recovery probes, the attention twin, the G4 stress harness, and the uk_pv protocol adapter.
+**Goal:** Build the StateCast package (learned data assimilation for asynchronous multimodal forecasting, design of record [STATECAST.md](2026-07-15-statecast-v5-design.md)) as a standalone project folder mirroring [MMTSFM](../../MMTSFM), through Stage-0 (AsyncBench synthetic) training, state-recovery probes, the attention twin, the G4 stress harness, and the uk_pv protocol adapter.
 
 **Architecture:** All sensor streams are noisy observations of one latent state `s` (8 tokens × 256 dims). Each stream has an encoder `E_m`, a predicted-observation readout `h_m`, and an innovation-gated update `a_m` (learned Kalman-gain analog). A Δt-conditioned transition `f(s, Δt)` rolls the state between observations and across the horizon; a conditional flow-matching head samples stochastic transitions for ensembles. The only entity-specific component is ψ (~96 dims), amortized from history by a set encoder and consumed by the quantile readout `g_ψ`. A matched-parameter attention twin plus a stress harness implement the formulation-vs-mechanism study (G4).
 
@@ -10,10 +10,10 @@
 
 ## Global Constraints
 
-(from [STATECAST.md](../STATECAST.md) and repo rules in [CLAUDE.md](../CLAUDE.md) / [AGENTS.md](../AGENTS.md))
+(from [STATECAST.md](2026-07-15-statecast-v5-design.md) and repo rules in [CLAUDE.md](../../CLAUDE.md) / [AGENTS.md](../../AGENTS.md))
 
-- Python via `uv` only — every command is `uv run ...`; deps via `uv add` / `uv sync`. Run all commands from `STATECAST/` (it is its own uv project, like `MMTSFM/`).
-- Hydra only for config — no argparse in training entrypoints; all hyperparameters in `STATECAST/configs/`, no magic numbers in model code.
+- Python via `uv` only — every command is `uv run ...`; deps via `uv add` / `uv sync`. Run all commands from `knowledge/specs/` (it is its own uv project, like `MMTSFM/`).
+- Hydra only for config — no argparse in training entrypoints; all hyperparameters in `knowledge/specs/configs/`, no magic numbers in model code.
 - One class or one script capability per file; target < 150 lines per file.
 - File naming: `{component}.py` for a single `nn.Module`, `{verb}_{noun}.py` for a pure function, `lightning_{stage}.py` for Lightning modules.
 - Relative imports inside the `statecast` package; shared types in `statecast/types.py`; no circular imports.
@@ -52,11 +52,11 @@ batch = {
 ### Task 1: Project scaffold
 
 **Files:**
-- Create: `STATECAST/pyproject.toml`
-- Create: `STATECAST/README.md`
-- Create: `STATECAST/src/statecast/__init__.py`
-- Create: `STATECAST/tests/__init__.py`
-- Create: `STATECAST/tests/test_scaffold.py`
+- Create: `knowledge/specs/pyproject.toml`
+- Create: `knowledge/specs/README.md`
+- Create: `knowledge/specs/src/statecast/__init__.py`
+- Create: `knowledge/specs/tests/__init__.py`
+- Create: `knowledge/specs/tests/test_scaffold.py`
 
 **Interfaces:**
 - Produces: importable `statecast` package; `uv run pytest` green; branch `feat/statecast`.
@@ -70,7 +70,7 @@ git checkout -b feat/statecast
 
 - [ ] **Step 2: Write pyproject**
 
-`STATECAST/pyproject.toml` (trimmed from MMTSFM's; same cu121 pin so Leonardo works):
+`knowledge/specs/pyproject.toml` (trimmed from MMTSFM's; same cu121 pin so Leonardo works):
 
 ```toml
 [project]
@@ -121,12 +121,12 @@ torch = [{ index = "pytorch-cu121", marker = "sys_platform == 'linux'" }]
 
 - [ ] **Step 3: Write README stub**
 
-`STATECAST/README.md`:
+`knowledge/specs/README.md`:
 
 ```markdown
 # StateCast — learned data assimilation for asynchronous multimodal forecasting
 
-Implementation of [STATECAST.md](../STATECAST.md) (MMTSFM v5, design of record).
+Implementation of [STATECAST.md](2026-07-15-statecast-v5-design.md) (MMTSFM v5, design of record).
 One latent state per entity; every sensor stream enters through a learned
 observation operator with an innovation gate; forecasting = rolling a
 Δt-conditioned (flow-matching) transition; per-entity readout ψ is amortized
@@ -143,7 +143,7 @@ uv run pytest
 
 - [ ] **Step 4: Write package init + scaffold test**
 
-`STATECAST/src/statecast/__init__.py`:
+`knowledge/specs/src/statecast/__init__.py`:
 
 ```python
 """StateCast: learned data assimilation for asynchronous multimodal forecasting."""
@@ -151,9 +151,9 @@ uv run pytest
 __version__ = "0.1.0"
 ```
 
-`STATECAST/tests/__init__.py`: empty file.
+`knowledge/specs/tests/__init__.py`: empty file.
 
-`STATECAST/tests/test_scaffold.py`:
+`knowledge/specs/tests/test_scaffold.py`:
 
 ```python
 def test_package_imports():
@@ -172,7 +172,7 @@ Expected: `test_package_imports PASSED`
 - [ ] **Step 6: Commit**
 
 ```bash
-git add STATECAST/pyproject.toml STATECAST/README.md STATECAST/src STATECAST/tests STATECAST/uv.lock
+git add knowledge/specs/pyproject.toml knowledge/specs/README.md knowledge/specs/src knowledge/specs/tests knowledge/specs/uv.lock
 git commit -m "feat(statecast): scaffold standalone uv project mirroring MMTSFM layout"
 ```
 
@@ -181,16 +181,16 @@ git commit -m "feat(statecast): scaffold standalone uv project mirroring MMTSFM 
 ### Task 2: AsyncBench latent causal process
 
 **Files:**
-- Create: `STATECAST/src/statecast/data/__init__.py` (empty)
-- Create: `STATECAST/src/statecast/data/asyncbench_process.py`
-- Test: `STATECAST/tests/data/__init__.py` (empty), `STATECAST/tests/data/test_asyncbench_process.py`
+- Create: `knowledge/specs/src/statecast/data/__init__.py` (empty)
+- Create: `knowledge/specs/src/statecast/data/asyncbench_process.py`
+- Test: `knowledge/specs/tests/data/__init__.py` (empty), `knowledge/specs/tests/data/test_asyncbench_process.py`
 
 **Interfaces:**
 - Produces: `LatentProcess(field_len, n_steps, dt_minutes, advection, noise, seed)` with `simulate() -> {"field": (T, L) float32 in [0,1], "t_minutes": (T,) float32}`, `LatentProcess.local_cloud(field, loc, width) -> (T,)`, `LatentProcess.daylight(t_minutes) -> (T,) in [0,1]`, `target(field, t_minutes, loc, amp, tilt_shift) -> (T,) float32`. Consumed by Task 3 renderer and Task 13 probes (ground-truth state).
 
 - [ ] **Step 1: Write the failing test**
 
-`STATECAST/tests/data/test_asyncbench_process.py`:
+`knowledge/specs/tests/data/test_asyncbench_process.py`:
 
 ```python
 import numpy as np
@@ -236,7 +236,7 @@ Expected: FAIL with `ModuleNotFoundError: No module named 'statecast.data'`
 
 - [ ] **Step 3: Implement the process**
 
-`STATECAST/src/statecast/data/asyncbench_process.py`:
+`knowledge/specs/src/statecast/data/asyncbench_process.py`:
 
 ```python
 """AsyncBench ground truth: advecting latent field -> local cloudiness -> entity target.
@@ -312,7 +312,7 @@ Expected: 3 PASSED
 - [ ] **Step 5: Commit**
 
 ```bash
-git add STATECAST/src/statecast/data STATECAST/tests/data
+git add knowledge/specs/src/statecast/data knowledge/specs/tests/data
 git commit -m "feat(statecast): AsyncBench latent causal process with ground-truth state"
 ```
 
@@ -321,9 +321,9 @@ git commit -m "feat(statecast): AsyncBench latent causal process with ground-tru
 ### Task 3: AsyncBench renderer + torch Dataset
 
 **Files:**
-- Create: `STATECAST/src/statecast/data/asyncbench_render.py`
-- Create: `STATECAST/src/statecast/data/asyncbench_dataset.py`
-- Test: `STATECAST/tests/data/test_asyncbench_render.py`, `STATECAST/tests/data/test_asyncbench_dataset.py`
+- Create: `knowledge/specs/src/statecast/data/asyncbench_render.py`
+- Create: `knowledge/specs/src/statecast/data/asyncbench_dataset.py`
+- Test: `knowledge/specs/tests/data/test_asyncbench_render.py`, `knowledge/specs/tests/data/test_asyncbench_dataset.py`
 
 **Interfaces:**
 - Consumes: `LatentProcess` (Task 2).
@@ -334,7 +334,7 @@ git commit -m "feat(statecast): AsyncBench latent causal process with ground-tru
 
 - [ ] **Step 1: Write the failing tests**
 
-`STATECAST/tests/data/test_asyncbench_render.py`:
+`knowledge/specs/tests/data/test_asyncbench_render.py`:
 
 ```python
 import numpy as np
@@ -373,7 +373,7 @@ def test_sun_is_noise_free_and_nwp_is_noisy():
     assert not np.allclose(streams["nwp"]["v"][:, 0], cloud_true[idx])  # noisy
 ```
 
-`STATECAST/tests/data/test_asyncbench_dataset.py`:
+`knowledge/specs/tests/data/test_asyncbench_dataset.py`:
 
 ```python
 import torch
@@ -413,7 +413,7 @@ Expected: FAIL with `ModuleNotFoundError` on both new modules
 
 - [ ] **Step 3: Implement the renderer**
 
-`STATECAST/src/statecast/data/asyncbench_render.py`:
+`knowledge/specs/src/statecast/data/asyncbench_render.py`:
 
 ```python
 """Render one LatentProcess simulation into asynchronous, noisy, gappy streams."""
@@ -475,7 +475,7 @@ def render_streams(sim: dict, loc: int, amp: float, tilt_shift: float,
 
 - [ ] **Step 4: Implement the dataset**
 
-`STATECAST/src/statecast/data/asyncbench_dataset.py`:
+`knowledge/specs/src/statecast/data/asyncbench_dataset.py`:
 
 ```python
 """Windowed torch Dataset over AsyncBench renders (batch schema of the plan).
@@ -570,7 +570,7 @@ Expected: all PASS. If the collate of `future_known` errors under `default_colla
 - [ ] **Step 6: Commit**
 
 ```bash
-git add STATECAST/src/statecast/data STATECAST/tests/data
+git add knowledge/specs/src/statecast/data knowledge/specs/tests/data
 git commit -m "feat(statecast): AsyncBench renderer + windowed Dataset (shared-schedule batching)"
 ```
 
@@ -579,10 +579,10 @@ git commit -m "feat(statecast): AsyncBench renderer + windowed Dataset (shared-s
 ### Task 4: Shared types + learned initial state
 
 **Files:**
-- Create: `STATECAST/src/statecast/types.py`
-- Create: `STATECAST/src/statecast/models/__init__.py` (empty)
-- Create: `STATECAST/src/statecast/models/state_init.py`
-- Test: `STATECAST/tests/models/__init__.py` (empty), `STATECAST/tests/models/test_state_init.py`
+- Create: `knowledge/specs/src/statecast/types.py`
+- Create: `knowledge/specs/src/statecast/models/__init__.py` (empty)
+- Create: `knowledge/specs/src/statecast/models/state_init.py`
+- Test: `knowledge/specs/tests/models/__init__.py` (empty), `knowledge/specs/tests/models/test_state_init.py`
 
 **Interfaces:**
 - Produces:
@@ -592,7 +592,7 @@ git commit -m "feat(statecast): AsyncBench renderer + windowed Dataset (shared-s
 
 - [ ] **Step 1: Write the failing test**
 
-`STATECAST/tests/models/test_state_init.py`:
+`knowledge/specs/tests/models/test_state_init.py`:
 
 ```python
 import torch
@@ -623,7 +623,7 @@ Expected: FAIL with `ModuleNotFoundError`
 
 - [ ] **Step 3: Implement**
 
-`STATECAST/src/statecast/types.py`:
+`knowledge/specs/src/statecast/types.py`:
 
 ```python
 """Shared shapes and constants for the statecast package."""
@@ -645,7 +645,7 @@ class Dims:
     dt_feat_dim: int = 16
 ```
 
-`STATECAST/src/statecast/models/state_init.py`:
+`knowledge/specs/src/statecast/models/state_init.py`:
 
 ```python
 """Learned initial latent state, expanded per batch."""
@@ -673,7 +673,7 @@ Run: `uv run pytest tests/models/test_state_init.py -v` — Expected: 2 PASSED
 - [ ] **Step 5: Commit**
 
 ```bash
-git add STATECAST/src/statecast/types.py STATECAST/src/statecast/models STATECAST/tests/models
+git add knowledge/specs/src/statecast/types.py knowledge/specs/src/statecast/models knowledge/specs/tests/models
 git commit -m "feat(statecast): shared Dims/quantile constants + learned StateInit"
 ```
 
@@ -682,9 +682,9 @@ git commit -m "feat(statecast): shared Dims/quantile constants + learned StateIn
 ### Task 5: Observation encoder E_m and predicted-observation readout h_m
 
 **Files:**
-- Create: `STATECAST/src/statecast/models/obs_encoder.py`
-- Create: `STATECAST/src/statecast/models/obs_readout.py`
-- Test: `STATECAST/tests/models/test_obs_encoder.py`, `STATECAST/tests/models/test_obs_readout.py`
+- Create: `knowledge/specs/src/statecast/models/obs_encoder.py`
+- Create: `knowledge/specs/src/statecast/models/obs_readout.py`
+- Test: `knowledge/specs/tests/models/test_obs_encoder.py`, `knowledge/specs/tests/models/test_obs_readout.py`
 
 **Interfaces:**
 - Consumes: `Dims` (Task 4).
@@ -694,7 +694,7 @@ git commit -m "feat(statecast): shared Dims/quantile constants + learned StateIn
 
 - [ ] **Step 1: Write the failing tests**
 
-`STATECAST/tests/models/test_obs_encoder.py`:
+`knowledge/specs/tests/models/test_obs_encoder.py`:
 
 ```python
 import torch
@@ -713,7 +713,7 @@ def test_obs_encoder_shape_and_grad():
     assert v.grad is not None
 ```
 
-`STATECAST/tests/models/test_obs_readout.py`:
+`knowledge/specs/tests/models/test_obs_readout.py`:
 
 ```python
 import torch
@@ -739,7 +739,7 @@ Expected: FAIL with `ModuleNotFoundError`
 
 - [ ] **Step 3: Implement both modules**
 
-`STATECAST/src/statecast/models/obs_encoder.py`:
+`knowledge/specs/src/statecast/models/obs_encoder.py`:
 
 ```python
 """Per-stream observation encoder E_m: raw (pre-embedded) values -> obs latent."""
@@ -763,7 +763,7 @@ class ObsEncoder(nn.Module):
         return self.net(v)
 ```
 
-`STATECAST/src/statecast/models/obs_readout.py`:
+`knowledge/specs/src/statecast/models/obs_readout.py`:
 
 ```python
 """Predicted-observation readout h_m(s): state -> expected sensor reading (latent)."""
@@ -798,7 +798,7 @@ Run: `uv run pytest tests/models/test_obs_encoder.py tests/models/test_obs_reado
 - [ ] **Step 5: Commit**
 
 ```bash
-git add STATECAST/src/statecast/models/obs_encoder.py STATECAST/src/statecast/models/obs_readout.py STATECAST/tests/models
+git add knowledge/specs/src/statecast/models/obs_encoder.py knowledge/specs/src/statecast/models/obs_readout.py knowledge/specs/tests/models
 git commit -m "feat(statecast): per-stream ObsEncoder + ObsReadout (h_m) heads"
 ```
 
@@ -807,9 +807,9 @@ git commit -m "feat(statecast): per-stream ObsEncoder + ObsReadout (h_m) heads"
 ### Task 6: Innovation gate G_m + assimilation update a_m
 
 **Files:**
-- Create: `STATECAST/src/statecast/models/innovation_gate.py`
-- Create: `STATECAST/src/statecast/models/assimilation_update.py`
-- Test: `STATECAST/tests/models/test_innovation_gate.py`, `STATECAST/tests/models/test_assimilation_update.py`
+- Create: `knowledge/specs/src/statecast/models/innovation_gate.py`
+- Create: `knowledge/specs/src/statecast/models/assimilation_update.py`
+- Test: `knowledge/specs/tests/models/test_innovation_gate.py`, `knowledge/specs/tests/models/test_assimilation_update.py`
 
 **Interfaces:**
 - Consumes: `Dims`.
@@ -819,7 +819,7 @@ git commit -m "feat(statecast): per-stream ObsEncoder + ObsReadout (h_m) heads"
 
 - [ ] **Step 1: Write the failing tests**
 
-`STATECAST/tests/models/test_innovation_gate.py`:
+`knowledge/specs/tests/models/test_innovation_gate.py`:
 
 ```python
 import torch
@@ -836,7 +836,7 @@ def test_gate_shape_and_range():
     assert (out > 0).all() and (out < 1).all()
 ```
 
-`STATECAST/tests/models/test_assimilation_update.py`:
+`knowledge/specs/tests/models/test_assimilation_update.py`:
 
 ```python
 import torch
@@ -882,7 +882,7 @@ Expected: FAIL with `ModuleNotFoundError`
 
 - [ ] **Step 3: Implement both modules**
 
-`STATECAST/src/statecast/models/innovation_gate.py`:
+`knowledge/specs/src/statecast/models/innovation_gate.py`:
 
 ```python
 """Learned Kalman-gain analog: innovation magnitude -> per-channel state gate."""
@@ -906,7 +906,7 @@ class InnovationGate(nn.Module):
         return torch.sigmoid(self.net(innov)).unsqueeze(1)   # (B, 1, D), diagonal over D
 ```
 
-`STATECAST/src/statecast/models/assimilation_update.py`:
+`knowledge/specs/src/statecast/models/assimilation_update.py`:
 
 ```python
 """Innovation-gated state update a_m: s+ = s- + mask * G(innov) * Delta(innov)."""
@@ -952,7 +952,7 @@ Run: `uv run pytest tests/models/test_innovation_gate.py tests/models/test_assim
 - [ ] **Step 5: Commit**
 
 ```bash
-git add STATECAST/src/statecast/models/innovation_gate.py STATECAST/src/statecast/models/assimilation_update.py STATECAST/tests/models
+git add knowledge/specs/src/statecast/models/innovation_gate.py knowledge/specs/src/statecast/models/assimilation_update.py knowledge/specs/tests/models
 git commit -m "feat(statecast): innovation-gated assimilation update (learned Kalman gain)"
 ```
 
@@ -961,9 +961,9 @@ git commit -m "feat(statecast): innovation-gated assimilation update (learned Ka
 ### Task 7: Δt-conditioned transition f(s, Δt)
 
 **Files:**
-- Create: `STATECAST/src/statecast/models/dt_features.py`
-- Create: `STATECAST/src/statecast/models/transition.py`
-- Test: `STATECAST/tests/models/test_transition.py`
+- Create: `knowledge/specs/src/statecast/models/dt_features.py`
+- Create: `knowledge/specs/src/statecast/models/transition.py`
+- Test: `knowledge/specs/tests/models/test_transition.py`
 
 **Interfaces:**
 - Consumes: `Dims`.
@@ -973,7 +973,7 @@ git commit -m "feat(statecast): innovation-gated assimilation update (learned Ka
 
 - [ ] **Step 1: Write the failing test**
 
-`STATECAST/tests/models/test_transition.py`:
+`knowledge/specs/tests/models/test_transition.py`:
 
 ```python
 import torch
@@ -1015,7 +1015,7 @@ Expected: FAIL with `ModuleNotFoundError`
 
 - [ ] **Step 3: Implement**
 
-`STATECAST/src/statecast/models/dt_features.py`:
+`knowledge/specs/src/statecast/models/dt_features.py`:
 
 ```python
 """Fourier features of log-compressed time gaps (minutes)."""
@@ -1033,7 +1033,7 @@ def dt_features(dt: torch.Tensor, dim: int) -> torch.Tensor:
     return torch.cat([torch.sin(x), torch.cos(x)], dim=-1)
 ```
 
-`STATECAST/src/statecast/models/transition.py`:
+`knowledge/specs/src/statecast/models/transition.py`:
 
 ```python
 """Continuous-time transition f(s, dt): the world model. Residual + FiLM on dt."""
@@ -1076,7 +1076,7 @@ Run: `uv run pytest tests/models/test_transition.py -v` — Expected: 3 PASSED
 - [ ] **Step 5: Commit**
 
 ```bash
-git add STATECAST/src/statecast/models/dt_features.py STATECAST/src/statecast/models/transition.py STATECAST/tests/models
+git add knowledge/specs/src/statecast/models/dt_features.py knowledge/specs/src/statecast/models/transition.py knowledge/specs/tests/models
 git commit -m "feat(statecast): dt-conditioned residual transition (deterministic world model)"
 ```
 
@@ -1085,8 +1085,8 @@ git commit -m "feat(statecast): dt-conditioned residual transition (deterministi
 ### Task 8: Conditional flow-matching transition head
 
 **Files:**
-- Create: `STATECAST/src/statecast/models/flow_transition.py`
-- Test: `STATECAST/tests/models/test_flow_transition.py`
+- Create: `knowledge/specs/src/statecast/models/flow_transition.py`
+- Test: `knowledge/specs/tests/models/test_flow_transition.py`
 
 **Interfaces:**
 - Consumes: `Dims`, `Transition` (composition: caller passes the deterministic mean `f(s,dt)` as conditioning), `dt_features`.
@@ -1096,7 +1096,7 @@ git commit -m "feat(statecast): dt-conditioned residual transition (deterministi
 
 - [ ] **Step 1: Write the failing test**
 
-`STATECAST/tests/models/test_flow_transition.py`:
+`knowledge/specs/tests/models/test_flow_transition.py`:
 
 ```python
 import torch
@@ -1136,7 +1136,7 @@ Run: `uv run pytest tests/models/test_flow_transition.py -v` — Expected: FAIL 
 
 - [ ] **Step 3: Implement**
 
-`STATECAST/src/statecast/models/flow_transition.py`:
+`knowledge/specs/src/statecast/models/flow_transition.py`:
 
 ```python
 """Conditional flow-matching transition: sample s_{t+dt} ~ p(. | s_t, dt).
@@ -1190,7 +1190,7 @@ Run: `uv run pytest tests/models/test_flow_transition.py -v` — Expected: 2 PAS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add STATECAST/src/statecast/models/flow_transition.py STATECAST/tests/models
+git add knowledge/specs/src/statecast/models/flow_transition.py knowledge/specs/tests/models
 git commit -m "feat(statecast): conditional flow-matching transition head (generative ensembles)"
 ```
 
@@ -1199,9 +1199,9 @@ git commit -m "feat(statecast): conditional flow-matching transition head (gener
 ### Task 9: ψ set encoder + quantile readout g_ψ
 
 **Files:**
-- Create: `STATECAST/src/statecast/models/psi_encoder.py`
-- Create: `STATECAST/src/statecast/models/quantile_readout.py`
-- Test: `STATECAST/tests/models/test_psi_encoder.py`, `STATECAST/tests/models/test_quantile_readout.py`
+- Create: `knowledge/specs/src/statecast/models/psi_encoder.py`
+- Create: `knowledge/specs/src/statecast/models/quantile_readout.py`
+- Test: `knowledge/specs/tests/models/test_psi_encoder.py`, `knowledge/specs/tests/models/test_quantile_readout.py`
 
 **Interfaces:**
 - Consumes: `Dims`, `dt_features`.
@@ -1211,7 +1211,7 @@ git commit -m "feat(statecast): conditional flow-matching transition head (gener
 
 - [ ] **Step 1: Write the failing tests**
 
-`STATECAST/tests/models/test_psi_encoder.py`:
+`knowledge/specs/tests/models/test_psi_encoder.py`:
 
 ```python
 import torch
@@ -1244,7 +1244,7 @@ def test_psi_handles_empty_history():
     assert torch.isfinite(psi).all()
 ```
 
-`STATECAST/tests/models/test_quantile_readout.py`:
+`knowledge/specs/tests/models/test_quantile_readout.py`:
 
 ```python
 import torch
@@ -1271,7 +1271,7 @@ Expected: FAIL with `ModuleNotFoundError`
 
 - [ ] **Step 3: Implement both modules**
 
-`STATECAST/src/statecast/models/psi_encoder.py`:
+`knowledge/specs/src/statecast/models/psi_encoder.py`:
 
 ```python
 """Amortized entity operator: DeepSet over target-history events -> psi (~10^2 dims)."""
@@ -1307,7 +1307,7 @@ class PsiSetEncoder(nn.Module):
         return self.rho(h.sum(dim=1) / denom)
 ```
 
-`STATECAST/src/statecast/models/quantile_readout.py`:
+`knowledge/specs/src/statecast/models/quantile_readout.py`:
 
 ```python
 """g_psi: state -> monotone target quantiles, FiLM-conditioned on the entity psi."""
@@ -1347,7 +1347,7 @@ Run: `uv run pytest tests/models/test_psi_encoder.py tests/models/test_quantile_
 - [ ] **Step 5: Commit**
 
 ```bash
-git add STATECAST/src/statecast/models/psi_encoder.py STATECAST/src/statecast/models/quantile_readout.py STATECAST/tests/models
+git add knowledge/specs/src/statecast/models/psi_encoder.py knowledge/specs/src/statecast/models/quantile_readout.py knowledge/specs/tests/models
 git commit -m "feat(statecast): amortized psi set encoder + monotone quantile readout"
 ```
 
@@ -1356,8 +1356,8 @@ git commit -m "feat(statecast): amortized psi set encoder + monotone quantile re
 ### Task 10: StateCast core — the assimilate/roll/decode loop
 
 **Files:**
-- Create: `STATECAST/src/statecast/models/statecast_core.py`
-- Test: `STATECAST/tests/models/test_statecast_core.py`
+- Create: `knowledge/specs/src/statecast/models/statecast_core.py`
+- Test: `knowledge/specs/tests/models/test_statecast_core.py`
 
 **Interfaces:**
 - Consumes: everything from Tasks 4–9; `STREAM_DIMS`, `FUTURE_KNOWN` (Task 3).
@@ -1373,7 +1373,7 @@ git commit -m "feat(statecast): amortized psi set encoder + monotone quantile re
 
 - [ ] **Step 1: Write the failing test**
 
-`STATECAST/tests/models/test_statecast_core.py`:
+`knowledge/specs/tests/models/test_statecast_core.py`:
 
 ```python
 import torch
@@ -1423,7 +1423,7 @@ Run: `uv run pytest tests/models/test_statecast_core.py -v` — Expected: FAIL w
 
 - [ ] **Step 3: Implement the core**
 
-`STATECAST/src/statecast/models/statecast_core.py`:
+`knowledge/specs/src/statecast/models/statecast_core.py`:
 
 ```python
 """StateCast forward pass: assimilate history in time order, roll the horizon
@@ -1536,7 +1536,7 @@ Run: `uv run pytest tests/models/test_statecast_core.py -v` — Expected: 3 PASS
 
 ```bash
 uv run pytest
-git add STATECAST/src/statecast/models/statecast_core.py STATECAST/tests/models
+git add knowledge/specs/src/statecast/models/statecast_core.py knowledge/specs/tests/models
 git commit -m "feat(statecast): full assimilate/roll/decode event loop (StateCast core)"
 ```
 
@@ -1545,12 +1545,12 @@ git commit -m "feat(statecast): full assimilate/roll/decode event loop (StateCas
 ### Task 11: Losses
 
 **Files:**
-- Create: `STATECAST/src/statecast/losses/__init__.py` (empty)
-- Create: `STATECAST/src/statecast/losses/pinball_loss.py`
-- Create: `STATECAST/src/statecast/losses/latent_prediction_loss.py`
-- Create: `STATECAST/src/statecast/losses/flow_matching_loss.py`
-- Create: `STATECAST/src/statecast/losses/innovation_regularizer.py`
-- Test: `STATECAST/tests/losses/__init__.py` (empty), `STATECAST/tests/losses/test_losses.py`
+- Create: `knowledge/specs/src/statecast/losses/__init__.py` (empty)
+- Create: `knowledge/specs/src/statecast/losses/pinball_loss.py`
+- Create: `knowledge/specs/src/statecast/losses/latent_prediction_loss.py`
+- Create: `knowledge/specs/src/statecast/losses/flow_matching_loss.py`
+- Create: `knowledge/specs/src/statecast/losses/innovation_regularizer.py`
+- Test: `knowledge/specs/tests/losses/__init__.py` (empty), `knowledge/specs/tests/losses/test_losses.py`
 
 **Interfaces:**
 - Consumes: `QUANTILE_LEVELS`; `FlowTransition.velocity`; core outputs (`latent_pairs`, `fm_pairs`, `gate_traces`).
@@ -1562,7 +1562,7 @@ git commit -m "feat(statecast): full assimilate/roll/decode event loop (StateCas
 
 - [ ] **Step 1: Write the failing tests**
 
-`STATECAST/tests/losses/test_losses.py`:
+`knowledge/specs/tests/losses/test_losses.py`:
 
 ```python
 import torch
@@ -1613,7 +1613,7 @@ Run: `uv run pytest tests/losses/test_losses.py -v` — Expected: FAIL with `Mod
 
 - [ ] **Step 3: Implement the four loss files**
 
-`STATECAST/src/statecast/losses/pinball_loss.py`:
+`knowledge/specs/src/statecast/losses/pinball_loss.py`:
 
 ```python
 """Ramp-weighted pinball loss on target quantiles."""
@@ -1636,7 +1636,7 @@ def ramp_weighted_pinball(q_pred, y, mask=None, ramp_lambda: float = 2.0):
     return (pin * w.unsqueeze(-1)).sum() / w.sum().clamp(min=1e-8) / len(QUANTILE_LEVELS)
 ```
 
-`STATECAST/src/statecast/losses/latent_prediction_loss.py`:
+`knowledge/specs/src/statecast/losses/latent_prediction_loss.py`:
 
 ```python
 """JEPA-style latent prediction: h_m(rolled state) vs encoded real future obs."""
@@ -1656,7 +1656,7 @@ def latent_prediction_loss(pairs):
     return num / torch.clamp(torch.as_tensor(den, dtype=torch.float32), min=1.0)
 ```
 
-`STATECAST/src/statecast/losses/flow_matching_loss.py`:
+`knowledge/specs/src/statecast/losses/flow_matching_loss.py`:
 
 ```python
 """Conditional flow matching on transition pairs (s_prev, dt, s_target)."""
@@ -1679,7 +1679,7 @@ def cfm_loss(flow, pairs, rng=None):
     return total / len(pairs)
 ```
 
-`STATECAST/src/statecast/losses/innovation_regularizer.py`:
+`knowledge/specs/src/statecast/losses/innovation_regularizer.py`:
 
 ```python
 """Keep the filter honest: mean gate per stream must stay inside (low, high)."""
@@ -1705,7 +1705,7 @@ Run: `uv run pytest tests/losses/test_losses.py -v` — Expected: 4 PASSED
 - [ ] **Step 5: Commit**
 
 ```bash
-git add STATECAST/src/statecast/losses STATECAST/tests/losses
+git add knowledge/specs/src/statecast/losses knowledge/specs/tests/losses
 git commit -m "feat(statecast): pinball/latent-prediction/CFM losses + innovation regularizer"
 ```
 
@@ -1714,10 +1714,10 @@ git commit -m "feat(statecast): pinball/latent-prediction/CFM losses + innovatio
 ### Task 12: Stage-0 Lightning module, Hydra configs, train entrypoint
 
 **Files:**
-- Create: `STATECAST/src/statecast/lightning_stage0.py`
-- Create: `STATECAST/src/statecast/train.py`
-- Create: `STATECAST/configs/config.yaml`, `STATECAST/configs/model/statecast.yaml`, `STATECAST/configs/data/asyncbench.yaml`, `STATECAST/configs/trainer/default.yaml`
-- Test: `STATECAST/tests/test_training_loop.py`
+- Create: `knowledge/specs/src/statecast/lightning_stage0.py`
+- Create: `knowledge/specs/src/statecast/train.py`
+- Create: `knowledge/specs/configs/config.yaml`, `knowledge/specs/configs/model/statecast.yaml`, `knowledge/specs/configs/data/asyncbench.yaml`, `knowledge/specs/configs/trainer/default.yaml`
+- Test: `knowledge/specs/tests/test_training_loop.py`
 
 **Interfaces:**
 - Consumes: `StateCast`, all losses, `AsyncBenchDataset`.
@@ -1727,7 +1727,7 @@ git commit -m "feat(statecast): pinball/latent-prediction/CFM losses + innovatio
 
 - [ ] **Step 1: Write the failing test**
 
-`STATECAST/tests/test_training_loop.py`:
+`knowledge/specs/tests/test_training_loop.py`:
 
 ```python
 import lightning as L
@@ -1765,7 +1765,7 @@ Run: `uv run pytest tests/test_training_loop.py -v` — Expected: FAIL with `Mod
 
 - [ ] **Step 3: Implement the Lightning module**
 
-`STATECAST/src/statecast/lightning_stage0.py`:
+`knowledge/specs/src/statecast/lightning_stage0.py`:
 
 ```python
 """Stage 0: train StateCast (or the attention twin) on AsyncBench synthetic."""
@@ -1829,7 +1829,7 @@ Run: `uv run pytest tests/test_training_loop.py -v` — Expected: PASSED
 
 - [ ] **Step 5: Write configs + hydra entrypoint**
 
-`STATECAST/configs/config.yaml`:
+`knowledge/specs/configs/config.yaml`:
 
 ```yaml
 defaults:
@@ -1847,7 +1847,7 @@ hydra:
     dir: logs/experiments/runs/${now:%Y-%m-%d}_${now:%H-%M-%S}
 ```
 
-`STATECAST/configs/model/statecast.yaml`:
+`knowledge/specs/configs/model/statecast.yaml`:
 
 ```yaml
 arch: statecast
@@ -1865,7 +1865,7 @@ loss_weights:
 lr: 3.0e-4
 ```
 
-`STATECAST/configs/data/asyncbench.yaml`:
+`knowledge/specs/configs/data/asyncbench.yaml`:
 
 ```yaml
 n_entities: 16
@@ -1876,7 +1876,7 @@ batch_size: 8
 num_workers: 0
 ```
 
-`STATECAST/configs/trainer/default.yaml`:
+`knowledge/specs/configs/trainer/default.yaml`:
 
 ```yaml
 max_epochs: 3
@@ -1886,7 +1886,7 @@ log_every_n_steps: 5
 reload_dataloaders_every_n_epochs: 1   # new AsyncBench schedule each epoch
 ```
 
-`STATECAST/src/statecast/train.py`:
+`knowledge/specs/src/statecast/train.py`:
 
 ```python
 """Hydra entrypoint: uv run python -m statecast.train [overrides]."""
@@ -1939,7 +1939,7 @@ Expected: 1 epoch completes, `train/loss` finite in the console log. If `trainer
 
 ```bash
 uv run pytest
-git add STATECAST/src/statecast/lightning_stage0.py STATECAST/src/statecast/train.py STATECAST/configs STATECAST/tests/test_training_loop.py
+git add knowledge/specs/src/statecast/lightning_stage0.py knowledge/specs/src/statecast/train.py knowledge/specs/configs knowledge/specs/tests/test_training_loop.py
 git commit -m "feat(statecast): Stage-0 Lightning module + Hydra configs + train entrypoint"
 ```
 
@@ -1948,10 +1948,10 @@ git commit -m "feat(statecast): Stage-0 Lightning module + Hydra configs + train
 ### Task 13: State-recovery probe (Stage-0 audit instrument)
 
 **Files:**
-- Create: `STATECAST/src/statecast/eval/__init__.py` (empty)
-- Create: `STATECAST/src/statecast/eval/state_probe.py`
-- Create: `STATECAST/scripts/probe_state.py`
-- Test: `STATECAST/tests/eval/__init__.py` (empty), `STATECAST/tests/eval/test_state_probe.py`
+- Create: `knowledge/specs/src/statecast/eval/__init__.py` (empty)
+- Create: `knowledge/specs/src/statecast/eval/state_probe.py`
+- Create: `knowledge/specs/scripts/probe_state.py`
+- Test: `knowledge/specs/tests/eval/__init__.py` (empty), `knowledge/specs/tests/eval/test_state_probe.py`
 
 **Interfaces:**
 - Consumes: `StateCast` (needs the state at t0 → add nothing to the core: the probe re-runs `forward` and reads the state via a small hook exposed here), `AsyncBenchDataset` (`true_cloud_t0`).
@@ -1962,7 +1962,7 @@ git commit -m "feat(statecast): Stage-0 Lightning module + Hydra configs + train
 
 - [ ] **Step 1: Write the failing test**
 
-`STATECAST/tests/eval/test_state_probe.py`:
+`knowledge/specs/tests/eval/test_state_probe.py`:
 
 ```python
 import torch
@@ -1998,7 +1998,7 @@ Run: `uv run pytest tests/eval/test_state_probe.py -v` — Expected: FAIL with `
 
 - [ ] **Step 3: Implement probe + script**
 
-`STATECAST/src/statecast/eval/state_probe.py`:
+`knowledge/specs/src/statecast/eval/state_probe.py`:
 
 ```python
 """Linear probes on the latent state (Stage-0 audit: is cloud cover readable?)."""
@@ -2038,7 +2038,7 @@ def ridge_r2(X_train, y_train, X_test, y_test, l2: float = 1.0) -> float:
     return float(1.0 - ss_res / ss_tot)
 ```
 
-`STATECAST/scripts/probe_state.py`:
+`knowledge/specs/scripts/probe_state.py`:
 
 ```python
 """Report cloud-cover probe R^2 for a Stage-0 checkpoint.
@@ -2080,7 +2080,7 @@ Run: `uv run pytest tests/eval/test_state_probe.py -v` — Expected: 2 PASSED
 - [ ] **Step 5: Commit**
 
 ```bash
-git add STATECAST/src/statecast/eval STATECAST/scripts/probe_state.py STATECAST/tests/eval
+git add knowledge/specs/src/statecast/eval knowledge/specs/scripts/probe_state.py knowledge/specs/tests/eval
 git commit -m "feat(statecast): state-recovery linear probe (Stage-0 audit instrument)"
 ```
 
@@ -2089,8 +2089,8 @@ git commit -m "feat(statecast): state-recovery linear probe (Stage-0 audit instr
 ### Task 14: Attention twin (matched-parameter fusion baseline)
 
 **Files:**
-- Create: `STATECAST/src/statecast/models/attention_twin.py`
-- Test: `STATECAST/tests/models/test_attention_twin.py`
+- Create: `knowledge/specs/src/statecast/models/attention_twin.py`
+- Test: `knowledge/specs/tests/models/test_attention_twin.py`
 
 **Interfaces:**
 - Consumes: `Dims`, `dt_features`, `QuantileReadout`-free (the twin has **no ψ** — entity identity stays entangled, per STATECAST.md §3); batch schema.
@@ -2098,7 +2098,7 @@ git commit -m "feat(statecast): state-recovery linear probe (Stage-0 audit instr
 
 - [ ] **Step 1: Write the failing test**
 
-`STATECAST/tests/models/test_attention_twin.py`:
+`knowledge/specs/tests/models/test_attention_twin.py`:
 
 ```python
 import torch
@@ -2139,7 +2139,7 @@ Run: `uv run pytest tests/models/test_attention_twin.py -v` — Expected: FAIL w
 
 - [ ] **Step 3: Implement the twin**
 
-`STATECAST/src/statecast/models/attention_twin.py`:
+`knowledge/specs/src/statecast/models/attention_twin.py`:
 
 ```python
 """Matched-parameter attention-fusion twin: every event is a token; a
@@ -2214,7 +2214,7 @@ Expected: 2 PASSED. If `test_parameter_matching` fails, adjust `n_layers` (or `d
 
 - [ ] **Step 5: Add twin config**
 
-`STATECAST/configs/model/twin.yaml`:
+`knowledge/specs/configs/model/twin.yaml`:
 
 ```yaml
 arch: twin
@@ -2234,7 +2234,7 @@ Smoke: `uv run python -m statecast.train model=twin trainer.max_epochs=1 data.n_
 - [ ] **Step 6: Commit**
 
 ```bash
-git add STATECAST/src/statecast/models/attention_twin.py STATECAST/tests/models/test_attention_twin.py STATECAST/configs/model/twin.yaml
+git add knowledge/specs/src/statecast/models/attention_twin.py knowledge/specs/tests/models/test_attention_twin.py knowledge/specs/configs/model/twin.yaml
 git commit -m "feat(statecast): matched-parameter attention-fusion twin (G4 counterpart)"
 ```
 
@@ -2243,20 +2243,20 @@ git commit -m "feat(statecast): matched-parameter attention-fusion twin (G4 coun
 ### Task 15: G4 stress harness (cadence shift / dropout / horizon extrapolation)
 
 **Files:**
-- Create: `STATECAST/src/statecast/eval/stress_eval.py`
-- Create: `STATECAST/scripts/g4_stress.py`
-- Test: `STATECAST/tests/eval/test_stress_eval.py`
+- Create: `knowledge/specs/src/statecast/eval/stress_eval.py`
+- Create: `knowledge/specs/scripts/g4_stress.py`
+- Test: `knowledge/specs/tests/eval/test_stress_eval.py`
 
 **Interfaces:**
 - Consumes: any model with the Task-10/14 forward contract; `AsyncBenchDataset`, `default_schedule`.
 - Produces:
   - `pinball_score(model, loader) -> float` (mean unweighted pinball — comparable across models) and `coverage_80(model, loader) -> float` (empirical coverage of the [q0.1, q0.9] band; calibration instrument).
   - `run_conditions(model, base_cfg: dict) -> dict[str, dict[str, float]]` over conditions: `"base"`, `"cadence_shift"` (all cadences halved ⇒ 2× denser events), `"drop_vision"` (vision mask forced to 0), `"horizon_x2"` (horizon_steps doubled — train-short/test-long extrapolation).
-  - `scripts/g4_stress.py --statecast <ckpt> --twin <ckpt>` writes `STATECAST/results/g4_stress.json`: `{model: {condition: {"pinball": float, "coverage80": float}}}`. **G4 criterion (manual, post-training): StateCast within parity on `base` AND better on ≥ 1 stress axis, with `coverage80` closer to 0.8 under `drop_vision`.**
+  - `scripts/g4_stress.py --statecast <ckpt> --twin <ckpt>` writes `knowledge/specs/results/g4_stress.json`: `{model: {condition: {"pinball": float, "coverage80": float}}}`. **G4 criterion (manual, post-training): StateCast within parity on `base` AND better on ≥ 1 stress axis, with `coverage80` closer to 0.8 under `drop_vision`.**
 
 - [ ] **Step 1: Write the failing test**
 
-`STATECAST/tests/eval/test_stress_eval.py`:
+`knowledge/specs/tests/eval/test_stress_eval.py`:
 
 ```python
 from statecast.data.asyncbench_dataset import FUTURE_KNOWN, STREAM_DIMS
@@ -2284,7 +2284,7 @@ Run: `uv run pytest tests/eval/test_stress_eval.py -v` — Expected: FAIL with `
 
 - [ ] **Step 3: Implement the harness**
 
-`STATECAST/src/statecast/eval/stress_eval.py`:
+`knowledge/specs/src/statecast/eval/stress_eval.py`:
 
 ```python
 """G4 stress harness: score a model across formulation-separating conditions."""
@@ -2338,7 +2338,7 @@ def run_conditions(model, base_cfg: dict) -> dict:
 
 (`cadence_scale` is the `AsyncBenchDataset` constructor arg added in Task 3 — it halves the base-step cadences before entities are rendered, so the shifted schedule is real, not cosmetic.)
 
-`STATECAST/scripts/g4_stress.py`:
+`knowledge/specs/scripts/g4_stress.py`:
 
 ```python
 """G4: score StateCast vs the attention twin across stress conditions.
@@ -2382,7 +2382,7 @@ Run: `uv run pytest tests/eval/test_stress_eval.py -v` — Expected: PASSED
 - [ ] **Step 5: Commit**
 
 ```bash
-git add STATECAST/src/statecast/eval/stress_eval.py STATECAST/scripts/g4_stress.py STATECAST/tests/eval
+git add knowledge/specs/src/statecast/eval/stress_eval.py knowledge/specs/scripts/g4_stress.py knowledge/specs/tests/eval
 git commit -m "feat(statecast): G4 stress harness (cadence shift, sensor dropout, horizon extrapolation)"
 ```
 
@@ -2391,16 +2391,16 @@ git commit -m "feat(statecast): G4 stress harness (cadence shift, sensor dropout
 ### Task 16: uk_pv protocol adapter (Stage-2 entry point)
 
 **Files:**
-- Create: `STATECAST/src/statecast/data/pv_events.py`
-- Test: `STATECAST/tests/data/test_pv_events.py`
+- Create: `knowledge/specs/src/statecast/data/pv_events.py`
+- Test: `knowledge/specs/tests/data/test_pv_events.py`
 
 **Interfaces:**
-- Consumes: `mmtsfm.data.pv_record.PVRecordDataset` (import via explicit `sys.path` insertion — same pattern PVRecordDataset itself uses for `baselines/common`). Its item schema (verified at [pv_record.py:337-409](../MMTSFM/src/mmtsfm/data/pv_record.py)): `Y (N,T,1)`, `Y_future (N,H,1)`, `X_cov (N,T+H,C)`, `Z` (cached V-JEPA latents, optional) / `V` (frames), `mask_target (N,T,1)`, `mask_future (N,H,1)`, `mask_visual (N,Tv)`, `video_delta_t (N,Tv)`, `hist_delta_t (N,T)`, `daylight_future (N,H,1)`, `timestamps (T+H,) int64 seconds`, `site_id`.
-- Produces: `PVEventDataset(**pv_record_kwargs)` — wraps `PVRecordDataset(num_entities=1)` and converts each item into the **batch schema**: streams `"target"` (Y, d=1), `"weather"` (X_cov history rows, d=C), `"nwp"` (X_cov future rows — known-future weather per protocol, future-known), `"vision"` (V-JEPA latents `Z` flattened per frame, d = latent dim; only emitted when `Z` present), plus `"t_future"`, `"y_future"`, `"daylight_future"`, `"mask_future"`, `"site_id"`. Times = `timestamps` converted to float minutes. Stage-2 Lightning module + `ProtocolEvaluator` wiring (see [MMTSFM protocol_eval](../MMTSFM/src/eval/protocol_eval.py)) is deferred to the Stage-2 plan — this task delivers and tests the data contract only.
+- Consumes: `mmtsfm.data.pv_record.PVRecordDataset` (import via explicit `sys.path` insertion — same pattern PVRecordDataset itself uses for `baselines/common`). Its item schema (verified at [pv_record.py:337-409](../../MMTSFM/src/mmtsfm/data/pv_record.py)): `Y (N,T,1)`, `Y_future (N,H,1)`, `X_cov (N,T+H,C)`, `Z` (cached V-JEPA latents, optional) / `V` (frames), `mask_target (N,T,1)`, `mask_future (N,H,1)`, `mask_visual (N,Tv)`, `video_delta_t (N,Tv)`, `hist_delta_t (N,T)`, `daylight_future (N,H,1)`, `timestamps (T+H,) int64 seconds`, `site_id`.
+- Produces: `PVEventDataset(**pv_record_kwargs)` — wraps `PVRecordDataset(num_entities=1)` and converts each item into the **batch schema**: streams `"target"` (Y, d=1), `"weather"` (X_cov history rows, d=C), `"nwp"` (X_cov future rows — known-future weather per protocol, future-known), `"vision"` (V-JEPA latents `Z` flattened per frame, d = latent dim; only emitted when `Z` present), plus `"t_future"`, `"y_future"`, `"daylight_future"`, `"mask_future"`, `"site_id"`. Times = `timestamps` converted to float minutes. Stage-2 Lightning module + `ProtocolEvaluator` wiring (see [MMTSFM protocol_eval](../../MMTSFM/src/eval/protocol_eval.py)) is deferred to the Stage-2 plan — this task delivers and tests the data contract only.
 
 - [ ] **Step 1: Write the failing test (synthetic PVRecord item — no dataset of record needed on dev machines)**
 
-`STATECAST/tests/data/test_pv_events.py`:
+`knowledge/specs/tests/data/test_pv_events.py`:
 
 ```python
 import torch
@@ -2451,7 +2451,7 @@ Run: `uv run pytest tests/data/test_pv_events.py -v` — Expected: FAIL with `Mo
 
 - [ ] **Step 3: Implement the adapter**
 
-`STATECAST/src/statecast/data/pv_events.py`:
+`knowledge/specs/src/statecast/data/pv_events.py`:
 
 ```python
 """uk_pv / goes_pvdaq adapter: PVRecordDataset items -> StateCast event streams.
@@ -2529,7 +2529,7 @@ Run: `uv run pytest tests/data/test_pv_events.py -v` — Expected: 2 PASSED
 ```bash
 uv run pytest
 git diff HEAD   # review: no debug prints, no stray files
-git add STATECAST/src/statecast/data/pv_events.py STATECAST/tests/data/test_pv_events.py
+git add knowledge/specs/src/statecast/data/pv_events.py knowledge/specs/tests/data/test_pv_events.py
 git commit -m "feat(statecast): uk_pv event-stream adapter over PVRecordDataset (Stage-2 data contract)"
 ```
 
@@ -2550,4 +2550,4 @@ Each experiment run from this code must still follow the repo's experiment workf
 
 - Work happens on `feat/statecast` (created in Task 1); micro-commit after each task's green step, message format `feat(statecast): ...`.
 - Every task is CPU-runnable in minutes; no task touches `/leonardo_scratch`, `baselines/` internals, or MMTSFM code (Task 16 imports MMTSFM read-only).
-- After the final task: `uv run pytest` from `STATECAST/` must be fully green; then run `graphify update .` and re-index gitnexus per repo rules.
+- After the final task: `uv run pytest` from `knowledge/specs/` must be fully green; then run `graphify update .` and re-index gitnexus per repo rules.

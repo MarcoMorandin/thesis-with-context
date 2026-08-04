@@ -1,6 +1,6 @@
 # StateCast — learned data assimilation for asynchronous multimodal forecasting
 
-**(MMTSFM v5, AI-first framing — design of record.** Supersedes [MMTSFM_V4_DESIGN.md](MMTSFM_V4_DESIGN.md). Written 2026-07-15, reframed same day: the contribution is an AI model + a controlled inductive-bias study; PV power forecasting is the *primary testbed*, not the subject.)
+**(MMTSFM v5, AI-first framing — design of record.** Supersedes MMTSFM_V4_DESIGN.md (not retained in this repo). Written 2026-07-15, reframed same day: the contribution is an AI model + a controlled inductive-bias study; PV power forecasting is the *primary testbed*, not the subject.)
 
 ---
 

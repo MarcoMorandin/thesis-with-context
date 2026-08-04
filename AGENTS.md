@@ -1,136 +1,124 @@
-# lean-ctx — Context Engineering Layer
+# AGENTS.md — rules of record
 
-PREFER lean-ctx MCP tools over native equivalents for token savings:
-
-| PREFER | OVER | Why |
-|--------|------|-----|
-| `ctx_read(path)` | Read / cat / head / tail | Cached, 8 compression modes, re-reads ~13 tokens |
-| `ctx_shell(command)` | Shell / bash / terminal | Pattern compression for git/npm/cargo output |
-| `ctx_search(pattern, path)` | Grep / rg / search | Compact, token-efficient results |
-| `ctx_tree(path, depth)` | ls / find / tree | Compact directory maps |
-| `ctx_edit(path, old_string, new_string)` | Edit (when Read unavailable) | Search-and-replace without native Read |
-
-Edit files: use native Edit/StrReplace if available. If Edit requires Read and Read is unavailable, use ctx_edit.
-Write, Delete, Glob — use normally. NEVER loop on Edit failures — switch to ctx_edit immediately.
-
-# PVTSFM  -  Agent Context & Development Rules
+Applies to every coding agent in this repo. **Rules only.** All *content* lives in
+[`knowledge/`](knowledge/INDEX.md) — read it, do not restate it here.
 
 ## Mission
-Build a **research-grade AI foundation model** for PV power forecasting. Primary metric is **zero-shot cross-plant generalization** on disjoint test sets using small history, without sacrificing power prediction quality. This is an **AI science project**, not an energy-domain engineering project.
+
+Build a research-grade **AI foundation model** for PV power forecasting. The primary metric
+is **zero-shot cross-plant generalization** on disjoint test plants from a short history,
+without sacrificing point-forecast quality.
+
+This is an **AI science project**. PV is the testbed, not the subject. Target framing is
+ICLR/NeurIPS: the contribution is multimodal foundation-model fusion + cross-plant
+generalization, never PV engineering.
 
 ---
 
-## 1. Core Non-Negotiables
+## 1. Read first
+
+Do not answer an architecture, protocol, or data question from memory. Route it:
+
+| Question | Go to |
+|---|---|
+| Anything about the project's prose | [`knowledge/INDEX.md`](knowledge/INDEX.md) — the routing table |
+| How does this code work / what breaks if I change it | **GitNexus** MCP (`query`, `context`, `impact`) |
+| What does paper X claim | `graphify query "<question>"` |
+| What do the numbers say | `report/` + `baselines/results/ALL_RESULTS.md` |
+
+The canonical-source table in `knowledge/INDEX.md` §2 says which file owns which fact.
+**A fact has exactly one home.** If you need it elsewhere, link — never copy.
+
+---
+
+## 2. Non-negotiables
 
 | Rule | Detail |
-|------|--------|
-| **Python** | `uv` only - never use pip, poetry, or conda. |
-| **Config** | Hydra only - no argparse, no `yaml.load` outside Hydra. Configurations must be self-contained per baseline codebase. |
-| **Git Discipline** | Branch per experiment: `exp/<name>`. Commit message format: `exp(<name>): <what changed and why>`. One logical change per commit. Never commit data, checkpoints, logs, or large binaries. |
-| **Files** | One class or one script capability per file; keep files short (target < 150 lines). |
-| **Models** | Multimodal foundation models (TS FM + vision FM) preferred. Avoid classical ML (XGBoost, etc.) unless explicitly justified as baseline. |
-| **Literature** | Prefer 2026 papers, then late 2025; nothing before 2025. |
-| **Data** | Read-only dataset of record `/leonardo_scratch/fast/IscrC_MTSFM/data/` (`dataset_all.parquet` + `images_all.h5`, frame pointer `image_h5_index`; both `uk_pv` and `goes_pvdaq`). Do not refactor data pipelines here. |
+|---|---|
+| **Python** | `uv` only. Never `pip`, `poetry`, or `conda`. `uv add` / `uv sync` for deps. |
+| **Config** | Hydra only. No `argparse`, no `yaml.load` outside Hydra. Baseline configs self-contained per baseline. |
+| **Files** | One class or one script capability per file. Target < 150 lines. |
+| **Tests** | Every module has `test_<module>.py` with shape + gradient smoke tests. `uv run pytest` **before** claiming any fix works. |
+| **Git** | Never work on `main`. Branch `exp/`, `feat/`, or `fix/`. Micro-commit per verified sub-task. Merge locally; push `main` only. |
+| **Models** | Multimodal foundation models (TS FM + vision FM). No classical ML (XGBoost, LightGBM, scikit-learn) without explicit approval. |
+| **Literature** | Prefer 2026, then late 2025. Nothing before 2025. |
+| **Data** | Dataset of record `/leonardo_scratch/fast/IscrC_MTSFM/data/` is **read-only**. Do not refactor data pipelines. Schema → `knowledge/dataset.md`. |
+
+Detail behind these rules: [`knowledge/conventions.md`](knowledge/conventions.md).
 
 ---
 
-## 2. Python Module & Naming Conventions
+## 3. Tool routing
 
-### File Naming
-* `{component}.py` (e.g., `grassmann_mixer.py`) — Contains a single `nn.Module` class.
-* `{verb}_{noun}.py` (e.g., `build_batch.py`) — Contains a single pure function.
-* `lightning_{stage}.py` (e.g., `lightning_stage2a.py`) — Contains one Lightning module variant.
+Cheapest-correct first. Never start with grep.
 
-### Import Rules
-* Main package is `mmtsfm`, rooted at `MMTSFM/src/mmtsfm/` (run as `python -m mmtsfm.train`).
-* Use relative imports within the `mmtsfm` package only.
-* No circular imports (specifically between `MMTSFM/src/mmtsfm/models/chronos2/` and `MMTSFM/src/mmtsfm/models/vision/`).
-* Keep shared types in the package (e.g. a `types.py` module) rather than duplicating across files.
+| Need | Use | Not |
+|---|---|---|
+| Understand code, find a symbol, trace a flow | `gitnexus` MCP: `query` → `context` | grep, reading files |
+| Blast radius before an edit | `gitnexus impact({target, direction:"upstream"})` | guessing |
+| Literature, proposal, project prose | `graphify query` / `explain` / `path` | reading PDFs |
+| Read a specific file | `ctx_read` (`mode=map` when context-only) | `cat` / `head` / `tail` |
+| Search text | `ctx_search` | `grep` / `rg` |
+| Shell output | `ctx_shell` | raw bash |
+| Directory map | `ctx_tree` | `ls` / `find` |
 
-### Hydra Integration
-* All hyperparameters must live in `MMTSFM/configs/`. Do not hardcode magic numbers in model code.
-* Use `@dataclass` + `instantiate` pattern for complex submodules.
+Edits always use native `Edit` / `Write`. `ctx_edit` only when `Edit` needs a `Read` you
+cannot do — never loop on a failing `Edit`.
 
----
-
-## 3. Testing & Verification Rules
-* Tests live in `MMTSFM/tests/` (mirror the `MMTSFM/src/mmtsfm/` module layout). Baseline tests live in `baselines/tests/`.
-* Each module file must have a corresponding `test_<module>.py` containing shape and gradient smoke tests.
-* **Verification**: Run `uv run pytest` before claiming a fix works. Never claim a fix works without running tests and reviewing logs.
+**Two graphs, never crossed:** GitNexus = code (`.gitnexus/`). Graphify = prose + papers
+(`knowledge/` → `graphify-out/`). Never run Graphify over the repo root.
 
 ---
 
-## 4. Experiment & Ablation Workflow
+## 4. Workflow
 
-Every experiment must define:
-1. **Hypothesis**: A single-sentence statement of what you are testing.
-2. **Config Diff**: A Hydra override/config under `MMTSFM/configs/` (or within the baseline-specific `baselines/configs/`).
-3. **Registry Entry**: Register the run in `knowledge/ablations.md`.
-4. **Baseline Comparison**: Compare against the standard baselines defined in `knowledge/protocol.md`.
+**Session start** — `git status`; if on `main`, branch before touching anything.
 
-### Evaluation Splits
-* `intra_plant`: Same plant, held-out time (sanity check only).
-* `cross_plant`: Disjoint held-out plants (primary test metric for zero-shot generalization).
+**Editing code**
+1. `gitnexus impact` on the target symbol. Report the blast radius; **warn on HIGH/CRITICAL**.
+2. Edit ONE module + its test + its Hydra config.
+3. `uv run pytest <the test>`, then the suite.
+4. `gitnexus detect_changes()` — confirm only expected symbols moved.
+5. `git diff HEAD`, strip debug prints, micro-commit.
 
-### Baselines Priority
-1. **Solar-VLM** (multimodal PV SOTA baseline)
-2. **Chronos-2** + `TS-RAG` / `Cross-RAG` / `TS-Memory`
-3. **SPIRIT** (vision FM zero-shot)
-4. **TiRex**, **Reverso** (TS-only foundation models)
-5. **TEMPLATE** metrics for transferability
+**Running an experiment** — every experiment declares, before it launches:
+1. **Hypothesis** — one sentence.
+2. **Config diff** — a Hydra override under `MMTSFM/configs/` (or `baselines/configs/`).
+3. **Registry row** — in [`knowledge/ablations.md`](knowledge/ablations.md).
+4. **Baseline** — which standard baseline it is compared against, per
+   [`knowledge/protocol.md`](knowledge/protocol.md).
 
----
+Use `/register-experiment`; pre-flight with the `experiment-reviewer` agent.
 
-## 5. What Agents Must NOT Do
-
-* Introduce energy-domain physics heuristics (CSI conversion, irradiance physics) unless explicitly ablating them out.
-* Introduce `scikit-learn`, `lightgbm`, or `xgboost` without explicit user approval.
-* Create monolithic files with multiple classes.
-* Modify `/leonardo_scratch/fast/IscrC_MTSFM/data` (read-only dataset of record).
-* Copy large checkpoints or datasets into the repository.
+**Evaluation splits** — `cross_plant` (disjoint held-out plants) is the primary metric.
+`intra_plant` is a sanity check only, never a headline number.
 
 ---
 
-## 6. Knowledge Graphs & Tools
+## 5. Writing: knowledge/, report/, manuscript/
 
-**Two graphs, strict split — never cross them:**
+| Tree | Contains | Rule |
+|---|---|---|
+| `knowledge/` | project prose + papers | One topic per file. Adding a doc? First check `INDEX.md` — if the topic exists, **edit that file**. New file ⇒ new `INDEX.md` row. |
+| `report/` | ongoing results: EDA, leaderboard synthesis | Numbers are **cited from** `baselines/results/ALL_RESULTS.md`, never retyped. State the run that produced them. |
+| `manuscript/` | thesis LaTeX | Every claim traces to `report/` or a `knowledge/papers/` citation. Never invent a number here. |
 
-| Question is about… | Use | Index location |
-|--------------------|-----|----------------|
-| **Code** (any source file, call chains, blast radius, "how does X work") | **GitNexus** | `.gitnexus/` |
-| **Literature / docs** (papers, proposal, `knowledge/`) | **Graphify** | `graphify-out/` (indexes `knowledge/` only) |
-
-**Canonical exploration order for CODE** (cheapest-correct first):
-1. `gitnexus` MCP — `query({query})`, `context({name})`, `impact` before edits.
-2. `lean-ctx` `ctx_read` / `ctx_search` for the specific files GitNexus surfaced.
-3. Native grep/Read only for targeted line-level reads or edits.
-
-**Canonical order for LITERATURE/DOCS:** `graphify query "<question>"` → `graphify explain` / `path` → read the specific file.
-
-* Refresh code graph: `node .gitnexus/run.cjs analyze` (Stop hook runs this automatically after `.py` edits).
-* Refresh literature graph: `graphify update knowledge/` (AST/cheap) or rebuild with `graphify knowledge/ --wiki`. **Never** run `graphify` over the repo root — that pollutes the literature graph with code.
+Never hand-edit generated artifacts: `graphify-out/`, `.gitnexus/`,
+`baselines/results/ALL_RESULTS.md`, compiled PDFs.
 
 ---
 
-## 7. Git & Version Control Protocol
+## 6. Must not
 
-AI agents must strongly rely on Git to maintain repository safety, trace changes, and ensure logical code isolation.
-
-### 7.1 Startup Verification
-* **Check Status**: Always run `git status` at the beginning of a session to verify you are working on a clean tree.
-* **Isolate Work**: Never perform research or feature development directly on `main`. Ensure you are on a task-specific branch (`exp/<name>`, `feat/<name>`, or `fix/<name>`).
-
-### 7.2 Incremental Committing (Micro-Commits)
-* **One Step, One Commit**: Commit immediately after completing and verifying a logical sub-task (e.g., implementing a single class, fixing a specific bug, creating a test).
-* **Do Not Accumulate Changes**: Do not wait until the entire task is finished to commit. Large, multi-file changes are an anti-pattern.
-* **Commit Messages**: Adhere strictly to: `exp(<name>): <short desc>`, `feat(<name>): <short desc>`, or `fix(<name>): <short desc>`.
-
-### 7.3 Git-Assisted Debugging & Rollbacks
-* **Safety Net**: If tests fail after your modifications and the fix is not immediately obvious, do not pile up temporary workarounds. Use `git checkout` or `git reset --hard` to roll back to the last clean, verified commit and re-approach the problem.
-* **Diff Reviews**: Review your changes with `git diff` before running verification tests to check for unintended edits or left-over debugging code.
-
-### 7.4 Pre-Completion Audit
-* **Audit Diff**: Before claiming a task is complete, run `git diff --cached` or `git diff HEAD` and review every line changed. Remove all leftover print statements, commented-out test code, or temporary files.
+- Introduce energy-domain physics heuristics (CSI conversion, irradiance physics) unless
+  explicitly ablating them out.
+- Add `scikit-learn`, `lightgbm`, or `xgboost` without explicit user approval.
+- Create monolithic files with multiple classes.
+- Modify `/leonardo_scratch/fast/IscrC_MTSFM/data` (read-only).
+- Commit data, checkpoints, logs, or large binaries.
+- Report a checkpoint's score re-derived post-hoc — checkpoints are known not to reproduce
+  their in-process numbers. In-process numbers are the record.
+- Claim a fix works without running the tests and reading the output.
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
@@ -176,12 +164,20 @@ This project is indexed by GitNexus as **thesis-with-context** (2169 symbols, 38
 
 <!-- gitnexus:end -->
 
-## graphify
+## Graphify — prose & literature graph
 
-Graphify is the **literature/docs** graph at `graphify-out/`, built from `knowledge/` (papers + proposal). It is NOT a code graph — for code use GitNexus (see §6).
+Graphify indexes **`knowledge/` only** (project prose + `papers/`) into `graphify-out/`.
+It is **not** a code graph — for code, use GitNexus above.
 
-Rules:
-- For **literature/proposal/background** questions, run `graphify query "<question>"` when `graphify-out/graph.json` exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, smaller than GRAPH_REPORT.md or raw reads.
-- If `graphify-out/wiki/index.md` exists, use it for broad navigation of the literature.
-- Read `graphify-out/GRAPH_REPORT.md` only for a broad literature overview.
-- Keep it current with `graphify update knowledge/` (AST-only, no API cost). Never `graphify update .` (root) — it pollutes the literature graph with code.
+```bash
+graphify query   "<question>"     # start here; returns a scoped subgraph
+graphify explain "<concept>"
+graphify path    "<A>" "<B>"
+graphify update  knowledge/       # AST-only, free — keeps the graph current
+graphify knowledge/ --wiki        # full rebuild (costs API)
+```
+
+- `graphify-out/wiki/index.md` for broad navigation; `GRAPH_REPORT.md` only for a full
+  literature sweep.
+- **Never** `graphify update .` or `graphify .` — the repo root floods the prose graph with
+  code files.

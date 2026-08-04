@@ -18,6 +18,11 @@
             "type": "command",
             "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run --no-sync .claude/hooks/guard-data-readonly.py",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run --no-sync .claude/hooks/guard-generated-files.py",
+            "timeout": 10
           }
         ]
       },
@@ -41,6 +46,12 @@
             "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run --no-sync .claude/hooks/check-new-file-size.py",
             "timeout": 15,
             "statusMessage": "Checking new file size..."
+          },
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run --no-sync .claude/hooks/check-knowledge-index.py",
+            "timeout": 15,
+            "statusMessage": "Checking knowledge/ index coverage..."
           }
         ]
       },
@@ -56,6 +67,17 @@
         ]
       }
     ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run --no-sync .claude/hooks/session-brief.py",
+            "timeout": 20
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
@@ -67,9 +89,9 @@
           },
           {
             "type": "command",
-            "command": "bash -c 'git diff --name-only HEAD | grep -vE \"^knowledge/graphify-out/\" | grep -qE \"^knowledge/\" && graphify update knowledge/ || true'",
+            "command": "bash -c 'git diff --name-only HEAD | grep -vE \"^graphify-out/\" | grep -qE \"^knowledge/\" && graphify update knowledge/ || true'",
             "timeout": 120,
-            "statusMessage": "Refreshing Graphify literature graph (knowledge/ only)..."
+            "statusMessage": "Refreshing Graphify prose graph (knowledge/ only)..."
           }
         ]
       }
