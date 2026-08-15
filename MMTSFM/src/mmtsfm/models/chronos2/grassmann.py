@@ -4,6 +4,7 @@ Implements the Grassmann flow algorithm (Section 3.2): causal multi-scale
 Plücker pairing as an O(L) replacement for temporal self-attention.
 """
 
+import os
 from typing import Optional
 
 import torch
@@ -12,6 +13,61 @@ from torch import nn
 
 from .config import Chronos2CoreConfig
 from .layers import AttentionOutput, Chronos2LayerNorm, RoPE
+
+# Forward-side NaN tracer. Off unless MMTSFM_GRASSMANN_DEBUG=1.
+#
+# The per-block guards in model.py:75-100 scrub each block's output AND its
+# gradient, so a NaN born inside this layer never reaches the loss, the trunk,
+# or a neighbouring block — it shows up only as that block's parameter
+# gradients going non-finite (dL/dW = dL/dz · hᵀ with a NaN in the saved
+# activation h). By the time on_before_optimizer_step sees it, every trace of
+# WHERE it started is gone. This reports the first non-finite intermediate
+# inside the forward, before any guard runs.
+_DEBUG = os.environ.get("MMTSFM_GRASSMANN_DEBUG", "") not in ("", "0")
+_DEBUG_MAX = int(os.environ.get("MMTSFM_GRASSMANN_DEBUG_MAX", "40"))
+_dbg_emitted = 0
+
+
+def _probe(layer, tag: str, t: torch.Tensor, **ctx) -> torch.Tensor:
+    """Report `t` if it holds any non-finite value. Returns `t` untouched.
+
+    Prints at most MMTSFM_GRASSMANN_DEBUG_MAX lines per process so a
+    100%-of-steps failure does not produce a gigabyte of log.
+    """
+    global _dbg_emitted
+    if not _DEBUG or _dbg_emitted >= _DEBUG_MAX:
+        return t
+    finite = torch.isfinite(t)
+    if finite.all():
+        return t
+    _dbg_emitted += 1
+    bad = ~finite
+    n_bad = int(bad.sum())
+    # Which sequence positions are affected, and which batch rows.
+    pos = rows = "n/a"
+    if t.dim() >= 2:
+        pos_bad = bad.any(dim=0)
+        while pos_bad.dim() > 1:
+            pos_bad = pos_bad.any(dim=-1)
+        idx = torch.nonzero(pos_bad).flatten().tolist()
+        pos = f"{idx[:12]}{'...' if len(idx) > 12 else ''} ({len(idx)}/{t.shape[1]})"
+        row_bad = bad.flatten(1).any(dim=1)
+        ridx = torch.nonzero(row_bad).flatten().tolist()
+        rows = (
+            f"{ridx[:12]}{'...' if len(ridx) > 12 else ''} ({len(ridx)}/{t.shape[0]})"
+        )
+    finite_vals = t.detach()[finite]
+    peak = float(finite_vals.abs().max()) if finite_vals.numel() else float("nan")
+    extra = " ".join(f"{k}={v}" for k, v in ctx.items())
+    print(
+        f"[grassmann-nan] blk={getattr(layer, '_dbg_idx', '?')} tag={tag} "
+        f"shape={tuple(t.shape)} dtype={t.dtype} nonfinite={n_bad}/{t.numel()} "
+        f"nan={int(torch.isnan(t).sum())} posinf={int((t == float('inf')).sum())} "
+        f"neginf={int((t == float('-inf')).sum())} max_finite_abs={peak:.4e} "
+        f"seq_pos={pos} batch_rows={rows} {extra}",
+        flush=True,
+    )
+    return t
 
 
 class CausalGrassmannMixing(nn.Module):
@@ -83,9 +139,12 @@ class CausalGrassmannMixing(nn.Module):
         v_i = v[..., idx_i]
 
         p = u_i * v_j - u_j * v_i
+        _probe(self, "plucker_raw", p)
 
         p_norm = torch.sqrt((p * p).sum(dim=-1, keepdim=True) + self.plucker_eps)
+        _probe(self, "plucker_norm", p_norm)
         p = p / p_norm
+        _probe(self, "plucker_normalised", p)
         return p
 
     def _pair_validity(
@@ -219,12 +278,15 @@ class CausalGrassmannMixing(nn.Module):
         modality_mask: Optional[torch.Tensor] = None,  # [B, L] 0=TS, 1=visual
     ) -> AttentionOutput:
         residual = hidden_states
+        _probe(self, "input", hidden_states)
         hidden_states = self.layer_norm(hidden_states)
+        _probe(self, "post_layer_norm", hidden_states)
 
         batch_size, seq_len, d_model = hidden_states.shape
 
         # Step 1: Linear reduction  [B, L, d] → [B, L, r]
         z = self.W_red(hidden_states)
+        _probe(self, "post_W_red", z)
 
         # Inject RoPE phase information into reduced features
         cos, sin = self.rope_embed(z.unsqueeze(1), position_ids)
@@ -232,6 +294,7 @@ class CausalGrassmannMixing(nn.Module):
             z.unsqueeze(1), z.unsqueeze(1), cos, sin, unsqueeze_dim=1
         )
         z = z_rope.squeeze(1)
+        _probe(self, "post_rope", z)
 
         # Mask: [batch, 1, q_len, kv_len] → [batch, seq_len]
         valid_mask = attention_mask[:, 0, 0, :] > -1.0  # [B, L]
@@ -246,6 +309,19 @@ class CausalGrassmannMixing(nn.Module):
             mixing, normalized_weights = self._offset_weights_for(
                 valid_offsets, valid_mask, modality_mask, seq_len, hidden_states.device
             )
+            _probe(
+                self,
+                "mixing_weights",
+                mixing,
+                n_valid_offsets=num_offsets,
+                valid_rows=f"{int(valid_mask.any(dim=1).sum())}/{valid_mask.shape[0]}",
+                modality=(
+                    "none"
+                    if modality_mask is None
+                    else f"vis={int((modality_mask == 1).sum())}"
+                    f" uniq={sorted(set(modality_mask.flatten().tolist()))[:6]}"
+                ),
+            )
 
             g_sum = torch.zeros(
                 batch_size, seq_len, d_model, device=z.device, dtype=hidden_states.dtype
@@ -255,6 +331,7 @@ class CausalGrassmannMixing(nn.Module):
 
             # No trailing division: `mixing` is already normalised per position.
             g = g_sum
+            _probe(self, "g_sum", g)
 
         # Step 5: Gated fusion
         u = torch.cat([hidden_states, g], dim=-1)  # [B, L, 2*d]

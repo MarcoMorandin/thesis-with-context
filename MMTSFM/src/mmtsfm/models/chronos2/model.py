@@ -121,6 +121,11 @@ class Chronos2Encoder(nn.Module):
         self.block = nn.ModuleList(
             [Chronos2EncoderBlock(config) for i in range(config.num_layers)]
         )
+        # Stamp the block index onto each time-mixing layer so the
+        # MMTSFM_GRASSMANN_DEBUG tracer can name the block it fired in — the
+        # per-block nan_to_num guards below erase that information otherwise.
+        for i, blk in enumerate(self.block):
+            blk.layer[0]._dbg_idx = i
         self.final_layer_norm = Chronos2LayerNorm(
             config.d_model, eps=config.layer_norm_epsilon
         )
