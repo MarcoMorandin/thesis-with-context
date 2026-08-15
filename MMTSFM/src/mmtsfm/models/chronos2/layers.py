@@ -29,22 +29,77 @@ class RoPE(nn.Module):
 
         self.dim = dim
         self.base = base
-        inv_freq = 1.0 / (self.base ** (torch.arange(0, self.dim, 2, dtype=torch.int64).float() / self.dim))
-        self.inv_freq: torch.Tensor  # type hint for type checker
-        self.register_buffer("inv_freq", tensor=inv_freq, persistent=False)
+        # inv_freq is DERIVED, never a buffer.
+        #
+        # It used to be register_buffer(..., persistent=False), which made it
+        # invisible to the checkpoint and therefore unrecoverable on the
+        # from_pretrained path: that builds the model on `meta` and materialises
+        # it with to_empty(), which allocates EVERY buffer — persistent or not —
+        # with uninitialised storage. A non-persistent buffer is absent from the
+        # checkpoint, so load_state_dict never writes it and does not even count
+        # it as missing (observed as "Warm start: loaded (missing=0)" while
+        # inv_freq held garbage). _init_weights does not reach it either.
+        #
+        # The two garbage regimes are both bad and only one is loud:
+        #   * NaN/Inf  → post-RoPE activations go non-finite, every parameter of
+        #     the enclosing Grassmann layer gets NaN gradients, and because the
+        #     per-block guards in model.py:75-100 scrub the block output and its
+        #     gradient the loss stays finite while training silently freezes.
+        #   * finite garbage (e.g. zeros) → cos=1, sin=0, RoPE degenerates to the
+        #     identity and the layer loses ALL positional information, with no
+        #     warning whatsoever.
+        # Each block owns its own RoPE, so the damage lands on a random subset of
+        # blocks and varies run to run — matching curriculum jobs 52364214 /
+        # 52409960 / 52410223 / 52411561, which alternated clean and NaN on
+        # identical code, config and seed.
+        #
+        # Deriving it on demand (same remedy grassmann.py already applies to the
+        # Plücker pair indices) is immune to materialisation order. It is
+        # dim/2 elements — negligible next to the projections in this layer.
+        self._inv_freq_cache: torch.Tensor | None = None
+
+    def _get_inv_freq(self, device: torch.device) -> torch.Tensor:
+        cached = self._inv_freq_cache
+        if cached is None or cached.device != device:
+            cached = 1.0 / (
+                self.base
+                ** (
+                    torch.arange(
+                        0, self.dim, 2, dtype=torch.int64, device=device
+                    ).float()
+                    / self.dim
+                )
+            )
+            self._inv_freq_cache = cached
+        return cached
+
+    @property
+    def inv_freq(self) -> torch.Tensor:
+        """Kept so existing reads still work — always a correct, derived value."""
+        return self._get_inv_freq(torch.device("cpu"))
 
     @torch.no_grad()
-    def forward(self, x: torch.Tensor, position_ids: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self, x: torch.Tensor, position_ids: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         # x: [bs, num_attention_heads, seq_len, head_size]
-        self.inv_freq.to(x.device)
-        inv_freq_expanded = self.inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1)
+        inv_freq = self._get_inv_freq(position_ids.device)
+        inv_freq_expanded = (
+            inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1)
+        )
         position_ids_expanded = position_ids[:, None, :].float()
         # Force float32 since bfloat16 loses precision on long contexts
         # See https://github.com/huggingface/transformers/pull/29285
         device_type = x.device.type
-        device_type = device_type if isinstance(device_type, str) and device_type != "mps" else "cpu"
+        device_type = (
+            device_type
+            if isinstance(device_type, str) and device_type != "mps"
+            else "cpu"
+        )
         with torch.autocast(device_type=device_type, enabled=False):
-            freqs = (inv_freq_expanded.float() @ position_ids_expanded.float()).transpose(1, 2)
+            freqs = (
+                inv_freq_expanded.float() @ position_ids_expanded.float()
+            ).transpose(1, 2)
             emb = torch.cat((freqs, freqs), dim=-1)
             cos = emb.cos()
             sin = emb.sin()
@@ -59,7 +114,11 @@ class RoPE(nn.Module):
 
     @staticmethod
     def apply_rotary_pos_emb(
-        q: torch.Tensor, k: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor, unsqueeze_dim: int = 1
+        q: torch.Tensor,
+        k: torch.Tensor,
+        cos: torch.Tensor,
+        sin: torch.Tensor,
+        unsqueeze_dim: int = 1,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Applies Rotary Position Embedding to the query and key tensors."""
         cos = cos.unsqueeze(unsqueeze_dim)
@@ -104,13 +163,21 @@ class MLP(nn.Module):
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         hidden_states = self.wi(hidden_states)
         if hidden_states.requires_grad:
-            hidden_states.register_hook(lambda g: torch.clamp(torch.nan_to_num(g, nan=0.0, posinf=0.0, neginf=0.0), -100.0, 100.0))
+            hidden_states.register_hook(
+                lambda g: torch.clamp(
+                    torch.nan_to_num(g, nan=0.0, posinf=0.0, neginf=0.0), -100.0, 100.0
+                )
+            )
         hidden_states = self.act(hidden_states)
         hidden_states = self.dropout(hidden_states)
-        
+
         hidden_states = self.wo(hidden_states)
         if hidden_states.requires_grad:
-            hidden_states.register_hook(lambda g: torch.clamp(torch.nan_to_num(g, nan=0.0, posinf=0.0, neginf=0.0), -100.0, 100.0))
+            hidden_states.register_hook(
+                lambda g: torch.clamp(
+                    torch.nan_to_num(g, nan=0.0, posinf=0.0, neginf=0.0), -100.0, 100.0
+                )
+            )
         return hidden_states
 
 
@@ -120,7 +187,9 @@ class FeedForward(nn.Module):
 
         assert not config.is_gated_act, "gated activations are unsupported"
         self.mlp: nn.Module = MLP(config)
-        self.layer_norm = Chronos2LayerNorm(config.d_model, eps=config.layer_norm_epsilon)
+        self.layer_norm = Chronos2LayerNorm(
+            config.d_model, eps=config.layer_norm_epsilon
+        )
         self.dropout = nn.Dropout(config.dropout_rate)
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
@@ -189,7 +258,9 @@ class MHA(nn.Module):
         )
         attn_weights = nn.functional.softmax(scores, dim=-1).type_as(query_states)
         attn_weights = torch.nan_to_num(attn_weights, nan=0.0, posinf=0.0, neginf=0.0)
-        attn_weights = nn.functional.dropout(attn_weights, p=self.dropout, training=self.training)
+        attn_weights = nn.functional.dropout(
+            attn_weights, p=self.dropout, training=self.training
+        )
         attn_output = torch.matmul(attn_weights, value_states)
         attn_output = torch.nan_to_num(attn_output, nan=0.0, posinf=0.0, neginf=0.0)
 
@@ -208,7 +279,7 @@ class MHA(nn.Module):
         orig_dtype = query_states.dtype
         sdpa_mask = mask >= 0 if mask is not None else None
 
-        # We must disable autocast here, otherwise PyTorch AMP will automatically 
+        # We must disable autocast here, otherwise PyTorch AMP will automatically
         # downcast the float32 inputs back to float16 inside SDPA!
         with torch.autocast(device_type=query_states.device.type, enabled=False):
             attn_output = nn.functional.scaled_dot_product_attention(
@@ -217,7 +288,7 @@ class MHA(nn.Module):
                 value_states.float(),
                 attn_mask=sdpa_mask,
                 dropout_p=self.dropout if self.training else 0.0,
-                scale=self.kv_proj_dim ** -0.5,
+                scale=self.kv_proj_dim**-0.5,
             )
         attn_output = torch.nan_to_num(attn_output, nan=0.0, posinf=0.0, neginf=0.0)
         return attn_output.to(orig_dtype), None
@@ -231,7 +302,9 @@ class MHA(nn.Module):
         output_attentions: bool = False,
     ) -> AttentionOutput:
         if self.use_rope:
-            assert position_ids is not None, "position_ids must be provided when self.use_rope=True"
+            assert position_ids is not None, (
+                "position_ids must be provided when self.use_rope=True"
+            )
 
         # Force eager attention if output_attentions is True (only eager returns weights)
         attn_implementation = self.config._attn_implementation
@@ -241,16 +314,32 @@ class MHA(nn.Module):
         seq_length = hidden_states.shape[1]
 
         def shape(states: torch.Tensor) -> torch.Tensor:
-            return rearrange(states, "b s (h d) -> b h s d", h=self.n_heads, s=seq_length, d=self.kv_proj_dim)
+            return rearrange(
+                states,
+                "b s (h d) -> b h s d",
+                h=self.n_heads,
+                s=seq_length,
+                d=self.kv_proj_dim,
+            )
 
         def unshape(states: torch.Tensor) -> torch.Tensor:
-            return rearrange(states, "b h s d -> b s (h d)", h=self.n_heads, s=seq_length, d=self.kv_proj_dim)
+            return rearrange(
+                states,
+                "b h s d -> b s (h d)",
+                h=self.n_heads,
+                s=seq_length,
+                d=self.kv_proj_dim,
+            )
 
         q_out = self.q(hidden_states)
         if q_out.requires_grad:
-            q_out.register_hook(lambda g: torch.clamp(torch.nan_to_num(g, nan=0.0, posinf=0.0, neginf=0.0), -100.0, 100.0))
+            q_out.register_hook(
+                lambda g: torch.clamp(
+                    torch.nan_to_num(g, nan=0.0, posinf=0.0, neginf=0.0), -100.0, 100.0
+                )
+            )
         query_states = shape(q_out)
-        
+
         is_cross_attention = encoder_states is not None
 
         if is_cross_attention:
@@ -259,39 +348,62 @@ class MHA(nn.Module):
         else:
             k_out = self.k(hidden_states)
             v_out = self.v(hidden_states)
-            
+
         if k_out.requires_grad:
-            k_out.register_hook(lambda g: torch.clamp(torch.nan_to_num(g, nan=0.0, posinf=0.0, neginf=0.0), -100.0, 100.0))
+            k_out.register_hook(
+                lambda g: torch.clamp(
+                    torch.nan_to_num(g, nan=0.0, posinf=0.0, neginf=0.0), -100.0, 100.0
+                )
+            )
         if v_out.requires_grad:
-            v_out.register_hook(lambda g: torch.clamp(torch.nan_to_num(g, nan=0.0, posinf=0.0, neginf=0.0), -100.0, 100.0))
-            
+            v_out.register_hook(
+                lambda g: torch.clamp(
+                    torch.nan_to_num(g, nan=0.0, posinf=0.0, neginf=0.0), -100.0, 100.0
+                )
+            )
+
         key_states = shape(k_out)
         value_states = shape(v_out)
-        
+
         if not is_cross_attention and self.use_rope:
             cos, sin = self.rope_embed(value_states, position_ids)
-            query_states, key_states = RoPE.apply_rotary_pos_emb(query_states, key_states, cos, sin)
+            query_states, key_states = RoPE.apply_rotary_pos_emb(
+                query_states, key_states, cos, sin
+            )
 
         if attn_implementation == "sdpa":
-            attn_output, attn_weights = self._sdpa_attention(query_states, key_states, value_states, mask)
+            attn_output, attn_weights = self._sdpa_attention(
+                query_states, key_states, value_states, mask
+            )
         else:  # eager
-            attn_output, attn_weights = self._eager_attention(query_states, key_states, value_states, mask)
+            attn_output, attn_weights = self._eager_attention(
+                query_states, key_states, value_states, mask
+            )
 
         # Project attention output
         attn_output = unshape(attn_output)
         attn_output = self.o(attn_output)
-        
-        if attn_output.requires_grad:
-            attn_output.register_hook(lambda g: torch.clamp(torch.nan_to_num(g, nan=0.0, posinf=0.0, neginf=0.0), -100.0, 100.0))
 
-        return AttentionOutput(hidden_states=attn_output, attn_weights=attn_weights if output_attentions else None)
+        if attn_output.requires_grad:
+            attn_output.register_hook(
+                lambda g: torch.clamp(
+                    torch.nan_to_num(g, nan=0.0, posinf=0.0, neginf=0.0), -100.0, 100.0
+                )
+            )
+
+        return AttentionOutput(
+            hidden_states=attn_output,
+            attn_weights=attn_weights if output_attentions else None,
+        )
 
 
 class TimeSelfAttention(nn.Module):
     def __init__(self, config: Chronos2CoreConfig):
         super().__init__()
         self.self_attention = MHA(config, use_rope=True)
-        self.layer_norm = Chronos2LayerNorm(config.d_model, eps=config.layer_norm_epsilon)
+        self.layer_norm = Chronos2LayerNorm(
+            config.d_model, eps=config.layer_norm_epsilon
+        )
         self.dropout = nn.Dropout(config.dropout_rate)
 
     def forward(
@@ -304,18 +416,25 @@ class TimeSelfAttention(nn.Module):
     ) -> AttentionOutput:
         normed_hidden_states = self.layer_norm(hidden_states)
         attention_output: AttentionOutput = self.self_attention(
-            normed_hidden_states, position_ids=position_ids, mask=attention_mask, output_attentions=output_attentions
+            normed_hidden_states,
+            position_ids=position_ids,
+            mask=attention_mask,
+            output_attentions=output_attentions,
         )
         hidden_states = hidden_states + self.dropout(attention_output[0])
 
-        return AttentionOutput(hidden_states=hidden_states, attn_weights=attention_output.attn_weights)
+        return AttentionOutput(
+            hidden_states=hidden_states, attn_weights=attention_output.attn_weights
+        )
 
 
 class TimeCrossAttention(nn.Module):
     def __init__(self, config: Chronos2CoreConfig):
         super().__init__()
         self.cross_attention = MHA(config, use_rope=False)
-        self.layer_norm = Chronos2LayerNorm(config.d_model, eps=config.layer_norm_epsilon)
+        self.layer_norm = Chronos2LayerNorm(
+            config.d_model, eps=config.layer_norm_epsilon
+        )
         self.dropout = nn.Dropout(config.dropout_rate)
 
     def forward(
@@ -334,7 +453,9 @@ class TimeCrossAttention(nn.Module):
         )
         hidden_states = hidden_states + self.dropout(attention_output[0])
 
-        return AttentionOutput(hidden_states=hidden_states, attn_weights=attention_output.attn_weights)
+        return AttentionOutput(
+            hidden_states=hidden_states, attn_weights=attention_output.attn_weights
+        )
 
 
 class GroupSelfAttention(nn.Module):
@@ -344,23 +465,32 @@ class GroupSelfAttention(nn.Module):
         super().__init__()
         # we don't use RoPE here because there's no natural ordering along the batch axis
         self.self_attention = MHA(config, use_rope=False)
-        self.layer_norm = Chronos2LayerNorm(config.d_model, eps=config.layer_norm_epsilon)
+        self.layer_norm = Chronos2LayerNorm(
+            config.d_model, eps=config.layer_norm_epsilon
+        )
         self.dropout = nn.Dropout(config.dropout_rate)
 
     def forward(
-        self, hidden_states: torch.Tensor, attention_mask: torch.Tensor, output_attentions: bool = False
+        self,
+        hidden_states: torch.Tensor,
+        attention_mask: torch.Tensor,
+        output_attentions: bool = False,
     ) -> AttentionOutput:
         # flip time and batch axes because attention operates along dim=-2
         hidden_states = rearrange(hidden_states, "batch time d -> time batch d")
         normed_hidden_states = self.layer_norm(hidden_states)
         attention_output: AttentionOutput = self.self_attention(
-            normed_hidden_states, mask=attention_mask, output_attentions=output_attentions
+            normed_hidden_states,
+            mask=attention_mask,
+            output_attentions=output_attentions,
         )
         hidden_states = hidden_states + self.dropout(attention_output[0])
         # flip time and batch axes back to their original position
         hidden_states = rearrange(hidden_states, "time batch d -> batch time d")
 
-        return AttentionOutput(hidden_states=hidden_states, attn_weights=attention_output.attn_weights)
+        return AttentionOutput(
+            hidden_states=hidden_states, attn_weights=attention_output.attn_weights
+        )
 
 
 # Local variant — differs from chronos_bolt.ResidualBlock. See chronos_bolt.py for upstream version.
