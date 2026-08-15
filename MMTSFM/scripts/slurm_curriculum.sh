@@ -53,8 +53,24 @@ MAIL_USER="${MAIL_USER:-}"
 MAIL_TYPE="${MAIL_TYPE:-END,FAIL}"
 
 # Per-stage max epochs + walltime (S1/S3 heavier than the two alignment stages).
+#
+# Walltimes are the boost_usr_prod cap (24 h) for every vision stage, because a
+# TIMEOUT is far more expensive here than an over-long reservation: train.py only
+# exports the stable best.ckpt and runs the test pass AFTER fit() returns, and the
+# stages are chained with afterok — so a stage killed at walltime leaves no
+# best.ckpt, writes no protocol JSON, and takes every downstream stage down with
+# it (DependencyNeverSatisfied). Unused walltime costs nothing.
+#
+# Measured on uk_pv (batch 4, accum 4, train_stride 12, 1x A100):
+#   s2a  69 min/epoch, EarlyStopping fired at epoch 13  → ~16 h
+#   s2b  77 min/epoch (interleaved fusion is ~12% dearer than late)
+# 20 epochs of s2b is ~26 h, i.e. past the cap, so that stage can still need one
+# resume if EarlyStopping does not fire first. s3 (50 epochs, progressive vision
+# unfreeze) will certainly need several. Both are safe: ModelCheckpoint writes
+# last.ckpt every epoch and curriculum_stage.sbatch resumes from it by default
+# (RESUME=1) — but the afterok chain must be re-submitted after any TIMEOUT.
 declare -A ST_EPOCHS=( [s1]="${S1_EPOCHS:-40}" [s2a]="${S2A_EPOCHS:-20}" [s2b]="${S2B_EPOCHS:-20}" [s3]="${S3_EPOCHS:-50}" )
-declare -A ST_TIME=(   [s1]="${S1_TIME:-12:00:00}" [s2a]="${S2A_TIME:-08:00:00}" [s2b]="${S2B_TIME:-08:00:00}" [s3]="${S3_TIME:-20:00:00}" )
+declare -A ST_TIME=(   [s1]="${S1_TIME:-20:00:00}" [s2a]="${S2A_TIME:-24:00:00}" [s2b]="${S2B_TIME:-24:00:00}" [s3]="${S3_TIME:-24:00:00}" )
 # Per-stage micro-batch + grad accumulation (effective batch = batch*accum ≈ 16).
 # GroupSelfAttention flattens BS*num_entities*(1+covariates) rows into one attention
 # axis (uk_pv: 16*4*15 = 960 rows) → O(rows²) activations OOM a 64 GB A100 at
