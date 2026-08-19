@@ -50,7 +50,12 @@ def stratify_by_variability(
 
     If vision only pays on variable-sky windows, the aggregate is diluted by the
     clear and fully-overcast majority — a reporting problem, not a model problem.
+
+    `n_bins` is clamped to [1, len(delta_per_sample)] so that requesting more bins
+    than samples cannot produce empty bins (which would crash on `.min()` below).
     """
+    n = len(delta_per_sample)
+    n_bins = max(1, min(n_bins, n))
     order = np.argsort(csi_var)
     bins = np.array_split(order, n_bins)
     return {
@@ -73,16 +78,28 @@ def gate_stats(ckpt_path: str) -> dict:
     Returns per-block: mean |modality_pair_bias|, and W_gate bias mean (a proxy
     for the resting alpha, since alpha = sigmoid(W_gate(u)) and a large positive
     bias pins alpha toward the numeric residual, closing the visual path).
+
+    Keys under `.encoder.block.` whose block segment does not parse as an integer
+    (a wrapped/prefixed key, or some other parameter living under that path) are
+    skipped rather than raising — this probe runs against real multi-GB
+    checkpoints whose full key set cannot be enumerated in advance. Skipped keys
+    are counted in `n_unparsed_keys` so a malformed checkpoint is still visible.
     """
     import torch
 
     sd = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     sd = sd.get("state_dict", sd)
     blocks: dict[int, dict[str, float]] = {}
+    n_unparsed_keys = 0
     for k, v in sd.items():
         if ".encoder.block." not in k:
             continue
-        idx = int(k.split(".encoder.block.")[1].split(".")[0])
+        block_segment = k.split(".encoder.block.")[1].split(".")[0]
+        try:
+            idx = int(block_segment)
+        except ValueError:
+            n_unparsed_keys += 1
+            continue
         e = blocks.setdefault(idx, {})
         if k.endswith("modality_pair_bias"):
             e["modality_pair_bias_absmean"] = float(v.float().abs().mean())
@@ -95,4 +112,5 @@ def gate_stats(ckpt_path: str) -> dict:
             for e in blocks.values()
             if e.get("modality_pair_bias_absmean", 1.0) == 0.0
         ),
+        "n_unparsed_keys": n_unparsed_keys,
     }
