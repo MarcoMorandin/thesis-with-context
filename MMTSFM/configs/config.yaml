@@ -16,6 +16,13 @@ ckpt_path: null
 # with strict=False so added/removed modules and changed freezing are tolerated.
 init_ckpt: null
 
+# Stage switches. `train=false ckpt_path=<file>` scores an existing checkpoint
+# without fitting (train.py's test-only path). Declared here so that override
+# composes plainly — undeclared keys need Hydra's `+` prefix, and the resulting
+# "Could not override 'train'" is easy to mistake for a broken feature.
+train: true
+test: true
+
 hydra:
   run:
     dir: logs/experiments/runs/${now:%Y-%m-%d}_${now:%H-%M-%S}
