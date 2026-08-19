@@ -35,13 +35,6 @@ from common.windows import SiteSeries, build_site_series  # noqa: E402
 # on the site's own grid (uk_pv: 30 min, 1h, 1.5h, 3h, 6h ago for -1,-2,-3,-6,-12).
 POWER_LAG_OFFSETS: tuple[int, ...] = (0, -1, -2, -3, -6, -12)
 
-# ASSUMED, not verified against the real cache (Task 1 Step 1 requires
-# Leonardo access and was skipped). Origins are assumed to be whole seconds
-# since the epoch -- matching the int64 unix-seconds `timestamps` that
-# `build_site_series` produces. If this is wrong, almost no cache origin will
-# find a matching grid position and n_skipped will be near the total file count.
-EPOCH_UNIT = "s"
-
 
 def parse_cache_key(name: str) -> tuple[str, str, int]:
     """`uk_pv_7239_1546300800` -> `("uk_pv", "7239", 1546300800)`.
@@ -155,9 +148,13 @@ def build_arrays(
                 X_cov[i, li] = float(s.y[j])
                 X_cov[i, n_lags + li] = 1.0
 
-        # History covariates at idx (already scaled by COV_SCALES).
+        # History covariates at idx (already scaled by COV_SCALES). s.cov is NaN
+        # at gap grid positions (the same gaps this fix's join now recovers), so
+        # this must be nan_to_num'd -- matching WindowDataset (windows.py:150,
+        # `np.nan_to_num(s.cov[win])`) -- or a gap origin poisons the ridge fit
+        # with NaN instead of just contributing a zeroed, uninformative feature.
         cov_base = 2 * n_lags
-        X_cov[i, cov_base : cov_base + n_cov] = s.cov[idx]
+        X_cov[i, cov_base : cov_base + n_cov] = np.nan_to_num(s.cov[idx])
 
         det_base = cov_base + n_cov
         for h in range(1, horizon + 1):
@@ -170,7 +167,11 @@ def build_arrays(
             Y[i, h - 1] = float(y)
             Y_mask[i, h - 1] = True
             off = det_base + (h - 1) * len(det_idx)
-            X_cov[i, off : off + len(det_idx)] = s.cov[j][det_idx]
+            # A target can be valid (norm_power present) while a covariate at
+            # the same future step is NaN (e.g. an observed-weather column with
+            # a gap independent of the power gap) -- nan_to_num for the same
+            # reason as the history block above.
+            X_cov[i, off : off + len(det_idx)] = np.nan_to_num(s.cov[j][det_idx])
 
     return {
         "X_vis": X_vis,

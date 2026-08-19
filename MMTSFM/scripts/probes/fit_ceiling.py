@@ -165,6 +165,8 @@ def run_g0(
     )
     res = fit_and_score(tr, te, horizon=horizon)
     res["n_train"], res["n_test"] = int(tr["Y"].shape[0]), int(te["Y"].shape[0])
+    res["n_skipped_train"] = int(tr["n_skipped"])
+    res["n_skipped_test"] = int(te["n_skipped"])
     Path(out_path).write_text(json.dumps(res, indent=2))
     return res
 

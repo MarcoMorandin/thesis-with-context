@@ -257,6 +257,12 @@ def test_build_arrays_recovers_a_window_whose_origin_falls_in_a_night_gap(night_
         if j not in drop and j < n:
             assert out["Y"][0, h - 1] == pytest.approx(j / n, rel=1e-5)
 
+    # The origin itself (grid idx 17) sits inside the dropped range, so its
+    # row is entirely NaN post-reindex, including every covariate column --
+    # exactly the case that must be nan_to_num'd before landing in X_cov, or
+    # this row alone would poison a downstream Ridge fit with NaN.
+    assert np.isfinite(out["X_cov"]).all()
+
 
 def test_build_arrays_reports_n_skipped_for_origins_outside_the_grid(tmp_path):
     """A cache origin beyond the site's grid range (later than the last table
@@ -378,3 +384,55 @@ def test_build_arrays_history_covariates_match_model_scaling(ramp):
     col = config.COV_COLS.index(c)
     expected = 20.0 / config.COV_SCALES[c]
     assert out["X_cov"][1, cov_base + col] == pytest.approx(expected, rel=1e-5)
+
+
+@pytest.fixture
+def future_nan_cov(tmp_path):
+    """One site, 40 half-hourly rows, every row present (no row-level gaps),
+    but one DETERMINISTIC covariate (clearsky_ghi) is NaN at a single future
+    grid index while norm_power at that same index stays valid. This is an
+    observed-value NaN, independent of the row-presence gaps build_site_series
+    reconstructs -- it exercises the future-covariate nan_to_num path in
+    isolation from the history-covariate / night-gap path.
+    """
+    t0 = 1546300800
+    n = 40
+    from common import config
+
+    cov_data = {c: np.arange(n, dtype=float) for c in config.COV_COLS}
+    nan_future_idx = 25
+    cov_data["clearsky_ghi"][nan_future_idx] = np.nan
+
+    rows = {
+        "dataset": ["uk_pv"] * n,
+        "site_id": ["9001"] * n,
+        "timestamp_utc": pd.to_datetime(
+            [t0 + 1800 * i for i in range(n)], unit="s", utc=True
+        ),
+        "norm_power": np.linspace(0.0, 1.0, n),
+        "installed_power_w": [3000.0] * n,
+        **cov_data,
+    }
+    pq = tmp_path / "d.parquet"
+    pd.DataFrame(rows).to_parquet(pq)
+
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    origin_i = 13  # h=12 -> future grid idx 25 == nan_future_idx
+    torch.save(
+        torch.full((4, 196, 1024), 1.0, dtype=torch.float16),
+        cache / f"uk_pv_9001_{t0 + 1800 * origin_i}.pt",
+    )
+    return cache, pq, nan_future_idx
+
+
+def test_build_arrays_future_covariate_nan_does_not_leak_into_x_cov(future_nan_cov):
+    cache, pq, nan_future_idx = future_nan_cov
+    out = build_arrays(cache, pq, sites={"9001"}, horizon=12)
+
+    assert out["n_skipped"] == 0
+    # h=12 -> grid idx 25 == nan_future_idx; norm_power there is a real value
+    # (np.linspace never NaNs), so this future step must still be masked
+    # valid even though its clearsky_ghi covariate is NaN.
+    assert out["Y_mask"][0, 11]
+    assert np.isfinite(out["X_cov"]).all()
