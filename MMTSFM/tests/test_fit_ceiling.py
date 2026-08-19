@@ -57,3 +57,33 @@ def test_cv_spread_is_reported_per_horizon():
     res = fit_and_score(tr, te, horizon=4)
     assert len(res["cv_spread"]) == 4
     assert all(v >= 0.0 for v in res["cv_spread"])
+    assert len(res["cv_spread_rel"]) == 4
+    assert all(v >= 0.0 for v in res["cv_spread_rel"])
+
+
+def test_conditional_rel_recovers_a_planted_visual_signal():
+    """Reference-free companion to conditional: must also clear a positive bar."""
+    tr = _arrays(4000, vis_weight=1.0, seed=1)
+    te = _arrays(1000, vis_weight=1.0, seed=2)
+    res = fit_and_score(tr, te, horizon=4)
+    assert min(res["conditional_rel"]) > 0.05, res["conditional_rel"]
+
+
+def test_conditional_rel_is_near_zero_when_vision_is_noise():
+    tr = _arrays(4000, vis_weight=0.0, seed=3)
+    te = _arrays(1000, vis_weight=0.0, seed=4)
+    res = fit_and_score(tr, te, horizon=4)
+    assert max(res["conditional_rel"]) < 0.02, res["conditional_rel"]
+
+
+def test_conditional_is_nan_not_zero_when_a_horizon_is_fully_masked():
+    """A horizon with no test coverage must read as NaN ('no data'), never 0.0
+    ('no signal') -- n_test_valid is what lets a reader tell the two apart."""
+    tr = _arrays(2000, seed=9)
+    te = _arrays(500, seed=10)
+    te["Y_mask"][:, 2] = False
+    res = fit_and_score(tr, te, horizon=4)
+    assert np.isnan(res["conditional"][2])
+    assert res["n_test_valid"][2] == 0
+    # untouched horizons still report real data counts
+    assert res["n_test_valid"][0] == 500
