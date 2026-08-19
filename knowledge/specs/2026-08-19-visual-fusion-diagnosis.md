@@ -129,9 +129,25 @@ over all ~98 k stride-12 train samples, closed form. F3 = 196 patches pooled to 
 `[4, 16, 1024]`; small MLP on a ~20 k subsample. F3 exists because spatial mean-pooling
 destroys *where* cloud sits relative to the plant, which is the advection signal.
 
-**Reference lines.** Smart persistence (the `protocol.md` reference) and the covariates-only
-probe. Because the target is power under the protocol mask, probe skill is directly
-commensurable with the SS numbers already reported — no translation step.
+**Reference lines.** The covariates-only probe (b) is the reference that matters; a smart
+persistence line is deliberately NOT computed.
+
+Reasoning (decided 2026-08-19 during implementation): the gate quantity is a *difference*,
+`skill(c) − skill(b)`, in which any shared reference cancels — so smart persistence would
+change the number's scale without changing its sign, its zero, or its comparison against the
+CV spread. Building it would additionally require `build_arrays` to return `norm_power` at the
+window origin (smart persistence is `P(t)·clearsky(t+h)/clearsky(t)`), widening the data layer
+for no gain to the decision.
+
+What is reported instead:
+- **absolute per-horizon NMAE** for each predictor set. This compares *directly* against the
+  model's own NMAE (s2b: 0.07539) with no baseline in between — a tighter comparison than a
+  skill score, since it needs no shared reference to be meaningful.
+- **`conditional_rel`** = `(NMAE_b − NMAE_c) / NMAE_b` per horizon: the fraction of the
+  covariates-only error that vision removes. Reference-free by construction, and the quantity
+  the success gate is evaluated on.
+- per-horizon `n_test_valid` counts, so "no data at this horizon" can never be misread as
+  "no signal at this horizon".
 
 ### 4.2 G1 — localization probes
 
@@ -230,9 +246,12 @@ TIMEOUT loses the artifacts entirely.
 
 ## 8. Success gates
 
-- **G0 passes** if `(c) − (b)` skill > 0 at any horizon by more than the probe's
-  cross-validation spread, defined as the standard deviation of per-fold skill across 5-fold
-  CV on the train split, evaluated on the held-out test plants.
+- **G0 passes** if `conditional_rel` > 0 at any horizon by more than that horizon's
+  cross-validation spread (`cv_spread_rel`), defined as the standard deviation of the same
+  reference-free quantity across 5-fold GroupKFold on the train split (folds grouped by plant,
+  never random), evaluated on the held-out test plants. Both sides of this comparison are on
+  the same normalization basis — an earlier draft compared a globally-normalized conditional
+  against a fold-locally-normalized spread, which is not a valid test.
 - **G1 passes** if it identifies a cause by a discriminating signal, not a plausible story.
 - **G2 succeeds** if an intervention moves dNMAE (currently 0.0002912, 0.39 % relative) beyond
   **2× the measured seed-noise band** — measured at G2, not assumed.
