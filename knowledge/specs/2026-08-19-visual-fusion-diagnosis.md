@@ -41,9 +41,17 @@ Three structural facts constrain any explanation:
    `(N, 128, 128)` **single-channel grayscale** satellite crops. The pipeline upsamples to
    224×224 and replicates to 3 channels for a V-JEPA ViT-L/16 pretrained on natural RGB
    video. The upsample adds no information; cloud fields are far out of distribution.
-3. **The numeric channel may already carry the signal.** `csi`, `kt` and `clearsky_ghi` are
-   covariates. These are analytically-derived cloud-attenuation indices. Vision may be
-   duplicating them rather than adding anything.
+3. **The numeric channel may already carry the signal — but not via `csi`/`kt`.**
+   Correction to an earlier draft: `baselines/common/config.py` defines `COV_COLS` as the 14
+   keys of `COV_SCALES`, and **`csi` and `kt` are not among them** — the model never sees
+   them. What it does see is `cloudcover` plus four radiation fields
+   (`shortwave_radiation`, `direct_radiation`, `diffuse_radiation`,
+   `direct_normal_irradiance`), and per `DETERMINISTIC_COVS` those are **history-only**; for
+   future steps the model gets solar geometry and `clearsky_ghi` alone. So the redundancy
+   question is sharper than first stated: past observed irradiance and cloud cover give a
+   cloud-persistence baseline, and vision must beat that by supplying cloud *motion*. This is
+   also exactly the gap where vision should help, since future cloud is genuinely unknown to
+   the numeric channel.
 
 ## 2. What this is not
 
@@ -60,7 +68,7 @@ distinguishable causes, four of which are cheaply testable before any architectu
 | # | Cause | Would look like |
 |---|---|---|
 | C1 | **Representation** — V-JEPA features do not encode cloud dynamics for this imagery | no extractable signal even with an unconstrained probe |
-| C2 | **Redundancy** — `csi`/`kt` already carry it | signal extractable from vision alone, but nothing conditional on covariates |
+| C2 | **Redundancy** — history irradiance/`cloudcover` already imply near-future cloud | signal extractable from vision alone, but nothing conditional on covariates |
 | C3 | **Capacity** — 500:1 compression into one token | marginal gain scales with visual token count |
 | C4 | **Optimization** — modality laziness / gradient starvation | vision-path gradients orders below numeric; fusion gate closed |
 | C5 | **Horizon** — 6 h ahead is long for cloud advection | gain concentrated at short horizons, diluted in the aggregate |
@@ -109,7 +117,7 @@ only ever a sanity check, and `(c) − (b)` was always the operative quantity.
 | set | inputs | question |
 |---|---|---|
 | (a) | visual latents only | is there any cloud signal in the representation? |
-| (b) | `csi`, `kt`, `clearsky_ghi`, solar geometry, power lags | what does the numeric channel already know? |
+| (b) | exactly what the model gets: `norm_power` lags + history `COV_COLS` (incl. `cloudcover`, 4 radiation fields) + future `DETERMINISTIC_COVS` | what does the numeric channel already know? |
 | (c) | both, concatenated | does vision add anything on top? |
 
 **`(c) − (b)` is the quantity the study turns on.** It is the information vision carries
@@ -173,7 +181,10 @@ re-extraction; shrinking `input_patch_size` reinitialises the pretrained Chronos
 a mistake `2026-07-20-mmtsfm-curriculum.md` §1 already documents).
 
 **Forcing arm.** New code: a head on the visual summary tokens predicting **clear-sky index**
-`k_{t+h}` (masked where `csi` is NaN), with a loss weight defaulting to 0 so current behaviour
+`k_{t+h}`. Since `csi` is not a model input, the target is derived inside the batch as
+`Y_future / max(clearsky_ghi_future, eps)` using `COV_COLS` index 13 (`clearsky_ghi`, scaled
+by 1000 in `COV_SCALES`) — no dataloader change needed — and masked where clear-sky is below
+the protocol's daylight threshold. Loss weight defaults to 0 so current behaviour
 is bit-preserved when off. Note this target deliberately differs from G0's: the probe measures
 what is extractable and must stay commensurable with the protocol, whereas the auxiliary loss
 must force the visual tokens to encode *cloud* specifically — a power target would be
