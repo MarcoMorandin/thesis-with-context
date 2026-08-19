@@ -101,3 +101,89 @@ def test_conditional_is_nan_not_zero_when_a_horizon_is_fully_masked():
     assert res["n_test_valid"][2] == 0
     # untouched horizons still report real data counts
     assert res["n_test_valid"][0] == 500
+
+
+def test_block_penalties_prevent_a_false_negative_from_overfitting():
+    """A wide noise block must read as ~0, not as "vision hurts".
+
+    This is the failure the first real G0 run hit: set (c) carries ~40x set
+    (b)'s dimensionality, and at a single fixed alpha the extra columns fit
+    noise, so conditional_rel comes back RELIABLY negative. Read literally that
+    says vision degrades the forecast; it only says the probe overfit, and it
+    would have stopped the study on a false negative.
+
+    The second half re-runs the identical data at the old fixed alpha=1.0 and
+    asserts the pathology is present there -- without it this test could pass
+    against a probe that never had the problem to begin with, and would silently
+    lose its power if the fixture were ever made easier.
+    """
+    tr = _arrays(1200, d_vis=400, vis_weight=0.0, seed=11)
+    te = _arrays(600, d_vis=400, vis_weight=0.0, seed=12)
+
+    selected = fit_and_score(tr, te, horizon=4)["conditional_rel"]
+    fixed = fit_and_score(tr, te, horizon=4, alphas=[1.0])["conditional_rel"]
+
+    assert min(fixed) < -0.10, ("fixture no longer overfits at alpha=1", fixed)
+    assert min(selected) > -0.02, selected
+    assert max(selected) < 0.02, selected
+
+
+def test_standardization_makes_the_fit_invariant_to_feature_scaling():
+    """Rescaling a whole block must not change the answer.
+
+    Ridge penalizes every coefficient equally, so on RAW features the visual
+    block's activation scale silently sets how hard it is regularized relative
+    to the covariates -- an arbitrary property of the encoder deciding the gate.
+    """
+    tr, te = (
+        _arrays(2000, vis_weight=1.0, seed=13),
+        _arrays(500, vis_weight=1.0, seed=14),
+    )
+    base = fit_and_score(tr, te, horizon=4)
+
+    for arrays in (tr, te):
+        arrays["X_vis"] = arrays["X_vis"] * 1000.0
+    scaled = fit_and_score(tr, te, horizon=4)
+
+    assert scaled["conditional_rel"] == pytest.approx(
+        base["conditional_rel"], rel=1e-4, abs=1e-6
+    )
+    assert scaled["c"]["nmae"] == pytest.approx(base["c"]["nmae"], rel=1e-4, abs=1e-6)
+
+
+def test_selected_alpha_is_reported_for_every_set_and_horizon():
+    """alpha_selected is a diagnostic, not bookkeeping: an alpha pinned to a grid
+    edge means the grid was too narrow and the result cannot be trusted."""
+    tr, te = _arrays(2000, seed=15), _arrays(500, seed=16)
+    res = fit_and_score(tr, te, horizon=4)
+    grid = res["alpha_grid"]
+    for which in ("a", "b", "c"):
+        chosen = res["alpha_selected"][which]
+        assert len(chosen) == 4
+        assert all(v in grid for v in chosen), (which, chosen)
+
+
+def test_single_plant_falls_back_instead_of_crashing_groupkfold():
+    """GroupKFold cannot split one group. The probe must record the fallback
+    alpha and a NaN spread rather than raising or inventing a spread of 0."""
+    tr, te = _arrays(400, seed=17), _arrays(200, seed=18)
+    tr["site"] = np.array(["only"] * 400, dtype=object)
+    res = fit_and_score(tr, te, horizon=4)
+    assert all(np.isnan(v) for v in res["cv_spread"])
+    assert all(np.isnan(v) for v in res["cv_spread_rel"])
+    mid = res["alpha_grid"][len(res["alpha_grid"]) // 2]
+    assert res["alpha_selected"]["c"] == [mid] * 4
+
+
+def test_still_recovers_signal_when_the_visual_block_is_wide():
+    """Power check on the same wide fixture as the false-negative test.
+
+    Suppressing a wide NOISE block is only useful if a wide INFORMATIVE block
+    still gets through. Without this, a probe that answered "zero" to everything
+    would pass the whole suite and the study would stop on a dead instrument.
+    """
+    tr = _arrays(1200, d_vis=400, vis_weight=1.0, seed=11)
+    te = _arrays(600, d_vis=400, vis_weight=1.0, seed=12)
+    res = fit_and_score(tr, te, horizon=4)
+    assert min(res["conditional_rel"]) > 0.05, res["conditional_rel"]
+    assert min(res["conditional"]) > 0.05, res["conditional"]

@@ -149,6 +149,40 @@ What is reported instead:
 - per-horizon `n_test_valid` counts, so "no data at this horizon" can never be misread as
   "no signal at this horizon".
 
+**Regularization — the probe must not be able to invent a negative result.** Added
+2026-08-19 after the first real run; the earlier fixed `alpha=1.0` on raw features is
+superseded. Set (c) bolts ~4 k visual dimensions onto ~100 strongly predictive covariates, so
+three things are load-bearing:
+
+1. **Standardize** on train statistics. Ridge penalizes every coefficient equally, so on raw
+   features the V-JEPA activation scale — an arbitrary property of the encoder — decides how
+   hard the visual block is regularized relative to covariates already scaled into `[0,1]`.
+2. **Separate penalty per block**, selected by the same plant-disjoint `GroupKFold` that
+   produces `cv_spread`. Under one shared penalty there is no setting that both keeps the
+   covariate fit and suppresses an uninformative visual block, so (c) is *forced* below (b)
+   and the probe reports "vision hurts" when it only overfit.
+3. **The visual grid reaches 1e10**, far above the standardized eigenvalues of order `n`, so
+   the block can be switched off. With (c)'s covariate penalty pinned to the one (b) selected,
+   (c) can always reproduce (b) exactly — `conditional_rel` is therefore bounded below by ≈ 0
+   *by construction*. That is the correct null for a ceiling probe: it may report that vision
+   helps or that it does nothing, never that it harms.
+
+`alpha_selected` is written to the report. A visual penalty pinned at the grid maximum means
+"vision off won"; a covariate penalty at either edge means the grid was too narrow and the
+run is not trustworthy.
+
+**Run log.**
+
+| run | probe | result | status |
+|---|---|---|---|
+| 1 | fixed `alpha=1.0`, raw features | `conditional_rel` −0.027…−0.016 at h≤5, exactly 0.00000 at h≥6 | **superseded** — the reliable negative is the overfitting signature above, not evidence about cloud information |
+
+Run 1 did establish two things that carry forward: `n_skipped` = 0 on both splits (the
+`build_site_series` grid join is sound), and `n_test_valid` halves at h=6 (19,831 → 9,899)
+and then stays flat — beyond 3 h ahead only windows whose targets stay in daylight survive,
+so h≤5 and h≥6 are measured on different, time-of-day-restricted populations and are not
+comparable across that boundary. Read each region on its own.
+
 ### 4.2 G1 — localization probes
 
 | probe | tests | source |

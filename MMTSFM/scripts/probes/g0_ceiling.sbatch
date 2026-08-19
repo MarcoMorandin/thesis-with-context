@@ -25,6 +25,13 @@ mkdir -p logs/slurm
 [[ -f .env ]] && source .env
 [[ -f ../.env ]] && source ../.env
 export UV_OFFLINE=1 UV_NO_SYNC=1 OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-8}
+# The probe is BLAS-bound (Gram accumulation + one dense solve per penalty).
+# Whether numpy links MKL or OpenBLAS decides which of these it reads, and a
+# library that reads neither falls back to ONE thread -- a silent 4x slowdown
+# that would push the job past its walltime rather than fail visibly.
+export MKL_NUM_THREADS=${SLURM_CPUS_PER_TASK:-8}
+export OPENBLAS_NUM_THREADS=${SLURM_CPUS_PER_TASK:-8}
+export VECLIB_MAXIMUM_THREADS=${SLURM_CPUS_PER_TASK:-8}
 
 OUT=../baselines/results/probes
 mkdir -p "$OUT"
