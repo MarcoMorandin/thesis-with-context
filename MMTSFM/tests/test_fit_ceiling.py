@@ -6,6 +6,7 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 import numpy as np
+import pytest
 
 from scripts.probes.fit_ceiling import fit_and_score
 
@@ -62,11 +63,21 @@ def test_cv_spread_is_reported_per_horizon():
 
 
 def test_conditional_rel_recovers_a_planted_visual_signal():
-    """Reference-free companion to conditional: must also clear a positive bar."""
+    """Reference-free companion to conditional: must also clear a positive bar.
+
+    conditional_rel is a *fraction of (b)'s error removed*, so a correct
+    implementation is bounded above by 1.0. Pins the denominator too: a
+    mutation that divides by nmae_c instead of nmae_b inflates this value
+    by ~2 orders of magnitude (still > 0.05, but blown through the <= 1.0
+    ceiling and disagreeing with the direct algebraic recomputation below).
+    """
     tr = _arrays(4000, vis_weight=1.0, seed=1)
     te = _arrays(1000, vis_weight=1.0, seed=2)
     res = fit_and_score(tr, te, horizon=4)
-    assert min(res["conditional_rel"]) > 0.05, res["conditional_rel"]
+    for h, v in enumerate(res["conditional_rel"]):
+        assert 0.05 < v <= 1.0, res["conditional_rel"]
+        expected = (res["b"]["nmae"][h] - res["c"]["nmae"][h]) / res["b"]["nmae"][h]
+        assert v == pytest.approx(expected), (h, v, expected)
 
 
 def test_conditional_rel_is_near_zero_when_vision_is_noise():
@@ -74,6 +85,9 @@ def test_conditional_rel_is_near_zero_when_vision_is_noise():
     te = _arrays(1000, vis_weight=0.0, seed=4)
     res = fit_and_score(tr, te, horizon=4)
     assert max(res["conditional_rel"]) < 0.02, res["conditional_rel"]
+    for h, v in enumerate(res["conditional_rel"]):
+        expected = (res["b"]["nmae"][h] - res["c"]["nmae"][h]) / res["b"]["nmae"][h]
+        assert v == pytest.approx(expected), (h, v, expected)
 
 
 def test_conditional_is_nan_not_zero_when_a_horizon_is_fully_masked():
