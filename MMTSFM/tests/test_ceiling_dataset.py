@@ -189,3 +189,192 @@ def test_build_arrays_keeps_site_and_origin_aligned_when_history_row_is_missing(
     assert np.allclose(out["X_vis"][0], 7.0)
     assert out["site"][0] == "9001"
     assert out["origin"][0] == missing_origin
+
+
+@pytest.fixture
+def night_gap(tmp_path):
+    """One site, 40 half-hourly grid steps, but rows 15-19 are dropped from the
+    parquet ENTIRELY (not present, not NaN in the source table) -- like uk_pv's
+    genuine night gaps. `build_site_series` reconstructs a full 40-step regular
+    grid from `date_range(times[0], times[-1], freq=median_step)` and reindexes,
+    so the dropped rows come back as NaN rows *on the grid*, at exactly the
+    timestamps they would have had. A cache origin sitting on one of those
+    timestamps has no row in the raw parquet table -- the pre-fix exact-match
+    join (`table.loc[(ds, site, origin)]`) raised KeyError and silently dropped
+    the window. This is that regression, pinned.
+    """
+    t0 = 1546300800  # 2019-01-01T00:00:00Z
+    n = 40
+    drop = set(range(15, 20))
+    keep = [i for i in range(n) if i not in drop]
+
+    from common import config
+
+    rows = {
+        "dataset": ["uk_pv"] * len(keep),
+        "site_id": ["9001"] * len(keep),
+        "timestamp_utc": pd.to_datetime(
+            [t0 + 1800 * i for i in keep], unit="s", utc=True
+        ),
+        "norm_power": [float(i) / n for i in keep],
+        "installed_power_w": [3000.0] * len(keep),
+    }
+    for c in config.COV_COLS:
+        rows[c] = [float(i) for i in keep]
+    pq = tmp_path / "d.parquet"
+    pd.DataFrame(rows).to_parquet(pq)
+
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    gap_origin_i = 17  # inside the dropped range: no parquet row, but a grid point
+    origin = t0 + 1800 * gap_origin_i
+    torch.save(
+        torch.full((4, 196, 1024), 5.0, dtype=torch.float16),
+        cache / f"uk_pv_9001_{origin}.pt",
+    )
+    return cache, pq, origin, drop, n
+
+
+def test_build_arrays_recovers_a_window_whose_origin_falls_in_a_night_gap(night_gap):
+    cache, pq, origin, drop, n = night_gap
+    out = build_arrays(cache, pq, sites={"9001"}, horizon=12)
+
+    assert out["n_skipped"] == 0
+    assert out["X_vis"].shape[0] == 1
+    assert np.allclose(out["X_vis"][0], 5.0)
+    assert out["site"][0] == "9001"
+    assert out["origin"][0] == origin
+
+    # origin's grid index is 17 (gap_origin_i); h=1..12 -> future grid idx
+    # 18..29. idx 18,19 are still inside the dropped range (15-19) so their
+    # target is NaN -> masked False. idx 20..29 are real rows -> masked True.
+    expected_mask = np.array(
+        [(17 + h) not in drop and (17 + h) < n for h in range(1, 13)]
+    )
+    np.testing.assert_array_equal(out["Y_mask"][0], expected_mask)
+    for h in range(1, 13):
+        j = 17 + h
+        if j not in drop and j < n:
+            assert out["Y"][0, h - 1] == pytest.approx(j / n, rel=1e-5)
+
+
+def test_build_arrays_reports_n_skipped_for_origins_outside_the_grid(tmp_path):
+    """A cache origin beyond the site's grid range (later than the last table
+    row) must increment n_skipped and must NOT be silently absorbed into a
+    default all-False Y_mask with no trace anywhere -- n_skipped is the only
+    signal a caller has that data was lost.
+    """
+    t0 = 1546300800
+    n = 5
+    rows = {
+        "dataset": ["uk_pv"] * n,
+        "site_id": ["9001"] * n,
+        "timestamp_utc": pd.to_datetime(
+            [t0 + 1800 * i for i in range(n)], unit="s", utc=True
+        ),
+        "norm_power": np.linspace(0.0, 1.0, n),
+        "installed_power_w": [3000.0] * n,
+    }
+    from common import config
+
+    for c in config.COV_COLS:
+        rows[c] = np.arange(n, dtype=float)
+    pq = tmp_path / "d.parquet"
+    pd.DataFrame(rows).to_parquet(pq)
+
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    beyond_origin = t0 + 1800 * 999  # far past the grid's last timestamp
+    torch.save(
+        torch.full((4, 196, 1024), 3.0, dtype=torch.float16),
+        cache / f"uk_pv_9001_{beyond_origin}.pt",
+    )
+
+    out = build_arrays(cache, pq, sites={"9001"}, horizon=12)
+    assert out["n_skipped"] == 1
+    assert out["X_vis"].shape[0] == 1
+    assert not out["Y_mask"][0].any()
+
+
+@pytest.fixture
+def ramp(tmp_path):
+    """One site, 40 half-hourly steps, norm_power a known monotonic ramp
+    (norm_power[i] == i), so power-lag values can be checked exactly.
+    """
+    t0 = 1546300800
+    n = 40
+
+    from common import config
+
+    rows = {
+        "dataset": ["uk_pv"] * n,
+        "site_id": ["9001"] * n,
+        "timestamp_utc": pd.to_datetime(
+            [t0 + 1800 * i for i in range(n)], unit="s", utc=True
+        ),
+        "norm_power": np.arange(n, dtype=float),
+        "installed_power_w": [3000.0] * n,
+    }
+    for c in config.COV_COLS:
+        rows[c] = np.arange(n, dtype=float)
+    pq = tmp_path / "d.parquet"
+    pd.DataFrame(rows).to_parquet(pq)
+
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    # origin_i=2: some lag offsets (-3, -6, -12) run off the start of the table.
+    # origin_i=20: every lag offset stays in range.
+    for origin_i in (2, 20):
+        torch.save(
+            torch.full((4, 196, 1024), float(origin_i), dtype=torch.float16),
+            cache / f"uk_pv_9001_{t0 + 1800 * origin_i}.pt",
+        )
+    return cache, pq
+
+
+def test_build_arrays_power_lags_are_correct(ramp):
+    cache, pq = ramp
+    out = build_arrays(cache, pq, sites={"9001"}, horizon=12)
+    # rows sort by origin: row 0 = origin_i=2, row 1 = origin_i=20.
+    n_lags = 6
+    lag_offsets = (0, -1, -2, -3, -6, -12)
+
+    # row 0: idx=2, offsets -3/-6/-12 -> j=-1/-4/-10, all < 0 -> lag=0, indicator=0.
+    lags0 = out["X_cov"][0, :n_lags]
+    valid0 = out["X_cov"][0, n_lags : 2 * n_lags]
+    for li, off in enumerate(lag_offsets):
+        j = 2 + off
+        if j < 0:
+            assert lags0[li] == pytest.approx(0.0)
+            assert valid0[li] == pytest.approx(0.0)
+        else:
+            assert lags0[li] == pytest.approx(float(j))
+            assert valid0[li] == pytest.approx(1.0)
+
+    # row 1: idx=20, every offset stays >= 0 -> all lags valid.
+    lags1 = out["X_cov"][1, :n_lags]
+    valid1 = out["X_cov"][1, n_lags : 2 * n_lags]
+    for li, off in enumerate(lag_offsets):
+        j = 20 + off
+        assert lags1[li] == pytest.approx(float(j))
+        assert valid1[li] == pytest.approx(1.0)
+
+
+def test_build_arrays_history_covariates_match_model_scaling(ramp):
+    """X_cov's history-covariate block must equal the raw parquet value divided
+    by its COV_SCALES entry -- the same scaling `build_site_series` applies for
+    the model -- so probe/model equivalence is pinned by a test, not a comment.
+    """
+    from common import config
+
+    cache, pq = ramp
+    out = build_arrays(cache, pq, sites={"9001"}, horizon=12)
+    n_lags = 6
+    cov_base = 2 * n_lags
+
+    # row 1: origin_i=20 -> idx=20; the fixture set every COV_COLS value to
+    # `float(i)` at row i, so the raw value at idx=20 is 20.0 for every column.
+    c = config.COV_COLS[0]
+    col = config.COV_COLS.index(c)
+    expected = 20.0 / config.COV_SCALES[c]
+    assert out["X_cov"][1, cov_base + col] == pytest.approx(expected, rel=1e-5)

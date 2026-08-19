@@ -1,8 +1,20 @@
 """Assemble the G0 ceiling-probe design matrices from the V-JEPA latent cache.
 
-Reads the cache and the parquet directly — no datamodule, no model, no GPU. Cache
+Reads the cache and the parquet directly -- no datamodule, no model, no GPU. Cache
 keys are `{dataset}_{site_id}_{origin}` (see PVRecordDataset._entity_cache_key),
-so each cached window joins to the table on (dataset, site_id, timestamp==origin).
+so each cached window joins to a site's series on (dataset, site_id, origin).
+
+The join target is `build_site_series` (baselines/common/windows.py), not the raw
+parquet. `build_site_series` reindexes each site onto its own regular time grid
+(uk_pv 30 min, goes_pvdaq 15 min); night gaps and other missing rows become NaN
+rows *on that grid* rather than absent rows. `timestamps` produced by a cache
+key's origin are grid points, so an exact-match lookup against the raw parquet
+table silently misses every origin that falls on a gap -- on the real Leonardo
+cache this was 50% of window origins, each one dropped with a bare `except
+KeyError: continue` and no count anywhere. Reusing `build_site_series` instead of
+re-deriving the join makes divergence between this probe and the model's own
+data pipeline impossible, which matters because the probe's entire claim is that
+it upper-bounds what the model could extract.
 """
 
 from __future__ import annotations
@@ -16,14 +28,19 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "baselines"))
 from common import config  # noqa: E402
+from common.windows import SiteSeries, build_site_series  # noqa: E402
+
+# Power lags (and companion validity indicators) added to X_cov, as grid-index
+# offsets relative to the window origin. 0 = now, -1..-12 = steps into the past
+# on the site's own grid (uk_pv: 30 min, 1h, 1.5h, 3h, 6h ago for -1,-2,-3,-6,-12).
+POWER_LAG_OFFSETS: tuple[int, ...] = (0, -1, -2, -3, -6, -12)
 
 # ASSUMED, not verified against the real cache (Task 1 Step 1 requires
 # Leonardo access and was skipped). Origins are assumed to be whole seconds
-# since the epoch. If this is wrong, the (dataset, site, epoch) join below
-# will silently fail for nearly every row -- watch for a near-zero count of
-# successful history/future lookups as the symptom of a wrong unit here.
+# since the epoch -- matching the int64 unix-seconds `timestamps` that
+# `build_site_series` produces. If this is wrong, almost no cache origin will
+# find a matching grid position and n_skipped will be near the total file count.
 EPOCH_UNIT = "s"
-_DIVISOR = {"s": 10**9, "ms": 10**6, "us": 10**3, "ns": 1}[EPOCH_UNIT]
 
 
 def parse_cache_key(name: str) -> tuple[str, str, int]:
@@ -47,11 +64,29 @@ def build_arrays(
 
     X_vis   [N, 4096]  V-JEPA latents, mean-pooled over the 196 spatial patches,
                        4 latent steps kept and flattened (feature variant F2).
-    X_cov   [N, D]     history covariates at the origin + future deterministic
-                       covariates at each horizon step — exactly what the model
-                       has access to.
-    Y       [N, H]     norm_power at origin + h*step_seconds.
-    Y_mask  [N, H]     False where that future step is absent from the table.
+    X_cov   [N, D]     `[6 power lags][6 lag-validity indicators]
+                       [14 history COV_COLS at idx]
+                       [horizon * len(DETERMINISTIC_COV_IDX) future deterministic
+                       covs]` -- exactly what the model has access to (predictor
+                       set (b) of knowledge/specs/2026-08-19-visual-fusion-diagnosis.md
+                       §4.1: norm_power lags + history COV_COLS + future
+                       DETERMINISTIC_COVS). Power lags and history/future
+                       covariates are grid steps on the site's own cadence, taken
+                       from the same `SiteSeries` the model consumes (COV_COLS are
+                       already divided by COV_SCALES).
+    Y       [N, H]     norm_power at grid index origin_idx + h, h = 1..H.
+    Y_mask  [N, H]     False where that future step is absent (NaN) or beyond
+                       the site's grid.
+    site, origin       as cached (unconditionally written for every row).
+    n_skipped: int     cache files whose origin has no exact position on its
+                       site's grid (outside the grid range, or the site itself
+                       has no series). Counted, never silently dropped -- this
+                       is the counter that would have caught the original bug.
+
+    `step_seconds` is accepted for API compatibility but is no longer used for
+    indexing: horizon steps and power lags are grid-index offsets on each
+    site's own native cadence (as returned by `build_site_series`), not a fixed
+    physical-time offset.
     """
     cache_dir, parquet_path = Path(cache_dir), Path(parquet_path)
 
@@ -68,24 +103,31 @@ def build_arrays(
             config.SITE_COL,
             config.TIME_COL,
             config.TARGET_COL,
+            config.CAPACITY_COL,
+            config.CLEARSKY_COL,
             *config.COV_COLS,
         }
     )
     df = pd.read_parquet(parquet_path, columns=cols)
     df[config.SITE_COL] = df[config.SITE_COL].astype(str)
-    df["_epoch"] = (
-        pd.to_datetime(df[config.TIME_COL], utc=True).astype("int64") // _DIVISOR
-    )
-    table = df.set_index([config.DATASET_COL, config.SITE_COL, "_epoch"]).sort_index()
+    df = df[df[config.SITE_COL].isin(sites)]
+
+    series_by_key: dict[tuple[str, str], SiteSeries] = {
+        (s.dataset, s.site_id): s for s in build_site_series(df)
+    }
 
     det_idx = list(config.DETERMINISTIC_COV_IDX)
+    n_lags = len(POWER_LAG_OFFSETS)
+    n_cov = len(config.COV_COLS)
     n = len(parsed)
     X_vis = np.zeros((n, 4 * 1024), dtype=np.float32)
-    X_cov = np.zeros((n, len(config.COV_COLS) + horizon * len(det_idx)), np.float32)
+    X_cov = np.zeros((n, 2 * n_lags + n_cov + horizon * len(det_idx)), dtype=np.float32)
     Y = np.zeros((n, horizon), dtype=np.float32)
     Y_mask = np.zeros((n, horizon), dtype=bool)
     site_out = np.empty(n, dtype=object)
     origin_out = np.zeros(n, dtype=np.int64)
+
+    n_skipped = 0
 
     for i, (path, ds, site, origin) in enumerate(parsed):
         z = torch.load(path, map_location="cpu", weights_only=True).float()
@@ -93,32 +135,42 @@ def build_arrays(
         site_out[i] = site
         origin_out[i] = origin
 
-        try:
-            hist = table.loc[(ds, site, origin)]
-        except KeyError:
+        s = series_by_key.get((ds, site))
+        if s is None:
+            n_skipped += 1
             continue
-        if isinstance(hist, pd.DataFrame):
-            hist = hist.iloc[0]
-        X_cov[i, : len(config.COV_COLS)] = [float(hist[c]) for c in config.COV_COLS]
 
-        base = len(config.COV_COLS)
+        idx = int(np.searchsorted(s.timestamps, origin))
+        if idx >= len(s.timestamps) or s.timestamps[idx] != origin:
+            n_skipped += 1
+            continue
+
+        # Power lags + validity indicators.
+        for li, off in enumerate(POWER_LAG_OFFSETS):
+            j = idx + off
+            if j < 0 or np.isnan(s.y[j]):
+                X_cov[i, li] = 0.0
+                X_cov[i, n_lags + li] = 0.0
+            else:
+                X_cov[i, li] = float(s.y[j])
+                X_cov[i, n_lags + li] = 1.0
+
+        # History covariates at idx (already scaled by COV_SCALES).
+        cov_base = 2 * n_lags
+        X_cov[i, cov_base : cov_base + n_cov] = s.cov[idx]
+
+        det_base = cov_base + n_cov
         for h in range(1, horizon + 1):
-            ts = origin + h * step_seconds
-            try:
-                fut = table.loc[(ds, site, ts)]
-            except KeyError:
+            j = idx + h
+            if j >= len(s.timestamps):
                 continue
-            if isinstance(fut, pd.DataFrame):
-                fut = fut.iloc[0]
-            y = fut[config.TARGET_COL]
-            if pd.isna(y):
+            y = s.y[j]
+            if np.isnan(y):
                 continue
             Y[i, h - 1] = float(y)
             Y_mask[i, h - 1] = True
-            off = base + (h - 1) * len(det_idx)
-            X_cov[i, off : off + len(det_idx)] = [
-                float(fut[config.COV_COLS[j]]) for j in det_idx
-            ]
+            off = det_base + (h - 1) * len(det_idx)
+            X_cov[i, off : off + len(det_idx)] = s.cov[j][det_idx]
 
     return {
         "X_vis": X_vis,
@@ -127,4 +179,5 @@ def build_arrays(
         "Y_mask": Y_mask,
         "site": site_out,
         "origin": origin_out,
+        "n_skipped": n_skipped,
     }
