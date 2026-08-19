@@ -1107,17 +1107,25 @@ In `VisionChronos2Model.__init__`, after `self.multimodal_embed = ...`:
         # INDEX (not power) is deliberate: a power target is satisfiable by
         # encoding time-of-day, which would not force any cloud information
         # into the visual tokens.
-        # Built whenever the vision stack exists; whether it CONTRIBUTES is
-        # governed by visual_aux_loss_weight (0.0 = off), so the control cell
-        # keeps identical parameter count and initialisation draw order.
+        # Built ONLY when the aux loss is active. This matters for the
+        # experiment, not just tidiness: constructing the head consumes RNG
+        # draws at init, so a model that builds it lands on different weights
+        # than one that does not, even under the same seed. The G2 seed-43 arm
+        # must be architecturally identical to the already-run s2b or it is not
+        # a seed replicate, and the factorial loses its noise floor.
         self.visual_aux_head = (
-            None
-            if vision_config.skip_vision_stack
-            else nn.Linear(d_model, vision_config.aux_horizon)
+            nn.Linear(d_model, vision_config.aux_horizon)
+            if vision_config.aux_head and not vision_config.skip_vision_stack
+            else None
         )
 ```
 
-Add `aux_horizon: int = 12` to `VisionChronos2Config`. In the interleaved branch, right after
+Add `aux_horizon: int = 12` and `aux_head: bool = False` to `VisionChronos2Config`. The
+LightningModule sets `vision_cfg["aux_head"] = visual_aux_loss_weight > 0.0` before
+constructing the model, so the flag and the loss weight can never disagree.
+
+Note Task 5 also edits `VisionChronos2Config` (adding `n_visual_tokens_per_step`); that field
+already exists by the time this task runs. In the interleaved branch, right after
 `vis_summary` is computed, set `visual_aux_pred = self.visual_aux_head(vis_summary.mean(dim=1))`
 and carry it on the output dataclass as `visual_aux_pred` (default `None`, so the late-fusion
 and vision-off paths are unaffected).
