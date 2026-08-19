@@ -351,12 +351,20 @@ class TestSmokeTraining:
 
 class TestCheckpointStripsFrozenEncoder:
     def test_frozen_encoder_keys_dropped(self):
-        """on_save_checkpoint removes model.video_encoder.* when frozen
-        (the encoder is rebuilt from the hub cache at init — ~1.2 GB saved
-        per checkpoint file)."""
+        """on_save_checkpoint removes model.video_encoder.* when the encoder is
+        still PRISTINE (rebuilt from the hub cache at init — ~1.2 GB saved per
+        checkpoint file).
+
+        Being frozen is necessary but no longer sufficient: an encoder tuned by
+        an earlier curriculum stage is frozen too, and stripping it there is what
+        invalidated stage s3 — see tests/test_vjepa_checkpoint_persistence.py.
+        This fixture injects a FAKE encoder built trainable, whereas the real
+        VisualEncoder(freeze=True) is built frozen, so the pristine state has to
+        be set explicitly here."""
         mod = _make_module()
         for p in mod.model.video_encoder.parameters():
             p.requires_grad_(False)
+        mod._vjepa_finetuned = False
         ckpt = {"state_dict": mod.state_dict()}
         assert any(k.startswith("model.video_encoder.") for k in ckpt["state_dict"])
         mod.on_save_checkpoint(ckpt)

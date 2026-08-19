@@ -97,6 +97,39 @@ def main(cfg: DictConfig):
             f"Warm start: loaded (missing={len(missing)}, unexpected={len(unexpected)})"
         )
 
+        # This is a RAW load_state_dict, so Lightning's on_load_checkpoint never
+        # fires here — the vjepa_finetuned flag must be carried across by hand,
+        # or the next stage would strip an encoder that is no longer pristine.
+        if state.get("vjepa_finetuned", False):
+            model._vjepa_finetuned = True
+
+        # Guard the failure that invalidated curriculum stage s3: the checkpoint
+        # was written by a stage that had fine-tuned the encoder but saved with
+        # it frozen, so the weights were stripped. Warm-starting from such a file
+        # silently swaps in the pristine torch.hub baseline and the resulting
+        # model is NOT the one the donor stage scored.
+        enc = getattr(getattr(model, "model", None), "video_encoder", None)
+        if enc is not None:
+            enc_missing = [k for k in missing if k.startswith("model.video_encoder.")]
+            if enc_missing:
+                if state.get("vjepa_finetuned", False):
+                    raise RuntimeError(
+                        f"{init_ckpt} declares vjepa_finetuned=True but carries "
+                        f"none of its {len(enc_missing)} encoder weights — they "
+                        "were stripped on save. Warm-starting would silently "
+                        "substitute the pristine torch.hub baseline. Repair it "
+                        "first: scripts/repair_vjepa_checkpoint.py "
+                        "--target <ckpt> --donor <stage-that-tuned-the-encoder>"
+                    )
+                log.warning(
+                    f"Warm start: {len(enc_missing)} V-JEPA encoder keys absent "
+                    f"from {init_ckpt}; using the pristine torch.hub baseline. "
+                    "That is correct ONLY if no earlier stage fine-tuned the "
+                    "encoder (this checkpoint predates the vjepa_finetuned flag, "
+                    "so it cannot be verified automatically). If any did, repair "
+                    "it with scripts/repair_vjepa_checkpoint.py before training."
+                )
+
     if cfg.get("train", True):
         log.info("Starting training!")
         ckpt_path = cfg.get("ckpt_path", None) or None

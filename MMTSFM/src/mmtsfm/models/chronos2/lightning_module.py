@@ -111,6 +111,10 @@ class VisionChronos2LightningModule(LightningModule):
         self.n_unfreeze_encoder_blocks = n_unfreeze_encoder_blocks
         self._last_loss = None
         self._nonfinite_grad_streak = 0
+        # Whether the V-JEPA encoder weights still equal the torch.hub baseline.
+        # Once ANY stage fine-tunes it the weights diverge and must be persisted;
+        # see on_save_checkpoint. Propagated across stages via the checkpoint.
+        self._vjepa_finetuned = False
 
         # Build Chronos-2 core
         core_config = Chronos2CoreConfig(**chronos_core_cfg)
@@ -209,6 +213,11 @@ class VisionChronos2LightningModule(LightningModule):
         self._apply_vision_unfreeze_policy(
             vision_cfg.get("freeze_visual_encoder", True)
         )
+        # partial/False opens encoder params for training, so from here on this
+        # encoder is no longer the pristine hub baseline.
+        _enc = getattr(self.model, "video_encoder", None)
+        if _enc is not None and any(p.requires_grad for p in _enc.parameters()):
+            self._vjepa_finetuned = True
 
         self._output_patch_size: int = (
             self.model.chronos.chronos_config.output_patch_size
@@ -246,15 +255,34 @@ class VisionChronos2LightningModule(LightningModule):
     # ------------------------------------------------------------------
 
     def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
-        """Strip the frozen V-JEPA encoder from checkpoints (~1.2 GB each).
+        """Strip the V-JEPA encoder (~1.2 GB/ckpt) — ONLY while it is still
+        bit-identical to the torch.hub baseline.
 
-        The encoder is rebuilt with identical weights from the torch.hub cache
-        at module init, so persisting it only bloats every checkpoint file.
-        Kept when any encoder param is trainable (Stage 3 fine-tuning).
+        Stripping is safe only because the encoder is rebuilt from the torch.hub
+        cache at module init. That holds until some stage fine-tunes it; after
+        that the weights are unique to this run, and dropping them silently
+        substitutes the pretrained baseline on the next load.
+
+        The old predicate asked "does any encoder param require grad RIGHT NOW",
+        which is a different question, and it broke the uk_pv curriculum: s2a
+        (freeze_visual_encoder=partial) tuned the last 4 blocks and kept them;
+        s2b (=true) inherited those tuned weights and trained/tested with them
+        for SS 0.5188, then wrote its checkpoint with the encoder stripped
+        because everything was frozen at save time. s3 warm-started from that
+        file, reported `missing=302` (the whole encoder), and silently ran on
+        the pristine baseline — invalidating the stage and leaving s2b's score
+        unreproducible from its own checkpoint.
+
+        `vjepa_finetuned` is persisted so the answer survives across stages.
         """
         enc = getattr(self.model, "video_encoder", None)
-        if enc is None or any(p.requires_grad for p in enc.parameters()):
+        if enc is None:
             return
+        if any(p.requires_grad for p in enc.parameters()):
+            self._vjepa_finetuned = True
+        checkpoint["vjepa_finetuned"] = self._vjepa_finetuned
+        if self._vjepa_finetuned:
+            return  # unique to this run — must be persisted
         prefix = "model.video_encoder."
         state = checkpoint.get("state_dict", {})
         for k in [k for k in state if k.startswith(prefix)]:
@@ -270,6 +298,10 @@ class VisionChronos2LightningModule(LightningModule):
         import logging
 
         _log = logging.getLogger(__name__)
+
+        # Sticky: once any stage has fine-tuned the encoder it stays finetuned.
+        if checkpoint.get("vjepa_finetuned", False):
+            self._vjepa_finetuned = True
 
         # 1. Drop stale model state_dict keys
         current_keys = set(self.state_dict().keys())
