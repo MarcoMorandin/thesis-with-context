@@ -110,6 +110,11 @@ def fit_and_score(
     groups = arrays_train["site"]
     n_splits = min(n_folds, len(set(groups.tolist())))
     spread, spread_rel = [], []
+    # Built once outside the horizon loop: (c)'s concatenation is ~1.7 GB on
+    # real data, and computing it per-horizon (12x) is pure waste. Indexing
+    # per-horizon below with the same boolean `sel` is behaviourally
+    # identical to re-deriving the design matrix inside the loop.
+    Xb_full, Xc_full = _design(arrays_train, "b"), _design(arrays_train, "c")
     for h in range(horizon):
         sel = m_tr[:, h]
         if sel.sum() < n_splits or len(set(groups[sel].tolist())) < n_splits:
@@ -118,7 +123,7 @@ def fit_and_score(
             continue
         vals, vals_rel = [], []
         gkf = GroupKFold(n_splits=n_splits)
-        Xb, Xc = _design(arrays_train, "b")[sel], _design(arrays_train, "c")[sel]
+        Xb, Xc = Xb_full[sel], Xc_full[sel]
         yh, gh = y_tr[sel, h], groups[sel]
         ref_h = ref_by_h[h]
         for tr_i, va_i in gkf.split(Xb, yh, gh):
