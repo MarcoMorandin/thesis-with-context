@@ -88,10 +88,21 @@ Operates directly on the cached V-JEPA latents
 forward pass, no Chronos, no GPU. Implementation verifies the `[4, 196, 1024]` fp16 shape
 before building the probe geometry.
 
-**Target.** Clear-sky index at each horizon step, `k_{t+h} = P_{t+h} / P_clearsky_{t+h}`,
-from the existing `clearsky_ghi` column. This removes deterministic solar geometry and
-isolates the cloud-driven component. Predicting raw power would let a probe score well on the
-diurnal cycle alone and answer nothing.
+**Target.** Power at each horizon step, `P_{t+h}` — the same quantity `protocol.md` scores,
+under the same daylight mask.
+
+An earlier draft used clear-sky index `k_{t+h}` to strip the diurnal cycle. Power is the
+better choice for two reasons. First, the diurnal concern does not apply to the quantity this
+study actually turns on: predictor set (b) already contains solar geometry and
+`clearsky_ghi`, so it absorbs the deterministic diurnal component, and `(c) − (b)` is by
+construction the non-diurnal residual regardless of target. Second, `csi` is NaN below
+50 W/m² clear-sky (`dataset.md` §1bis), so a `k`-target silently drops or imputes exactly the
+low-light steps, whereas power under the protocol's daylight mask keeps the sample definition
+identical to every other number in the project.
+
+The cost is that predictor set (a) alone becomes uninterpretable in isolation — a visual-only
+probe can score on time-of-day inferred from scene brightness. That is acceptable: (a) was
+only ever a sanity check, and `(c) − (b)` was always the operative quantity.
 
 **Three predictor sets:**
 
@@ -110,9 +121,9 @@ over all ~98 k stride-12 train samples, closed form. F3 = 196 patches pooled to 
 `[4, 16, 1024]`; small MLP on a ~20 k subsample. F3 exists because spatial mean-pooling
 destroys *where* cloud sits relative to the plant, which is the advection signal.
 
-**Reference lines.** Smart persistence (the `protocol.md` reference), csi-persistence, and
-the covariates-only probe. Reported as skill per horizon so it is commensurable with existing
-SS numbers.
+**Reference lines.** Smart persistence (the `protocol.md` reference) and the covariates-only
+probe. Because the target is power under the protocol mask, probe skill is directly
+commensurable with the SS numbers already reported — no translation step.
 
 ### 4.2 G1 — localization probes
 
@@ -135,18 +146,38 @@ signal exists and the model is not using it.
 | GPU | arm | purpose |
 |---|---|---|
 | 0 | s2b config, **seed 43** | seed-noise floor |
-| 1 | **capacity**: `n_vis` 1 → 8 | 8× visual tokens over the same 6 h window |
+| 1 | **capacity**: `n_visual_tokens_per_step` 1 → 8 | widen the bottleneck 8×, same temporal extent |
 | 2 | **forcing**: auxiliary loss, visual tokens → `k_{t+h}` | breaks modality laziness |
 | 3 | **capacity + forcing** | do the two compose, or is one subsumed? |
 
 s2b is the fourth cell of the 2×2 and is already run, so four GPUs complete the factorial
 plus the control.
 
-The capacity arm is close to free: `LatentSummarizer` already emits `n_vis` tokens with a
-causal sub-interval mask per token, and `interleave_sequences` already handles arbitrary
-`n_vis`. It is a config change plus relaxing `validate_n_visual_context_steps`. The forcing
-arm is new code: a head on the visual summary predicting clear-sky index at horizon, with a
-loss weight defaulting to 0 so current behaviour is bit-preserved when off.
+**Capacity arm — why not simply raise `n_vis`.** `validate_n_visual_context_steps`
+(`vision_chronos2.py:51`) defines `n_visual_context_steps` as "how many of the most-recent
+context PATCHES are given visual tokens". With `input_patch_size=16`, `n_vis=8` therefore
+asserts visual coverage over 8 × 16 = 128 TS steps = **64 hours**, while the underlying clip
+spans 6. The extra tokens would be placed at TS positions the video never observed, and RoPE
+would encode them as 64 hours apart. That inflates token count while corrupting temporal
+semantics — it would not be a clean capacity manipulation.
+
+The clean version keeps `n_vis=1` and adds `n_visual_tokens_per_step` (default 1, preserving
+current behaviour): `LatentSummarizer` emits k tokens for the single refinement position, and
+`interleave_sequences` places all k after that TS token, sharing its position id — consistent
+with the existing design where a TS token and its visual partner are already co-temporal. The
+bottleneck widens from 768 to k × 768, taking the compression from ~500:1 to ~62:1 at k=8,
+with the temporal story unchanged. Requires a change to `LatentSummarizer` and
+`interleave_sequences`; the alternative capacity levers are worse (widening
+`visual_window_hours` changes the information rather than the capacity and needs a full cache
+re-extraction; shrinking `input_patch_size` reinitialises the pretrained Chronos-2 tokenizer,
+a mistake `2026-07-20-mmtsfm-curriculum.md` §1 already documents).
+
+**Forcing arm.** New code: a head on the visual summary tokens predicting **clear-sky index**
+`k_{t+h}` (masked where `csi` is NaN), with a loss weight defaulting to 0 so current behaviour
+is bit-preserved when off. Note this target deliberately differs from G0's: the probe measures
+what is extractable and must stay commensurable with the protocol, whereas the auxiliary loss
+must force the visual tokens to encode *cloud* specifically — a power target would be
+satisfiable by encoding time-of-day.
 
 ## 5. The seed-noise floor
 
