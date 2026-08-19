@@ -17,7 +17,11 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "baselines"))
 from common import config  # noqa: E402
 
-# Verified in Task 1 Step 1. Origins are whole seconds since the epoch.
+# ASSUMED, not verified against the real cache (Task 1 Step 1 requires
+# Leonardo access and was skipped). Origins are assumed to be whole seconds
+# since the epoch. If this is wrong, the (dataset, site, epoch) join below
+# will silently fail for nearly every row -- watch for a near-zero count of
+# successful history/future lookups as the symptom of a wrong unit here.
 EPOCH_UNIT = "s"
 _DIVISOR = {"s": 10**9, "ms": 10**6, "us": 10**3, "ns": 1}[EPOCH_UNIT]
 
@@ -86,6 +90,8 @@ def build_arrays(
     for i, (path, ds, site, origin) in enumerate(parsed):
         z = torch.load(path, map_location="cpu", weights_only=True).float()
         X_vis[i] = z.mean(dim=1).reshape(-1).numpy()  # [4, 196, 1024] -> [4, 1024]
+        site_out[i] = site
+        origin_out[i] = origin
 
         try:
             hist = table.loc[(ds, site, origin)]
@@ -113,9 +119,6 @@ def build_arrays(
             X_cov[i, off : off + len(det_idx)] = [
                 float(fut[config.COV_COLS[j]]) for j in det_idx
             ]
-
-        site_out[i] = site
-        origin_out[i] = origin
 
     return {
         "X_vis": X_vis,
