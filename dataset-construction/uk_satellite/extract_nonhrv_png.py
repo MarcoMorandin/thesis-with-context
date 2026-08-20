@@ -140,19 +140,28 @@ def site_table(parquet: Path) -> pd.DataFrame:
     return df.groupby("site_id", as_index=False)[["latitude", "longitude"]].first()
 
 
-def needed_timestamps(parquet: Path) -> np.ndarray:
-    """Every 30-min slot some PV row's visual window reaches back into.
+def needed_timestamps(
+    parquet: Path, step_min: int = STEP_MIN, lookback_h: float = LOOKBACK_H
+) -> np.ndarray:
+    """Every slot some PV row's visual window reaches back into.
 
     Extracting a flat 24h/day would fetch frames no window ever reads. Taking the
-    union of [t - LOOKBACK_H, t] over the real PV timestamps keeps the download
+    union of [t - lookback_h, t] over the real PV timestamps keeps the download
     to what the model can actually consume, and stays correct if the origin
     sampling is changed later (the union only grows toward 24h).
+
+    `step_min` is the frame CADENCE, not the model's frame spacing. Extract at
+    the finest cadence you might want and choose the spacing at training time by
+    subsampling: the store is 5-minutely and its time chunks are 12 steps, all of
+    which are fetched whether or not they are used, so a finer cadence is nearly
+    free on the wire (it costs PNG count and disk, not download). Extracting at
+    30 min and later wanting 15 means downloading everything again.
     """
     df = pd.read_parquet(parquet, columns=["dataset", "timestamp_utc"])
     t = pd.to_datetime(df.loc[df["dataset"] == "uk_pv", "timestamp_utc"], utc=True)
-    step = pd.Timedelta(minutes=STEP_MIN)
-    back = int(LOOKBACK_H * 60 / STEP_MIN)
-    base = t.dt.floor(f"{STEP_MIN}min").unique()
+    step = pd.Timedelta(minutes=step_min)
+    back = int(round(lookback_h * 60 / step_min))
+    base = t.dt.floor(f"{step_min}min").unique()
     slots = {b - step * k for b in base for k in range(back + 1)}
     return np.array(sorted(slots), dtype="datetime64[ns]")
 
@@ -218,6 +227,21 @@ def main() -> int:
     )
     ap.add_argument("--workers", type=int, default=16, help="PNG encoder threads")
     ap.add_argument(
+        "--step-min",
+        type=int,
+        default=STEP_MIN,
+        help="frame cadence in minutes. Must divide 5 evenly into the store's\n"
+        "5-minutely grid. Finer is nearly free on the wire (whole 12-step chunks\n"
+        "are fetched regardless) but multiplies PNG count and disk.",
+    )
+    ap.add_argument(
+        "--lookback-h",
+        type=float,
+        default=LOOKBACK_H,
+        help="how far back a visual window may reach. Extract the WIDEST you may\n"
+        "want; the model can always use a shorter span by taking fewer frames.",
+    )
+    ap.add_argument(
         "--fetch-workers",
         type=int,
         default=32,
@@ -234,7 +258,7 @@ def main() -> int:
     sites = site_table(Path(a.parquet))
     if a.max_sites:
         sites = sites.head(a.max_sites)
-    slots = needed_timestamps(Path(a.parquet))
+    slots = needed_timestamps(Path(a.parquet), a.step_min, a.lookback_h)
     if a.limit_slots:
         slots = slots[: a.limit_slots]
     print(
@@ -280,11 +304,15 @@ def main() -> int:
         pos = np.searchsorted(stamps, want)
         pos = np.clip(pos, 0, len(stamps) - 1)
         delta = np.abs(stamps[pos] - want).astype("timedelta64[m]").astype(int)
-        ok = delta <= 15
+        # Half a cadence step: at 15-min cadence a 15-min tolerance would let
+        # two adjacent slots snap onto the SAME scan and silently write the
+        # same picture under two different timestamps.
+        tol = max(1, a.step_min // 2)
+        ok = delta <= tol
         if (~ok).any():
             print(
                 f"  {year}: {int((~ok).sum())} slots have no scan within "
-                f"15 min; skipped",
+                f"{tol} min; skipped",
                 flush=True,
             )
         want, pos = want[ok], pos[ok]
