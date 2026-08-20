@@ -1,0 +1,23 @@
+[project]
+name = "uk-data"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "gcsfs>=2026.5.0",
+    "huggingface_hub>=0.34.0",
+    "numpy>=2.2.6",
+    "pandas>=2.3.3",
+    "pyproj>=3.7.1",
+    "python-dotenv>=1.2.2",
+    "numcodecs>=0.16.5",
+    "pyarrow>=18.0.0",
+    "xarray>=2025.6.1",
+    "zarr>=3.1.6,<3.2",
+    "blosc2>=4.4.1",
+    "ocf-blosc2>=0.0.14",
+    "h5netcdf>=1.8.1",
+    "h5py>=3.16.0",
+    "dask>=2026.3.0",
+]
