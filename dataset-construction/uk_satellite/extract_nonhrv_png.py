@@ -38,6 +38,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import dask
 import gcsfs
 import numcodecs
 import numpy as np
@@ -216,6 +217,16 @@ def main() -> int:
         "48 vs 1.05 at 192; 192 holds ~380 MB of float16 in memory.",
     )
     ap.add_argument("--workers", type=int, default=16, help="PNG encoder threads")
+    ap.add_argument(
+        "--fetch-workers",
+        type=int,
+        default=32,
+        help="concurrent chunk fetches. Chunks are 2.64 MB behind object-store\n"
+        "latency, so throughput is concurrency-bound, not bandwidth-bound, and\n"
+        "dask's default of one thread per core badly under-drives it. Measured\n"
+        "on a 1 GB slab: 8->29.7 MB/s, 32->88.2, 64->82.3, 128->77.7. Past ~32\n"
+        "the connections contend and it gets slower again.",
+    )
     a = ap.parse_args()
 
     out = Path(a.out)
@@ -299,16 +310,17 @@ def main() -> int:
                 skipped += len(stamps_out) * len(site_ids)
                 continue
             t_lo, t_hi = int(blk_pos[todo[0]]), int(blk_pos[todo[-1]]) + 1
-            block = np.asarray(
-                ds["data"]
-                .isel(
-                    time=slice(t_lo, t_hi),
-                    y_geostationary=slice(y0, y1),
-                    x_geostationary=slice(x0, x1),
+            with dask.config.set(scheduler="threads", num_workers=a.fetch_workers):
+                block = np.asarray(
+                    ds["data"]
+                    .isel(
+                        time=slice(t_lo, t_hi),
+                        y_geostationary=slice(y0, y1),
+                        x_geostationary=slice(x0, x1),
+                    )
+                    .sel(variable=CHANNELS)
+                    .compute()
                 )
-                .sel(variable=CHANNELS)
-                .compute()
-            )
             local = {n: i for i, n in enumerate(CHANNELS)}
             for i in todo:
                 slab = block[int(blk_pos[i]) - t_lo]
