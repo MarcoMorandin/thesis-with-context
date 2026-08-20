@@ -52,10 +52,17 @@ def read_frame(h5: h5py.File, group: str, index: int) -> np.ndarray:
     return np.asarray(Image.open(io.BytesIO(h5[group]["images"][index].tobytes())))
 
 
+# v1 wrote |S20 with a trailing Z ("2019-01-29T23:00:00Z") for BOTH datasets.
+# v2 keeps that convention exactly: one format across every group, and a drop-in
+# for anything that already parses v1 timestamps. Dropping the Z for uk_pv while
+# goes kept it is what made the first pack reindex 0 of 104,792 goes rows.
+ISO_FMT = "%Y-%m-%dT%H:%M:%SZ"
+
+
 def _stamp_to_iso(stamp: str) -> str:
-    """`2019-06-15T10-45-00` -> `2019-06-15T10:45:00`, matching v1's |S20."""
+    """`2019-06-15T10-45-00` -> `2019-06-15T10:45:00Z`, matching v1's |S20."""
     d, t = stamp.split("T")
-    return f"{d}T{t.replace('-', ':')}"
+    return f"{d}T{t.replace('-', ':')}Z"
 
 
 def pack_uk(png_dir: Path, out: h5py.File) -> dict[str, dict[str, int]]:
@@ -126,7 +133,7 @@ def reindex(parquet: Path, out_parquet: Path, index: dict[str, dict[str, int]]) 
     df = pd.read_parquet(parquet)
     df["site_id"] = df["site_id"].astype(str)
     key = df["dataset"].astype(str) + "_" + df["site_id"]
-    iso = pd.to_datetime(df["timestamp_utc"], utc=True).dt.strftime("%Y-%m-%dT%H:%M:%S")
+    iso = pd.to_datetime(df["timestamp_utc"], utc=True).dt.strftime(ISO_FMT)
     new = np.full(len(df), -1, dtype=np.int64)
     for grp, table in index.items():
         m = (key == grp).to_numpy()
