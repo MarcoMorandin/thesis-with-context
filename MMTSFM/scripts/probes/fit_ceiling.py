@@ -248,10 +248,19 @@ def fit_and_score(
     skill: dict[str, list[float]] = {w: [] for w in sets}
     spread: list[float] = []
     spread_rel: list[float] = []
+    vis_std: list[float] = []
 
     for h in range(horizon):
         sel = m_tr[:, h]
         yh, gh = y_tr[sel, h], groups[sel]
+        # Guard, not bookkeeping. Features are standardized globally, so this is
+        # ~1 on a healthy horizon; at ~0 the visual block is CONSTANT on the rows
+        # this horizon fits, every penalty ties, and the horizon is not a
+        # measurement of vision at all -- it only looks like a clean null.
+        # That is what h>=6 was in the 2026-08-19 run: only 07:30 origins keep
+        # targets that far out, and their 6h-backward visual window lies in
+        # darkness. Read any horizon whose vis_std_max is near zero as MISSING.
+        vis_std.append(float(Xtr["a"][sel].std(axis=0).max()) if sel.any() else 0.0)
         cv_ok = sel.sum() >= n_splits and len(set(gh.tolist())) >= n_splits
         folds = (
             list(GroupKFold(n_splits=n_splits).split(np.empty(len(yh)), yh, gh))
@@ -335,6 +344,7 @@ def fit_and_score(
     ]
     out["cv_spread"] = spread
     out["cv_spread_rel"] = spread_rel
+    out["vis_std_max"] = vis_std
     return out
 
 
@@ -362,14 +372,22 @@ def run_g0(
     horizon: int = 12,
     max_files: int | None = None,
     alphas: Sequence[float] | None = None,
+    origin_hours: Sequence[float] | None = None,
 ) -> dict:
-    """Assemble train/test arrays from the real cache and write the report."""
+    """Assemble train/test arrays from the real cache and write the report.
+
+    `origin_hours` restricts rows to windows whose origin falls at those UTC
+    times of day. On uk_pv the cache holds exactly two origins per site per day
+    and only the 13:30 one has a daylight visual window, so leaving this None
+    pools ~50% blank visual rows into every fit and dilutes the ceiling. See
+    ceiling_dataset.filter_by_origin_hour.
+    """
     import sys
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "baselines"))
     from common.splits import load_splits  # noqa: E402
 
-    from scripts.probes.ceiling_dataset import build_arrays
+    from scripts.probes.ceiling_dataset import build_arrays, filter_by_origin_hour
 
     splits = load_splits()
     train_sites = {str(s) for s in splits["uk_pv"]["train"]}
@@ -382,10 +400,19 @@ def run_g0(
     te = build_arrays(
         Path(cache_dir), Path(parquet_path), test_sites, horizon, max_files=max_files
     )
+    if origin_hours:
+        tr = filter_by_origin_hour(tr, origin_hours)
+        te = filter_by_origin_hour(te, origin_hours)
     res = fit_and_score(tr, te, horizon=horizon, alphas=alphas)
     res["n_train"], res["n_test"] = int(tr["Y"].shape[0]), int(te["Y"].shape[0])
     res["n_skipped_train"] = int(tr["n_skipped"])
     res["n_skipped_test"] = int(te["n_skipped"])
+    res["origin_hours"] = list(origin_hours) if origin_hours else None
+    if origin_hours:
+        res["n_dropped_by_origin_hour"] = {
+            "train": tr["n_dropped_by_origin_hour"],
+            "test": te["n_dropped_by_origin_hour"],
+        }
     Path(out_path).write_text(json.dumps(res, indent=2))
     return res
 
@@ -404,9 +431,19 @@ if __name__ == "__main__":
         default=None,
         help="comma-separated ridge penalties; default is logspace(-2, 10, 13)",
     )
+    ap.add_argument(
+        "--origin-hours",
+        default=None,
+        help="comma-separated UTC times of day (fractional, e.g. 13.5) to keep; "
+        "uk_pv's 07:30 origins have a night-time visual window and must be "
+        "excluded for an undiluted ceiling",
+    )
     a = ap.parse_args()
     grid = [float(v) for v in a.alphas.split(",")] if a.alphas else None
-    r = run_g0(a.cache_dir, a.parquet, a.out, a.horizon, a.max_files, grid)
+    hours = [float(v) for v in a.origin_hours.split(",")] if a.origin_hours else None
+    r = run_g0(a.cache_dir, a.parquet, a.out, a.horizon, a.max_files, grid, hours)
+    print("vis_std_max (0 => horizon is  :", [round(v, 4) for v in r["vis_std_max"]])
+    print("  NOT a measurement)          :")
     print("conditional (c)-(b) per horizon:", [round(v, 5) for v in r["conditional"]])
     print(
         "conditional_rel                :", [round(v, 5) for v in r["conditional_rel"]]

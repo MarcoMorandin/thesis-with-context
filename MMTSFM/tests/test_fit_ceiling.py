@@ -175,6 +175,36 @@ def test_single_plant_falls_back_instead_of_crashing_groupkfold():
     assert res["alpha_selected"]["c"] == [mid] * 4
 
 
+def test_vis_std_max_flags_a_horizon_whose_visual_block_is_constant():
+    """The guard that would have caught the 2026-08-19 h>=6 dead zone.
+
+    A horizon fitted on rows where X_vis is constant produces conditional ~= 0
+    and cv_spread ~= 0 -- indistinguishable, in the report, from a clean null
+    that means "vision carries nothing here". vis_std_max is what separates
+    "measured, found nothing" from "never measured".
+    """
+    tr, te = _arrays(2000, seed=19), _arrays(500, seed=20)
+    # Horizon 3 keeps only rows whose visual features are identical, exactly the
+    # shape of the real defect: 07:30 origins whose 6h-backward visual window
+    # lies in darkness, so V-JEPA embeds a blank frame the same way every time.
+    tr["X_vis"][:1000] = tr["X_vis"][0]
+    tr["Y_mask"][1000:, 2] = False
+
+    res = fit_and_score(tr, te, horizon=4)
+    # Not exactly 0: standardizing in float32 leaves ~1e-6 of rounding on a
+    # constant column. What matters is the SEPARATION -- five orders of
+    # magnitude below a healthy horizon. Real data sat at 4e-3 (train) and
+    # 2e-4 (test) against 4.39, so anything under ~1e-2 reads as constant.
+    assert res["vis_std_max"][2] < 1e-4, res["vis_std_max"]
+    # Healthy horizons stay near 1: features are standardized globally, so a
+    # subset that keeps the full spread reports ~1 and a constant one reports 0.
+    for h in (0, 1, 3):
+        assert res["vis_std_max"][h] > 0.5, (h, res["vis_std_max"])
+    # And the horizon still reports ~0 conditional, which is the point: without
+    # the guard that reading is indistinguishable from a real null.
+    assert abs(res["conditional_rel"][2]) < 1e-6, res["conditional_rel"]
+
+
 def test_still_recovers_signal_when_the_visual_block_is_wide():
     """Power check on the same wide fixture as the false-negative test.
 

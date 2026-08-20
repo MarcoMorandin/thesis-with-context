@@ -20,6 +20,7 @@ it upper-bounds what the model could extract.
 from __future__ import annotations
 
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
@@ -182,3 +183,48 @@ def build_arrays(
         "origin": origin_out,
         "n_skipped": n_skipped,
     }
+
+
+# Rows are keyed by their origin's UTC time of day. Cache windows are sampled at
+# stride 12 on a 30-minute grid, so on uk_pv there are exactly TWO origins per
+# site per day -- 07:30 and 13:30 UTC -- and they are not interchangeable:
+#
+#   13:30  visual window (6 h backward) spans 07:30-13:30, daylight. Max
+#          per-column std of the pooled latent across ~49 k train windows: 4.39.
+#   07:30  visual window spans 01:30-07:30, dark for most of the UK year. Same
+#          statistic: 0.0038 train, 0.00023 test -- constant to four orders of
+#          magnitude, i.e. V-JEPA's embedding of a blank frame (non-zero, so a
+#          zero-row check does NOT catch it).
+#
+# Measured 2026-08-20 by scripts/probes/diagnose_h6_cliff.py. The two populations
+# also carry disjoint target coverage: only 07:30 origins keep valid targets past
+# h=5 under the daylight mask, which is why the unfiltered G0 report went inert
+# at h>=6. Pooling them dilutes any ceiling estimate by ~50% blank rows.
+SECONDS_PER_DAY = 86400
+
+
+def filter_by_origin_hour(
+    arrays: dict, hours: Sequence[float], tol_seconds: int = 900
+) -> dict:
+    """Keep only rows whose origin falls at one of `hours` (UTC, fractional).
+
+    Filters every per-row array together so the row alignment that X_vis, X_cov,
+    Y, Y_mask, site and origin share is preserved -- these are parallel arrays,
+    and filtering any subset of them independently would silently pair a
+    window's features with another window's target.
+
+    `n_skipped` is carried through unchanged: it counts cache files that never
+    became rows, so it is not a per-row quantity and must not be filtered.
+    """
+    origin = arrays["origin"].astype(np.int64)
+    sec = origin % SECONDS_PER_DAY
+    keep = np.zeros(len(origin), dtype=bool)
+    for h in hours:
+        keep |= np.abs(sec - int(round(h * 3600))) <= tol_seconds
+    out = {k: (v[keep] if k in _ROW_KEYS else v) for k, v in arrays.items()}
+    out["n_kept"] = int(keep.sum())
+    out["n_dropped_by_origin_hour"] = int((~keep).sum())
+    return out
+
+
+_ROW_KEYS = frozenset({"X_vis", "X_cov", "Y", "Y_mask", "site", "origin"})

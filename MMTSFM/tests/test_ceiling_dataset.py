@@ -436,3 +436,82 @@ def test_build_arrays_future_covariate_nan_does_not_leak_into_x_cov(future_nan_c
     # valid even though its clearsky_ghi covariate is NaN.
     assert out["Y_mask"][0, 11]
     assert np.isfinite(out["X_cov"]).all()
+
+
+def _origin_arrays(hours, n_per_hour=4, d_vis=6, d_cov=3, horizon=2):
+    """Rows at known UTC times of day, each row tagged by its index everywhere.
+
+    Every per-row array carries the same tag so a filter that keeps the right
+    ROWS but pairs them wrongly is caught -- that is the failure mode that
+    matters here, and a shape-only assertion cannot see it.
+    """
+    origins, tags = [], []
+    for hi, h in enumerate(hours):
+        for k in range(n_per_hour):
+            # Day k, at hour h. Distinct days so origins are never duplicated.
+            origins.append(k * 86400 + int(round(h * 3600)))
+            tags.append(hi * 100 + k)
+    tag = np.array(tags, dtype=np.float32)
+    n = len(tags)
+    return {
+        "X_vis": np.tile(tag[:, None], (1, d_vis)),
+        "X_cov": np.tile(tag[:, None], (1, d_cov)),
+        "Y": np.tile(tag[:, None], (1, horizon)),
+        "Y_mask": np.ones((n, horizon), dtype=bool),
+        "site": np.array([str(int(t)) for t in tags], dtype=object),
+        "origin": np.array(origins, dtype=np.int64),
+        "n_skipped": 7,
+    }
+
+
+def test_filter_by_origin_hour_keeps_only_the_named_times_of_day():
+    """uk_pv caches exactly two origins per site per day and only 13:30 has a
+    daylight visual window; pooling 07:30 in dilutes every fit with blank rows."""
+    from scripts.probes.ceiling_dataset import filter_by_origin_hour
+
+    arrays = _origin_arrays([7.5, 13.5], n_per_hour=4)
+    out = filter_by_origin_hour(arrays, [13.5])
+
+    assert out["n_kept"] == 4
+    assert out["n_dropped_by_origin_hour"] == 4
+    kept_hours = (out["origin"] % 86400) / 3600.0
+    assert set(kept_hours.tolist()) == {13.5}
+
+
+def test_filter_by_origin_hour_preserves_row_alignment():
+    """X_vis, X_cov, Y, Y_mask, site and origin are PARALLEL arrays. Filtering
+    them out of step would pair one window's features with another's target --
+    silent, and fatal to every number the probe reports."""
+    from scripts.probes.ceiling_dataset import filter_by_origin_hour
+
+    arrays = _origin_arrays([7.5, 13.5], n_per_hour=4)
+    out = filter_by_origin_hour(arrays, [13.5])
+
+    tags = out["X_vis"][:, 0]
+    assert np.array_equal(out["X_cov"][:, 0], tags)
+    assert np.array_equal(out["Y"][:, 0], tags)
+    assert np.array_equal(out["site"].astype(int), tags.astype(int))
+    assert out["Y_mask"].shape[0] == len(tags)
+    # Tags 100..103 are the second hour bucket (13.5), never the first.
+    assert set(tags.astype(int).tolist()) == {100, 101, 102, 103}
+
+
+def test_filter_by_origin_hour_does_not_filter_n_skipped():
+    """n_skipped counts cache files that never became rows, so it is not a
+    per-row quantity and must survive filtering unchanged."""
+    from scripts.probes.ceiling_dataset import filter_by_origin_hour
+
+    out = filter_by_origin_hour(_origin_arrays([7.5, 13.5]), [13.5])
+    assert out["n_skipped"] == 7
+
+
+def test_filter_by_origin_hour_tolerance_spans_the_grid_step():
+    """Origins land on a 30-minute grid, so a request for 13.5 must still match
+    a window a few minutes off rather than silently returning nothing."""
+    from scripts.probes.ceiling_dataset import filter_by_origin_hour
+
+    arrays = _origin_arrays([13.4, 13.5, 7.5], n_per_hour=2)
+    out = filter_by_origin_hour(arrays, [13.5], tol_seconds=900)
+    assert out["n_kept"] == 4  # 13.4 is 360s away, inside the 900s tolerance
+    out_tight = filter_by_origin_hour(arrays, [13.5], tol_seconds=60)
+    assert out_tight["n_kept"] == 2
