@@ -175,6 +175,103 @@ def test_single_plant_falls_back_instead_of_crashing_groupkfold():
     assert res["alpha_selected"]["c"] == [mid] * 4
 
 
+def _ramp_arrays(n, d_vis=32, d_cov=8, horizon=4, seed=0, vision_sees_ramps=True):
+    """Fixture where vision predicts the RAMP and nothing else.
+
+    Smart persistence (SP) is handed a clean clear-sky-scaled forecast. The
+    target is SP plus a ramp term. If `vision_sees_ramps`, the first visual
+    dimension carries that ramp term exactly; otherwise vision is pure noise.
+    Covariates never see it, so any (c)-(b) gain must come through vision, and
+    it must be concentrated in the rows where the ramp is large.
+    """
+    rng = np.random.default_rng(seed)
+    X_vis = rng.normal(size=(n, d_vis)).astype(np.float32)
+    X_cov = rng.normal(size=(n, d_cov)).astype(np.float32)
+
+    # SP must be PREDICTABLE from covariates, as it is in reality: smart
+    # persistence is power-at-origin times a clear-sky ratio, and X_cov carries
+    # both power lags and clearsky. Making it pure noise instead would inflate
+    # set (b)'s error everywhere and flatter every bin equally.
+    scale = np.linspace(1.0, 0.9, horizon, dtype=np.float32)
+    sp = (1.0 + 0.5 * X_cov[:, :1]) * scale[None, :]
+
+    # Heavy-tailed driver: most rows calm, a minority ramping hard, like real
+    # sky. The ramp is LINEAR in this feature so a linear ridge can represent
+    # it -- otherwise the test measures the probe's linearity, not whether the
+    # gain concentrates in ramps.
+    heavy = rng.standard_t(df=3, size=(n, 1)).astype(np.float32)
+    X_vis[:, :1] = heavy
+    ramp = 0.3 * heavy
+
+    Y = sp + ramp
+    Y += rng.normal(scale=0.02, size=Y.shape).astype(np.float32)
+    if not vision_sees_ramps:
+        X_vis = rng.normal(size=(n, d_vis)).astype(np.float32)
+    return {
+        "X_vis": X_vis,
+        "X_cov": X_cov,
+        "Y": Y.astype(np.float32),
+        "Y_mask": np.ones_like(Y, dtype=bool),
+        "SP": sp,
+        "site": np.array([str(i % 7) for i in range(n)], dtype=object),
+        "origin": np.arange(n, dtype=np.int64),
+    }
+
+
+def test_ramp_strata_concentrates_the_gain_in_the_big_ramp_bin():
+    """The thesis in one assertion: if vision only sees ramps, the stratified
+    report must SHOW that, and the flat average must understate it.
+
+    Ramps are a minority of rows, so a real ramp effect barely moves the pooled
+    conditional_rel. Without stratification a genuine result reads as a null.
+    """
+    tr = _ramp_arrays(4000, seed=21)
+    te = _ramp_arrays(1500, seed=22)
+    res = fit_and_score(tr, te, horizon=4)
+    strata = res["ramp"]["conditional_rel"]
+
+    calm, mid, big = strata[0], strata[1], strata[2]
+    for h in range(4):
+        assert big[h] > calm[h], (h, calm[h], big[h])
+    # And the headline pooled number is milder than the ramp bin -- the dilution
+    # that makes stratification necessary in the first place.
+    assert max(res["conditional_rel"]) < max(big), (res["conditional_rel"], big)
+
+
+def test_ramp_strata_is_flat_when_vision_carries_no_ramp_information():
+    """Guard against the stratifier manufacturing a gradient from noise: with
+    uninformative vision every bin must sit at ~0, big ramps included."""
+    tr = _ramp_arrays(4000, seed=23, vision_sees_ramps=False)
+    te = _ramp_arrays(1500, seed=24, vision_sees_ramps=False)
+    res = fit_and_score(tr, te, horizon=4)
+    for b, row in enumerate(res["ramp"]["conditional_rel"]):
+        for h, v in enumerate(row):
+            assert abs(v) < 0.02, (b, h, v)
+
+
+def test_ramp_strata_excludes_undefined_smart_persistence():
+    """Rows with no defined SP must be counted out, not swept into the calm bin.
+
+    SP is undefined when origin clear-sky is below the floor. Those rows have no
+    ramp magnitude at all; landing them in bin 0 would silently dilute exactly
+    the bin used as the comparison baseline.
+    """
+    tr = _ramp_arrays(2000, seed=25)
+    te = _ramp_arrays(800, seed=26)
+    te["SP"][:300, 1] = np.nan
+    res = fit_and_score(tr, te, horizon=4)
+    assert res["ramp"]["n_sp_undefined"][1] == 300
+    assert res["ramp"]["n_sp_undefined"][0] == 0
+    assert sum(b[1] for b in res["ramp"]["counts"]) == 500
+
+
+def test_ramp_block_is_absent_not_null_when_sp_is_not_supplied():
+    """A caller without SP must get an explicit None, never a fabricated zero."""
+    tr, te = _arrays(2000, seed=27), _arrays(500, seed=28)
+    res = fit_and_score(tr, te, horizon=4)
+    assert res["ramp"] is None
+
+
 def test_vis_std_max_flags_a_horizon_whose_visual_block_is_constant():
     """The guard that would have caught the 2026-08-19 h>=6 dead zone.
 
