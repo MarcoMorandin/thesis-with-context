@@ -104,10 +104,28 @@ _MAXS = [
 DENORM = {n: (_MINS[i], _MAXS[i]) for i, n in enumerate(_ORDER)}
 
 # (channel, low_K, high_K) -> R, G, B. All emissive.
+#
+# Ranges are the p0.5-p99.5 of the ACTUAL brightness temperatures over the UK
+# bounding box, sampled across 28 scans spanning both years and all seasons --
+# not the textbook SEVIRI ranges, which are set for the full disc and run far too
+# warm here. The first run used those textbook values and paid for it: measured
+# on 1,500 written frames, WV_073 had 26% of its pixels pinned at 0, IR_108 8%,
+# WV_062 16%. For a water-vapour channel a LOW brightness temperature means
+# moisture and cloud high in the atmosphere, so clipping the cold end destroys
+# exactly the structure the probe is meant to find, in every frame.
+#
+#   channel   actual p0.5-p99.5   old range   clipped low
+#   IR_108      212.7 - 293.2      235-300       7.4%
+#   WV_073      212.6 - 261.4      240-275      23.6%
+#   WV_062      210.7 - 243.7      225-245      15.9%
+#
+# The cost is a coarser quantisation step (WV_073: 0.14 -> 0.20 K per level), but
+# that is still only ~2x the store's own float16 step of 0.086 K, and losing
+# resolution is recoverable where clipping is not.
 RECIPE = [
-    ("IR_108", 235.0, 300.0),  # thermal window: cloud-top temperature
-    ("WV_073", 240.0, 275.0),  # low/mid-level moisture
-    ("WV_062", 225.0, 245.0),  # upper-level flow
+    ("IR_108", 212.0, 294.0),  # thermal window: cloud-top temperature
+    ("WV_073", 212.0, 262.0),  # low/mid-level moisture
+    ("WV_062", 210.0, 244.0),  # upper-level flow
 ]
 CHANNELS = [c for c, _, _ in RECIPE]
 
@@ -193,13 +211,23 @@ def mark_done(fh, stamp: str) -> None:
     fh.flush()
 
 
-def build_rgb(slab: np.ndarray, ch_pos: dict[str, int]) -> np.ndarray:
-    """slab [y, x, variable] -> uint8 [y, x, 3]."""
-    planes = [
-        stretch(to_kelvin(slab[..., ch_pos[name]], name), lo, hi)
-        for name, lo, hi in RECIPE
-    ]
-    return (np.dstack(planes) * 255.0).astype(np.uint8)
+def build_rgb(slab: np.ndarray, ch_pos: dict[str, int]) -> tuple[np.ndarray, int]:
+    """slab [y, x, variable] -> (uint8 [y, x, 3], count of non-finite inputs).
+
+    A handful of archive scans carry NaN pixels. np.clip PROPAGATES NaN and
+    casting NaN to uint8 is undefined behaviour in C, so those pixels used to
+    become unpredictable bytes with nothing but a RuntimeWarning to show for it.
+    They are now pinned to the low end explicitly, and counted, so the run can
+    report how much of the output was affected instead of leaving it to a warning
+    that Python de-duplicates after the first occurrence.
+    """
+    planes, n_bad = [], 0
+    for name, lo, hi in RECIPE:
+        k = to_kelvin(slab[..., ch_pos[name]], name)
+        bad = ~np.isfinite(k)
+        n_bad += int(bad.sum())
+        planes.append(stretch(np.where(bad, lo, k), lo, hi))
+    return (np.dstack(planes) * 255.0).astype(np.uint8), n_bad
 
 
 def main() -> int:
@@ -267,12 +295,13 @@ def main() -> int:
     )
 
     fs = gcsfs.GCSFileSystem(token="anon")
-    written = skipped = 0
+    written = skipped = n_nonfinite = 0
     t0 = time.time()
     pool = ThreadPoolExecutor(max_workers=a.workers)
     done_fh = (out / "_completed.txt").open("a")
 
     for year in [int(y) for y in a.years.split(",")]:
+        t_year = time.time()
         ds = xr.open_zarr(
             fs.get_mapper(BUCKET.format(year=year)), consolidated=True, chunks={}
         )
@@ -359,9 +388,9 @@ def main() -> int:
                     win = slab[cy - r : cy + r, cx - r : cx + r, :]
                     if win.shape[:2] != (CROP, CROP):
                         continue
-                    jobs.append(
-                        (out / f"uk_pv_{sid}" / f"{stamp}.png", build_rgb(win, local))
-                    )
+                    rgb, nb = build_rgb(win, local)
+                    n_nonfinite += nb
+                    jobs.append((out / f"uk_pv_{sid}" / f"{stamp}.png", rgb))
                 # PIL's PNG encoder releases the GIL, so threads genuinely
                 # overlap here; encoding 2.1M frames serially would cost hours.
                 list(pool.map(lambda j: Image.fromarray(j[1]).save(j[0]), jobs))
@@ -369,14 +398,20 @@ def main() -> int:
                 mark_done(done_fh, stamp)
             n = hi
             if (lo // a.block) % 20 == 0:
-                el = time.time() - t0
-                rate = (n + 1) / el if el else 0
+                # Against t_year, not the run-wide t0. `n` restarts at 0 for each
+                # year, so dividing it by run-wide elapsed makes the first tick of
+                # the second year report the whole of the first year's runtime as
+                # if it produced 384 slots: 0.06 slot/s and an 87 h ETA, which
+                # reads as a catastrophic stall rather than a fresh counter.
+                el = time.time() - t_year
+                rate = n / el if el else 0
                 print(
                     f"  {year} {n}/{len(want)} slots  {written} png  "
                     f"{rate:.2f} slot/s  eta {(len(want) - n) / max(rate, 1e-9) / 3600:.1f} h",
                     flush=True,
                 )
 
+    print(f"non-finite source pixels pinned to range low: {n_nonfinite}", flush=True)
     print(
         f"done: {written} written, {skipped} already present, "
         f"{(time.time() - t0) / 60:.1f} min",
