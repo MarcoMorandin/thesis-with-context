@@ -59,6 +59,8 @@ def extract(args: argparse.Namespace) -> None:
         ("video_frames", args.video_frames),
         ("img_size", args.img_size),
         ("stride", args.stride),
+        ("visual_window_hours", args.visual_window_hours),
+        ("visual_frame_spacing_min", args.visual_frame_spacing_min),
     ]:
         if val is not None:
             cfg[key] = val
@@ -70,7 +72,9 @@ def extract(args: argparse.Namespace) -> None:
     print(
         f"[extract] shape cfg: hist_steps={cfg.get('hist_steps')} "
         f"horizon={cfg['horizon']} video_frames={cfg['video_frames']} "
-        f"img_size={cfg['img_size']} stride={cfg.get('stride')}"
+        f"img_size={cfg['img_size']} stride={cfg.get('stride')} "
+        f"window_h={cfg.get('visual_window_hours')} "
+        f"spacing_min={cfg.get('visual_frame_spacing_min')}"
     )
 
     ds = PVRecordDataset(
@@ -185,6 +189,20 @@ def main() -> None:
     p.add_argument("--horizon", type=int, default=None)
     p.add_argument("--video-frames", type=int, default=None)
     p.add_argument("--img-size", type=int, default=None)
+    p.add_argument(
+        "--visual-window-hours",
+        type=float,
+        default=None,
+        help="how far back frames may be drawn from",
+    )
+    p.add_argument(
+        "--visual-frame-spacing-min",
+        type=float,
+        default=None,
+        help="minutes between consecutive frames. None spreads video-frames "
+        "evenly across visual-window-hours. Latents extracted at one spacing "
+        "are NOT valid for another, so give each its own --cache-dir.",
+    )
     p.add_argument("--num-entities", type=int, default=1)
     p.add_argument(
         "--stride",
