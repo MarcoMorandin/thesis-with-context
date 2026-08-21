@@ -53,6 +53,7 @@ class MMTSFMDataModule(LightningDataModule):
         img_size: int = 64,
         imagenet_norm: bool = False,
         visual_window_hours: float = 6.0,  # W5: recency cap on candidate frames
+        visual_frame_spacing_min: float | None = None,  # None -> window / Tv
         vjepa_cache_dir: Optional[str] = None,
         emit_vision: bool = True,  # False for vision-free runs (skip frame decode + latents)
         # pv_record TRAIN window stride. Default None → stride 1 (every step is a
@@ -88,6 +89,7 @@ class MMTSFMDataModule(LightningDataModule):
                 img_channels=self.hparams.img_channels,
                 imagenet_norm=self.hparams.imagenet_norm,
                 visual_window_hours=self.hparams.visual_window_hours,
+                visual_frame_spacing_min=self.hparams.visual_frame_spacing_min,
                 # W4: cross-plant mixing is a TRAIN-time mechanism. val/test keep
                 # N=1 so per-plant protocol metrics + site_id collate are unchanged.
                 num_entities=self.hparams.num_entities if split == "train" else 1,

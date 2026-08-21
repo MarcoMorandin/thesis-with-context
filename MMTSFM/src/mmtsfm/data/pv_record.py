@@ -168,6 +168,7 @@ class PVRecordDataset(Dataset):
         stride: int | None = None,
         future_cov: str = "all",
         visual_window_hours: float = 6.0,
+        visual_frame_spacing_min: float | None = None,
         num_entities: int = 1,
         vjepa_cache_dir: str | None = None,
         emit_vision: bool = True,
@@ -187,6 +188,11 @@ class PVRecordDataset(Dataset):
         self.C_img = int(img_channels)
         self.imagenet_norm = bool(imagenet_norm)
         self.visual_window_hours = float(visual_window_hours)
+        self.visual_frame_spacing_min = (
+            float(visual_frame_spacing_min)
+            if visual_frame_spacing_min is not None
+            else None
+        )
         # W4: number of distinct plants assembled per group (cross-plant mixing).
         # >1 groups disjoint plants from THIS split that share a time window so
         # GroupSelfAttention fuses across entities. Disjointness vs other splits
@@ -268,6 +274,16 @@ class PVRecordDataset(Dataset):
                 self.frame_maps[(str(ds), str(site))] = dict(
                     zip(unix.astype(np.int64).tolist(), idx.tolist())
                 )
+        # Sorted (timestamps, indices) per group. The dict answers "is this
+        # exact instant a frame?"; picking a frame at a REQUESTED spacing needs
+        # nearest-neighbour lookup instead, which needs them ordered.
+        self._frame_grid = {
+            k: (
+                np.array(sorted(v), dtype=np.int64),
+                np.array([v[t] for t in sorted(v)], dtype=np.int64),
+            )
+            for k, v in self.frame_maps.items()
+        }
         self._h5 = None  # opened lazily (h5py handles are not fork-safe)
         self._build_groups()
 
@@ -340,17 +356,46 @@ class PVRecordDataset(Dataset):
         fmap = self.frame_maps.get(key, {})
         hist_ts = item["timestamps"][:T]
         t_now = int(hist_ts[-1])
-        window_sec = int(self.visual_window_hours * 3600)
 
-        # Candidate frame timestamps within visual_window_hours
-        present = [
-            int(t)
-            for t in hist_ts.tolist()
-            if int(t) in fmap and (t_now - window_sec <= int(t) <= t_now)
-        ]
+        # Frames are chosen at a REQUESTED SPACING off the frame grid, not by
+        # intersecting with the power window's timestamps. Selecting from
+        # `hist_ts` was correct while frames existed only where power was
+        # observed, but v2 puts them on their own 15-minute grid: intersecting
+        # would silently snap back to the 30-minute power cadence and ignore
+        # every frame in between, making the cadence unusable as a parameter.
+        # That is the dial the sub-hourly-imagery question turns on.
+        #
+        # Default spacing spreads Tv frames across visual_window_hours, which is
+        # what "8 frames over a 6h window" plainly means; an explicit
+        # visual_frame_spacing_min pins it instead and the span becomes
+        # spacing * (Tv - 1).
+        spacing_min = self.visual_frame_spacing_min or (
+            self.visual_window_hours * 60.0 / Tv
+        )
+        spacing_sec = spacing_min * 60.0
+        # Half a step: a slot takes the nearest frame only if it is closer than
+        # the neighbouring slot's target, so an archive gap leaves that slot
+        # MASKED rather than quietly duplicating a distant frame.
+        tol_sec = spacing_sec / 2.0
 
-        # Most recent Tv frame-bearing steps
-        sel = sorted(present)[-Tv:]
+        grid_ts, grid_idx = self._frame_grid.get(key, (None, None))
+        sel: list[int] = []
+        if grid_ts is not None and len(grid_ts):
+            for k in range(Tv):
+                want = t_now - int(round(k * spacing_sec))
+                p = int(np.searchsorted(grid_ts, want))
+                best, best_d = None, None
+                for c in (p - 1, p):
+                    if 0 <= c < len(grid_ts):
+                        d = abs(int(grid_ts[c]) - want)
+                        if best_d is None or d < best_d:
+                            best, best_d = c, d
+                if best is not None and best_d <= tol_sec:
+                    t_sel = int(grid_ts[best])
+                    fmap.setdefault(t_sel, int(grid_idx[best]))
+                    sel.append(t_sel)
+        # Ascending, newest last, matching the left-pad placement below.
+        sel = sorted(set(sel))[-Tv:]
 
         V = torch.zeros(1, Tv, C, S, S)
         mask_v = torch.zeros(1, Tv)

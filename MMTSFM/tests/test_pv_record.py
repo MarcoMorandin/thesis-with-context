@@ -464,6 +464,105 @@ def test_decode_frame_passes_arrays_through_when_not_png():
     assert np.array_equal(_decode_frame(a, png=False), a)
 
 
+def _spacing_ds(tmp_path, spacing_min, window_h=6.0, frame_step_min=15, gaps=()):
+    """A dataset whose frame grid is FINER than the power grid.
+
+    That is the v2 situation and the one the old code could not express: frames
+    every `frame_step_min`, power every 30 min. `gaps` drops frame timestamps to
+    simulate archive holes.
+    """
+    pytest.importorskip("h5py")
+    import h5py
+    from PIL import Image
+
+    tmp_path = Path(tmp_path)
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    sites = SPLITS["uk_pv"]["train"][:1]
+    parquet = tmp_path / "dataset_all.parquet"
+    _make_parquet(parquet, sites, with_frames=True)
+
+    df = pd.read_parquet(parquet)
+    t0 = pd.to_datetime(df["timestamp_utc"]).min()
+    t1 = pd.to_datetime(df["timestamp_utc"]).max()
+    grid = pd.date_range(t0, t1, freq=f"{frame_step_min}min", tz="UTC")
+    grid = [g for g in grid if g.strftime("%H:%M") not in gaps]
+    stamps = [g.strftime("%Y-%m-%dT%H:%M:%SZ").encode() for g in grid]
+
+    h5 = tmp_path / "v2.h5"
+    import io
+
+    with h5py.File(h5, "w") as f:
+        f.attrs["format"] = "png"
+        g = f.create_group(f"uk_pv_{sites[0]}")
+        ds = g.create_dataset("images", (len(stamps),), dtype=h5py.vlen_dtype(np.uint8))
+        for i in range(len(stamps)):
+            buf = io.BytesIO()
+            Image.fromarray(np.full((16, 16, 3), (i * 3) % 256, np.uint8)).save(
+                buf, format="PNG"
+            )
+            ds[i] = np.frombuffer(buf.getvalue(), dtype=np.uint8)
+        g.create_dataset("timestamps", data=np.array(stamps, dtype="S20"))
+
+    from mmtsfm.data.pv_record import PVRecordDataset
+
+    return PVRecordDataset(
+        split="train",
+        dataset_name="uk_pv",
+        data_path=str(parquet),
+        h5_path=str(h5),
+        img_size=16,
+        img_channels=3,
+        video_frames=8,
+        visual_window_hours=window_h,
+        visual_frame_spacing_min=spacing_min,
+    )
+
+
+def test_frames_are_picked_at_the_requested_spacing_not_the_power_grid(tmp_path):
+    """The dial the sub-hourly thesis turns on.
+
+    Frames exist every 15 min; power every 30. Asking for 15-minute spacing must
+    deliver it. The previous code intersected candidates with the power window's
+    timestamps and so could only ever return 30-minute steps, silently ignoring
+    every frame in between.
+    """
+    d = _spacing_ds(tmp_path, spacing_min=15)
+    dt = d[0]["video_delta_t"][0].tolist()
+    ages = [round(x / 60) for x in dt]
+    assert ages == [105, 90, 75, 60, 45, 30, 15, 0], ages
+    assert d[0]["mask_visual"].sum().item() == 8
+
+
+def test_spacing_defaults_to_spreading_frames_across_the_window(tmp_path):
+    """No explicit spacing -> 8 frames across a 6h window = 45 min apart."""
+    d = _spacing_ds(tmp_path, spacing_min=None, window_h=6.0)
+    ages = [round(x / 60) for x in d[0]["video_delta_t"][0].tolist()]
+    assert ages == [315, 270, 225, 180, 135, 90, 45, 0], ages
+
+
+def test_wider_spacing_reaches_further_back_from_the_same_files(tmp_path):
+    """Spacing is a parameter over one extraction: the same frames on disk serve
+    a 2h window or a 6h one, so the cadence question needs no re-download."""
+    near = _spacing_ds(tmp_path / "a", spacing_min=15)
+    far = _spacing_ds(tmp_path / "b", spacing_min=45)
+    a = [round(x / 60) for x in near[0]["video_delta_t"][0].tolist()]
+    b = [round(x / 60) for x in far[0]["video_delta_t"][0].tolist()]
+    assert max(a) == 105 and max(b) == 315, (a, b)
+
+
+def test_archive_gap_masks_its_slot_rather_than_duplicating_a_frame(tmp_path):
+    """A missing frame must leave the slot masked. Snapping to the nearest
+    surviving frame would hand the encoder the same picture twice and label it
+    with two different ages -- a fabricated 'nothing moved' observation."""
+    d = _spacing_ds(tmp_path, spacing_min=15, gaps={"11:30", "11:15"})
+    item = d[0]
+    mask = item["mask_visual"][0].tolist()
+    ages = [round(x / 60) for x in item["video_delta_t"][0].tolist()]
+    # Whatever is masked, no two ACTIVE slots may share a timestamp.
+    active = [a for a, m in zip(ages, mask, strict=False) if m > 0]
+    assert len(active) == len(set(active)), (ages, mask)
+
+
 def test_prep_frame_keeps_three_channels_distinct():
     """uk_pv v2 is RGB where v1 was grayscale. A path that collapsed or
     replicated channels would throw away two thirds of the new signal."""
