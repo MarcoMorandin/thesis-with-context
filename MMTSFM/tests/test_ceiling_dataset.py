@@ -438,6 +438,86 @@ def test_build_arrays_future_covariate_nan_does_not_leak_into_x_cov(future_nan_c
     assert np.isfinite(out["X_cov"]).all()
 
 
+def test_solar_basis_is_the_projection_factor_clipped_at_the_horizon():
+    """cos(zenith) is the physical projection onto a horizontal plane, and a sun
+    below the horizon must contribute 0 rather than a negative number that a
+    linear fit would happily use as signal."""
+    from common import config
+
+    from scripts.probes.ceiling_dataset import (
+        _CS_IDX,
+        _Z_IDX,
+        N_SOLAR_BASIS,
+        solar_basis,
+    )
+
+    row = np.zeros(len(config.COV_COLS), dtype=np.float32)
+    row[_Z_IDX] = 0.0 / 90.0  # sun overhead
+    row[_CS_IDX] = 0.8
+    b = solar_basis(row)
+    assert len(b) == N_SOLAR_BASIS
+    assert b[0] == pytest.approx(1.0)
+    assert b[1] == pytest.approx(1.0)
+    assert b[2] == pytest.approx(0.64)
+    assert b[3] == pytest.approx(0.8)
+
+    row[_Z_IDX] = 120.0 / 90.0  # sun 30 deg below the horizon
+    assert solar_basis(row)[0] == 0.0
+
+
+def test_solar_basis_lets_a_linear_fit_track_the_diurnal_curve(tmp_path):
+    """The reason the basis exists.
+
+    Power follows roughly clearsky * cos(zenith), which a linear model in
+    zenith and clearsky cannot represent. If set (b) cannot bend, a rich visual
+    block that encodes solar geometry can -- and the gap is then credited to
+    "vision" when it is functional capacity, not information.
+    """
+    from common import config
+
+    from scripts.probes.ceiling_dataset import solar_basis
+
+    rng = np.random.default_rng(0)
+    n = 600
+    z = rng.uniform(0, 100, n)
+    cs = np.clip(np.cos(np.deg2rad(z)), 0, None) * 0.9 + 0.05
+    y = cs * np.clip(np.cos(np.deg2rad(z)), 0, None) + rng.normal(scale=0.01, size=n)
+
+    rows = np.zeros((n, len(config.COV_COLS)), dtype=np.float32)
+    from scripts.probes.ceiling_dataset import _CS_IDX, _Z_IDX
+
+    rows[:, _Z_IDX] = z / 90.0
+    rows[:, _CS_IDX] = cs
+
+    def rmse(X):
+        X = np.column_stack([X, np.ones(len(X))])
+        w, *_ = np.linalg.lstsq(X, y, rcond=None)
+        return float(np.sqrt(((X @ w - y) ** 2).mean()))
+
+    linear_only = rmse(rows[:, [_Z_IDX, _CS_IDX]])
+    with_basis = rmse(
+        np.column_stack(
+            [rows[:, [_Z_IDX, _CS_IDX]], np.stack([solar_basis(r) for r in rows])]
+        )
+    )
+    # The basis must recover most of what linear terms cannot express.
+    assert with_basis < linear_only / 3, (linear_only, with_basis)
+
+
+def test_solar_basis_columns_are_present_and_toggleable(tiny):
+    """Width must change with the flag, or the A/B would silently compare a
+    configuration against itself."""
+    from scripts.probes.ceiling_dataset import N_SOLAR_BASIS
+
+    cache, pq = tiny
+    on = build_arrays(cache, pq, sites={"3018"}, horizon=12)
+    off = build_arrays(
+        cache, pq, sites={"3018"}, horizon=12, solar_basis_features=False
+    )
+    assert on["X_cov"].shape[1] - off["X_cov"].shape[1] == N_SOLAR_BASIS * (1 + 12)
+    assert on["Y"].shape == off["Y"].shape
+
+
 def _origin_arrays(hours, n_per_hour=4, d_vis=6, d_cov=3, horizon=2):
     """Rows at known UTC times of day, each row tagged by its index everywhere.
 

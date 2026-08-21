@@ -449,6 +449,7 @@ def run_g0(
     max_files: int | None = None,
     alphas: Sequence[float] | None = None,
     origin_hours: Sequence[float] | None = None,
+    solar_basis_features: bool = True,
 ) -> dict:
     """Assemble train/test arrays from the real cache and write the report.
 
@@ -471,10 +472,20 @@ def run_g0(
     assert not (train_sites & test_sites), "train/test plants must be disjoint"
 
     tr = build_arrays(
-        Path(cache_dir), Path(parquet_path), train_sites, horizon, max_files=max_files
+        Path(cache_dir),
+        Path(parquet_path),
+        train_sites,
+        horizon,
+        max_files=max_files,
+        solar_basis_features=solar_basis_features,
     )
     te = build_arrays(
-        Path(cache_dir), Path(parquet_path), test_sites, horizon, max_files=max_files
+        Path(cache_dir),
+        Path(parquet_path),
+        test_sites,
+        horizon,
+        max_files=max_files,
+        solar_basis_features=solar_basis_features,
     )
     if origin_hours:
         tr = filter_by_origin_hour(tr, origin_hours)
@@ -484,6 +495,7 @@ def run_g0(
     res["n_skipped_train"] = int(tr["n_skipped"])
     res["n_skipped_test"] = int(te["n_skipped"])
     res["origin_hours"] = list(origin_hours) if origin_hours else None
+    res["solar_basis_features"] = bool(solar_basis_features)
     if origin_hours:
         res["n_dropped_by_origin_hour"] = {
             "train": tr["n_dropped_by_origin_hour"],
@@ -508,6 +520,13 @@ if __name__ == "__main__":
         help="comma-separated ridge penalties; default is logspace(-2, 10, 13)",
     )
     ap.add_argument(
+        "--no-solar-basis",
+        action="store_true",
+        help="drop the nonlinear solar terms from set (b). Only for measuring how "
+        "much of vision's apparent gain was functional capacity rather than "
+        "information -- the default is ON.",
+    )
+    ap.add_argument(
         "--origin-hours",
         default=None,
         help="comma-separated UTC times of day (fractional, e.g. 13.5) to keep; "
@@ -517,7 +536,16 @@ if __name__ == "__main__":
     a = ap.parse_args()
     grid = [float(v) for v in a.alphas.split(",")] if a.alphas else None
     hours = [float(v) for v in a.origin_hours.split(",")] if a.origin_hours else None
-    r = run_g0(a.cache_dir, a.parquet, a.out, a.horizon, a.max_files, grid, hours)
+    r = run_g0(
+        a.cache_dir,
+        a.parquet,
+        a.out,
+        a.horizon,
+        a.max_files,
+        grid,
+        hours,
+        solar_basis_features=not a.no_solar_basis,
+    )
     print("vis_std_max (0 => horizon is  :", [round(v, 4) for v in r["vis_std_max"]])
     print("  NOT a measurement)          :")
     print("conditional (c)-(b) per horizon:", [round(v, 5) for v in r["conditional"]])

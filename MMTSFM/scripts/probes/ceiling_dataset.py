@@ -40,6 +40,36 @@ POWER_LAG_OFFSETS: tuple[int, ...] = (0, -1, -2, -3, -6, -12)
 # is numerically meaningless. Same floor dataset.md uses to NaN `csi`.
 CLEARSKY_FLOOR = 50.0
 
+# Indices into COV_COLS, with the fixed scalings config applies before storage.
+_Z_IDX, _Z_SCALE = config.COV_COLS.index("solar_zenith"), 90.0
+_CS_IDX, _CS_SCALE = config.COV_COLS.index("clearsky_ghi"), 1000.0
+N_SOLAR_BASIS = 4
+
+
+def solar_basis(cov_row: np.ndarray) -> np.ndarray:
+    """Nonlinear functions of solar geometry, for predictor set (b).
+
+    Set (b) carries solar_zenith and clearsky_ghi at every future step, but a
+    LINEAR ridge can only use them linearly -- and PV output is not a linear
+    function of either. A 4096-dimensional visual block, which encodes solar
+    geometry richly through brightness temperature, can approximate that curve
+    where (b) cannot. Any such gap is then attributed to "vision", when it is
+    really a difference in functional capacity rather than in information.
+
+    Giving (b) the same curvature closes that route. What survives afterwards is
+    what vision knows that geometry does not: cloud.
+
+    cos(zenith) is the physically meaningful quantity (it is the projection
+    factor onto a horizontal plane), clipped at 0 because a sun below the
+    horizon contributes nothing; the squared and product terms let the fit bend
+    the clear-sky envelope into the plant's actual response.
+    """
+    z_deg = float(cov_row[_Z_IDX]) * _Z_SCALE
+    cs = float(cov_row[_CS_IDX])
+    cos_z = float(np.cos(np.deg2rad(z_deg)))
+    cos_z = max(cos_z, 0.0)
+    return np.array([cos_z, cos_z * cos_z, cs * cs, cs * cos_z], dtype=np.float32)
+
 
 def parse_cache_key(name: str) -> tuple[str, str, int]:
     """`uk_pv_7239_1546300800` -> `("uk_pv", "7239", 1546300800)`.
@@ -57,6 +87,7 @@ def build_arrays(
     horizon: int = 12,
     step_seconds: int = 1800,
     max_files: int | None = None,
+    solar_basis_features: bool = True,
 ) -> dict[str, np.ndarray]:
     """Design matrices for one split's plants.
 
@@ -119,7 +150,13 @@ def build_arrays(
     n_cov = len(config.COV_COLS)
     n = len(parsed)
     X_vis = np.zeros((n, 4 * 1024), dtype=np.float32)
-    X_cov = np.zeros((n, 2 * n_lags + n_cov + horizon * len(det_idx)), dtype=np.float32)
+    n_sb = N_SOLAR_BASIS if solar_basis_features else 0
+    # [lags][lag validity][history covs][history solar basis]
+    # [per-horizon: deterministic covs + solar basis]
+    X_cov = np.zeros(
+        (n, 2 * n_lags + n_cov + n_sb + horizon * (len(det_idx) + n_sb)),
+        dtype=np.float32,
+    )
     Y = np.zeros((n, horizon), dtype=np.float32)
     Y_mask = np.zeros((n, horizon), dtype=bool)
     site_out = np.empty(n, dtype=object)
@@ -169,6 +206,10 @@ def build_arrays(
         # with NaN instead of just contributing a zeroed, uninformative feature.
         cov_base = 2 * n_lags
         X_cov[i, cov_base : cov_base + n_cov] = np.nan_to_num(s.cov[idx])
+        if n_sb:
+            X_cov[i, cov_base + n_cov : cov_base + n_cov + n_sb] = solar_basis(
+                np.nan_to_num(s.cov[idx])
+            )
 
         # Below this the clear-sky ratio is numerically meaningless and the
         # scaling explodes; dataset.md uses the same 50 W/m^2 floor to NaN `csi`.
@@ -176,7 +217,8 @@ def build_arrays(
         Y_origin[i] = y0
         sp_ok = (not np.isnan(y0)) and float(cs0) >= CLEARSKY_FLOOR
 
-        det_base = cov_base + n_cov
+        det_base = cov_base + n_cov + n_sb
+        step = len(det_idx) + n_sb
         for h in range(1, horizon + 1):
             j = idx + h
             if j >= len(s.timestamps):
@@ -188,12 +230,15 @@ def build_arrays(
             Y_mask[i, h - 1] = True
             if sp_ok and not np.isnan(s.clearsky[j]):
                 SP[i, h - 1] = float(y0) * float(s.clearsky[j]) / float(cs0)
-            off = det_base + (h - 1) * len(det_idx)
+            off = det_base + (h - 1) * step
             # A target can be valid (norm_power present) while a covariate at
             # the same future step is NaN (e.g. an observed-weather column with
             # a gap independent of the power gap) -- nan_to_num for the same
             # reason as the history block above.
-            X_cov[i, off : off + len(det_idx)] = np.nan_to_num(s.cov[j][det_idx])
+            fut = np.nan_to_num(s.cov[j])
+            X_cov[i, off : off + len(det_idx)] = fut[det_idx]
+            if n_sb:
+                X_cov[i, off + len(det_idx) : off + step] = solar_basis(fut)
 
     return {
         "X_vis": X_vis,
