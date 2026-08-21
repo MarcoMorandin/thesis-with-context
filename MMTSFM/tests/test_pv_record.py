@@ -374,3 +374,104 @@ def test_vjepa_cache_emits_Z(tmp_path):
     assert "Z" in item
     assert item["Z"].shape == (1, 4, 9, 16)
     assert torch.allclose(item["Z"][0], dummy)
+
+
+def _v2_h5(path, group, stamps, side=16, png=True):
+    """A v2-style H5: PNG-encoded bytes plus the authoritative timestamps."""
+    import io
+
+    import h5py
+    from PIL import Image
+
+    with h5py.File(path, "w") as f:
+        if png:
+            f.attrs["format"] = "png"
+        g = f.create_group(group)
+        ds = g.create_dataset("images", (len(stamps),), dtype=h5py.vlen_dtype(np.uint8))
+        for i in range(len(stamps)):
+            buf = io.BytesIO()
+            # Distinct per frame so a wrong index is detectable.
+            arr = np.full((side, side, 3), (i * 7) % 256, np.uint8)
+            Image.fromarray(arr).save(buf, format="PNG")
+            ds[i] = np.frombuffer(buf.getvalue(), dtype=np.uint8)
+        g.create_dataset("timestamps", data=np.array(stamps, dtype="S20"))
+
+
+def test_frame_map_comes_from_h5_not_parquet(tmp_path):
+    """Night frames have no parquet row, so a parquet-derived map hides them.
+
+    This is the whole point of the non-HRV re-extraction: a 07:30 origin's
+    6h-backward visual window is 01:30-07:30, and every frame in it sits at a
+    timestamp the power table never records.
+    """
+    pytest.importorskip("h5py")
+    from mmtsfm.data.pv_record import _frame_maps_from_h5
+
+    h5 = tmp_path / "v2.h5"
+    stamps = [
+        b"2019-01-01T02:00:00Z",
+        b"2019-01-01T02:15:00Z",
+        b"2019-01-01T08:00:00Z",
+    ]
+    _v2_h5(h5, "uk_pv_1234", stamps)
+    png, maps = _frame_maps_from_h5(str(h5))
+
+    assert png is True
+    fmap = maps[("uk_pv", "1234")]
+    assert len(fmap) == 3
+    # 02:00 UTC on 2019-01-01 -- a night frame, never a power row.
+    assert fmap[1546308000] == 0
+    assert fmap[1546308900] == 1
+    assert fmap[1546329600] == 2
+
+
+def test_frame_maps_absent_h5_returns_empty_so_caller_can_fall_back(tmp_path):
+    from mmtsfm.data.pv_record import _frame_maps_from_h5
+
+    png, maps = _frame_maps_from_h5(str(tmp_path / "nope.h5"))
+    assert png is False
+    assert maps == {}
+
+
+def test_decode_frame_round_trips_png_bytes(tmp_path):
+    """v2 stores PNG bytes. Handing those to _prep_frame unchanged would treat a
+    1-D byte vector as an image and silently produce nonsense."""
+    h5py = pytest.importorskip("h5py")
+    import io
+
+    from PIL import Image
+
+    from mmtsfm.data.pv_record import _decode_frame
+
+    want = np.random.default_rng(0).integers(0, 255, (16, 16, 3), dtype=np.uint8)
+    buf = io.BytesIO()
+    Image.fromarray(want).save(buf, format="PNG")
+    h5 = tmp_path / "x.h5"
+    with h5py.File(h5, "w") as f:
+        ds = f.create_dataset("d", (1,), dtype=h5py.vlen_dtype(np.uint8))
+        ds[0] = np.frombuffer(buf.getvalue(), dtype=np.uint8)
+    with h5py.File(h5, "r") as f:
+        got = _decode_frame(f["d"][0], png=True)
+    assert got.shape == (16, 16, 3)
+    assert np.array_equal(got, want)
+
+
+def test_decode_frame_passes_arrays_through_when_not_png():
+    """v1 files must keep working: no format attr means raw arrays."""
+    from mmtsfm.data.pv_record import _decode_frame
+
+    a = np.full((8, 8), 42, np.uint8)
+    assert np.array_equal(_decode_frame(a, png=False), a)
+
+
+def test_prep_frame_keeps_three_channels_distinct():
+    """uk_pv v2 is RGB where v1 was grayscale. A path that collapsed or
+    replicated channels would throw away two thirds of the new signal."""
+    from mmtsfm.data.pv_record import _prep_frame
+
+    arr = np.zeros((8, 8, 3), np.uint8)
+    arr[..., 0], arr[..., 1], arr[..., 2] = 10, 120, 240
+    t = _prep_frame(arr, side=8, c_img=3, imagenet_norm=False)
+    assert t.shape == (3, 8, 8)
+    means = [float(t[c].mean()) for c in range(3)]
+    assert means[0] < means[1] < means[2], means

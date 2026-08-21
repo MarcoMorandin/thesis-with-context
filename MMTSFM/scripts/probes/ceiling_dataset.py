@@ -36,6 +36,10 @@ from common.windows import SiteSeries, build_site_series  # noqa: E402
 # on the site's own grid (uk_pv: 30 min, 1h, 1.5h, 3h, 6h ago for -1,-2,-3,-6,-12).
 POWER_LAG_OFFSETS: tuple[int, ...] = (0, -1, -2, -3, -6, -12)
 
+# Clear-sky irradiance below which the persistence ratio clearsky(t+h)/clearsky(t)
+# is numerically meaningless. Same floor dataset.md uses to NaN `csi`.
+CLEARSKY_FLOOR = 50.0
+
 
 def parse_cache_key(name: str) -> tuple[str, str, int]:
     """`uk_pv_7239_1546300800` -> `("uk_pv", "7239", 1546300800)`.
@@ -120,6 +124,15 @@ def build_arrays(
     Y_mask = np.zeros((n, horizon), dtype=bool)
     site_out = np.empty(n, dtype=object)
     origin_out = np.zeros(n, dtype=np.int64)
+    # Smart persistence: "the clouds do not change", i.e. today's power scaled by
+    # the clear-sky ratio between origin and target. NaN where it is undefined.
+    # It is NOT a reference here -- no reported skill is measured against it. It
+    # is the RAMP LABEL: |Y - SP| is how far reality departed from an unchanged
+    # sky, which is exactly the event vision is supposed to see coming. Plain
+    # |Y(t+h) - Y(t)| would not do, because over a 6h horizon that quantity is
+    # dominated by the diurnal cycle rather than by cloud.
+    SP = np.full((n, horizon), np.nan, dtype=np.float32)
+    Y_origin = np.full(n, np.nan, dtype=np.float32)
 
     n_skipped = 0
 
@@ -157,6 +170,12 @@ def build_arrays(
         cov_base = 2 * n_lags
         X_cov[i, cov_base : cov_base + n_cov] = np.nan_to_num(s.cov[idx])
 
+        # Below this the clear-sky ratio is numerically meaningless and the
+        # scaling explodes; dataset.md uses the same 50 W/m^2 floor to NaN `csi`.
+        y0, cs0 = s.y[idx], s.clearsky[idx]
+        Y_origin[i] = y0
+        sp_ok = (not np.isnan(y0)) and float(cs0) >= CLEARSKY_FLOOR
+
         det_base = cov_base + n_cov
         for h in range(1, horizon + 1):
             j = idx + h
@@ -167,6 +186,8 @@ def build_arrays(
                 continue
             Y[i, h - 1] = float(y)
             Y_mask[i, h - 1] = True
+            if sp_ok and not np.isnan(s.clearsky[j]):
+                SP[i, h - 1] = float(y0) * float(s.clearsky[j]) / float(cs0)
             off = det_base + (h - 1) * len(det_idx)
             # A target can be valid (norm_power present) while a covariate at
             # the same future step is NaN (e.g. an observed-weather column with
@@ -181,6 +202,8 @@ def build_arrays(
         "Y_mask": Y_mask,
         "site": site_out,
         "origin": origin_out,
+        "SP": SP,
+        "Y_origin": Y_origin,
         "n_skipped": n_skipped,
     }
 
@@ -227,4 +250,6 @@ def filter_by_origin_hour(
     return out
 
 
-_ROW_KEYS = frozenset({"X_vis", "X_cov", "Y", "Y_mask", "site", "origin"})
+_ROW_KEYS = frozenset(
+    {"X_vis", "X_cov", "Y", "Y_mask", "site", "origin", "SP", "Y_origin"}
+)

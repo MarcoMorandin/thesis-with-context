@@ -58,6 +58,50 @@ def _steps_per_day(df: pd.DataFrame) -> int:
     return int(round(pd.Timedelta(days=1) / step))
 
 
+def _frame_maps_from_h5(h5_path: str) -> tuple[bool, dict[tuple[str, str], dict]]:
+    """(is_png_encoded, {(dataset, site): {unix_ts -> frame_idx}}) read from the H5.
+
+    The H5's `timestamps` is the authoritative record of which frames exist;
+    the parquet only knows about rows where power was observed. Returns an empty
+    map when the file is absent so callers can fall back.
+    """
+    import os
+
+    if not h5_path or not os.path.exists(h5_path):
+        return False, {}
+    import h5py
+
+    maps: dict[tuple[str, str], dict] = {}
+    with h5py.File(h5_path, "r") as f:
+        png = f.attrs.get("format") == "png"
+        for name in f:
+            if "timestamps" not in f[name]:
+                continue
+            raw = f[name]["timestamps"][:]
+            ts = pd.to_datetime(
+                [t.decode() if isinstance(t, bytes) else str(t) for t in raw],
+                utc=True,
+                format="mixed",
+            )
+            unix = ((ts - pd.Timestamp(0, tz="UTC")) // pd.Timedelta("1s")).to_numpy()
+            ds_name, site = name.rsplit("_", 1)
+            maps[(ds_name, site)] = dict(
+                zip(unix.astype(np.int64).tolist(), range(len(unix)))
+            )
+    return png, maps
+
+
+def _decode_frame(raw: np.ndarray, png: bool) -> np.ndarray:
+    """One stored frame -> H,W[,C] uint8. v2 keeps PNG bytes, v1 kept arrays."""
+    if not png:
+        return np.asarray(raw)
+    import io
+
+    from PIL import Image
+
+    return np.asarray(Image.open(io.BytesIO(np.asarray(raw, dtype=np.uint8).tobytes())))
+
+
 def _prep_frame(
     arr: np.ndarray, side: int, c_img: int, imagenet_norm: bool
 ) -> torch.Tensor:
@@ -199,18 +243,31 @@ class PVRecordDataset(Dataset):
             future_cov=future_cov,
         )
 
-        # per-(dataset, site) {unix_ts -> frame_idx} from the canonical pointer
-        fdf = df[df[FRAME_IDX_COL].notna() & (df[FRAME_IDX_COL] >= 0)]
-        self.frame_maps: dict[tuple[str, str], dict[int, int]] = {}
-        for (ds, site), g in fdf.groupby([config.DATASET_COL, config.SITE_COL]):
-            ts = pd.DatetimeIndex(g[config.TIME_COL])
-            if ts.tz is None:
-                ts = ts.tz_localize("UTC")
-            unix = ((ts - pd.Timestamp(0, tz="UTC")) // pd.Timedelta("1s")).to_numpy()
-            idx = g[FRAME_IDX_COL].to_numpy().astype(np.int64)
-            self.frame_maps[(str(ds), str(site))] = dict(
-                zip(unix.astype(np.int64).tolist(), idx.tolist())
-            )
+        # per-(dataset, site) {unix_ts -> frame_idx}. Preferred source is the H5's
+        # own `timestamps`, because the parquet only has rows where POWER was
+        # observed -- daylight -- while v2 also holds night frames that no parquet
+        # row points at. Building this map from the parquet would leave every one
+        # of those frames unreachable, which is precisely the half of the visual
+        # channel the non-HRV re-extraction exists to recover: a 07:30 origin's
+        # 6h-backward window is 01:30-07:30 and lands entirely in them.
+        self.png_frames, self.frame_maps = _frame_maps_from_h5(self.h5_path)
+        if not self.frame_maps:
+            # No H5 (unit fixtures, latents-only runs): fall back to the parquet
+            # pointer. image_h5_index < 0 marks a row whose frame does not exist
+            # -- 500 EUMETSAT archive gaps on uk_pv -- and must not become a
+            # lookup into frame 0.
+            fdf = df[df[FRAME_IDX_COL].notna() & (df[FRAME_IDX_COL] >= 0)]
+            for (ds, site), g in fdf.groupby([config.DATASET_COL, config.SITE_COL]):
+                ts = pd.DatetimeIndex(g[config.TIME_COL])
+                if ts.tz is None:
+                    ts = ts.tz_localize("UTC")
+                unix = (
+                    (ts - pd.Timestamp(0, tz="UTC")) // pd.Timedelta("1s")
+                ).to_numpy()
+                idx = g[FRAME_IDX_COL].to_numpy().astype(np.int64)
+                self.frame_maps[(str(ds), str(site))] = dict(
+                    zip(unix.astype(np.int64).tolist(), idx.tolist())
+                )
         self._h5 = None  # opened lazily (h5py handles are not fork-safe)
         self._build_groups()
 
@@ -309,7 +366,8 @@ class PVRecordDataset(Dataset):
             for idx_sel, t in enumerate(sel):
                 j = pad_len + idx_sel
                 if images is not None:
-                    V[0, j] = _prep_frame(images[fmap[t]], S, C, self.imagenet_norm)
+                    raw = _decode_frame(images[fmap[t]], self.png_frames)
+                    V[0, j] = _prep_frame(raw, S, C, self.imagenet_norm)
                 mask_v[0, j] = 1.0
                 video_delta_t[0, j] = float(t_now - t)
 

@@ -186,6 +186,66 @@ def _cv_predictions(
     return out
 
 
+def ramp_strata(
+    y: np.ndarray,
+    sp: np.ndarray,
+    mask: np.ndarray,
+    pred_b: list[np.ndarray],
+    pred_c: list[np.ndarray],
+    n_bins: int = 3,
+) -> dict:
+    """`conditional_rel` split by how big a ramp each test row actually was.
+
+    A ramp is reality departing from an unchanged sky, so the magnitude is
+    |Y - SP| against smart persistence (see ceiling_dataset). Rows where SP is
+    undefined -- origin clear-sky below the 50 W/m^2 floor -- are reported
+    separately rather than pooled into the calmest bin, which is where they would
+    otherwise land and would quietly dilute it.
+
+    The fits are NOT redone per bin. Set (b) and set (c) are trained once on all
+    training rows, exactly as for the headline numbers; only the EVALUATION is
+    split. Refitting per bin would answer a different and much weaker question
+    ("can a model specialised to ramps use vision?") and would leak the ramp
+    label, which is a function of the target, into training.
+
+    Bins are per-horizon quantiles of the ramp magnitude, so each carries a
+    comparable number of rows even though ramp size shrinks with horizon.
+    """
+    horizon = y.shape[1]
+    cond = [[float("nan")] * horizon for _ in range(n_bins)]
+    counts = [[0] * horizon for _ in range(n_bins)]
+    ramp_mean = [[float("nan")] * horizon for _ in range(n_bins)]
+    n_undefined = []
+
+    for h in range(horizon):
+        m = mask[:, h] & np.isfinite(sp[:, h])
+        n_undefined.append(int((mask[:, h] & ~np.isfinite(sp[:, h])).sum()))
+        if m.sum() < n_bins:
+            continue
+        r = np.abs(y[m, h] - sp[m, h])
+        yb, pb, pc = y[m, h], pred_b[h][m], pred_c[h][m]
+        # Rank-based, not value-based: ramp magnitude is heavily right-skewed, so
+        # equal-width bins would put almost every row in the calmest one.
+        edges = np.quantile(r, np.linspace(0, 1, n_bins + 1))
+        edges[-1] = np.inf
+        for b in range(n_bins):
+            sel = (r >= edges[b]) & (r < edges[b + 1])
+            if sel.sum() == 0:
+                continue
+            counts[b][h] = int(sel.sum())
+            ramp_mean[b][h] = float(r[sel].mean())
+            cond[b][h] = _relative_reduction(
+                float(np.abs(pb[sel] - yb[sel]).mean()),
+                float(np.abs(pc[sel] - yb[sel]).mean()),
+            )
+    return {
+        "conditional_rel": cond,
+        "counts": counts,
+        "ramp_mean": ramp_mean,
+        "n_sp_undefined": n_undefined,
+    }
+
+
 def _pick(
     fold_preds: list[list[np.ndarray]],
     y: np.ndarray,
@@ -213,6 +273,7 @@ def fit_and_score(
     horizon: int = 12,
     n_folds: int = 5,
     alphas: Sequence[float] | None = None,
+    n_ramp_bins: int = 3,
 ) -> dict:
     alphas = tuple(DEFAULT_ALPHAS if alphas is None else alphas)
     out: dict = {"alpha_grid": list(alphas)}
@@ -249,6 +310,9 @@ def fit_and_score(
     spread: list[float] = []
     spread_rel: list[float] = []
     vis_std: list[float] = []
+    # Kept so the ramp stratification can re-score the SAME fitted predictions
+    # per stratum instead of refitting, which would leak the ramp label.
+    test_pred: dict[str, list[np.ndarray]] = {w: [] for w in sets}
 
     for h in range(horizon):
         sel = m_tr[:, h]
@@ -285,6 +349,7 @@ def fit_and_score(
             grid = _penalty_grid(w, alphas, alphas[chosen["b"]] if w == "c" else None)
             solver = _RidgeSolver(Xtr[w][sel], yh, blocks[w])
             pred = solver.predict(Xte[w], grid[chosen[w]])
+            test_pred[w].append(pred)
             nmae[w].append(
                 float(np.abs(pred[m_te[:, h]] - y_te[m_te[:, h], h]).mean())
                 if m_te[:, h].any()
@@ -345,6 +410,17 @@ def fit_and_score(
     out["cv_spread"] = spread
     out["cv_spread_rel"] = spread_rel
     out["vis_std_max"] = vis_std
+
+    # Ramp stratification. Optional so that fixtures and any caller predating
+    # the SP column still work -- absence means "not computed", which the report
+    # states explicitly rather than implying a null result.
+    sp = arrays_test.get("SP")
+    if sp is not None:
+        out["ramp"] = ramp_strata(
+            y_te, sp, m_te, test_pred["b"], test_pred["c"], n_bins=n_ramp_bins
+        )
+    else:
+        out["ramp"] = None
     return out
 
 
