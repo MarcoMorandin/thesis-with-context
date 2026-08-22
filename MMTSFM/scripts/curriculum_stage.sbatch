@@ -58,8 +58,29 @@ declare -a CMD=(
 # Requeue-safety: FULL-STATE resume of THIS same stage from its own last.ckpt.
 # Takes precedence — a mid-stage requeue continues where it left off.
 [[ "${RESUME:-1}" == "1" && -f "${STAGE_DIR}/last.ckpt" ]] && CMD+=("ckpt_path=${STAGE_DIR}/last.ckpt")
+# DATA_DIR was required by this script but never reached Hydra, so `data=ukpv`'s
+# default won and every run read the same directory regardless. Harmless while
+# one dataset existed; wrong the moment a second did. The latents would come
+# from the requested cache while mask_visual and video_delta_t -- still computed
+# live from the frame grid -- came from whatever h5 the default pointed at. For
+# a dawn origin against a daylight-only h5 that yields mask_visual = 0: the
+# model is told vision is invalid on exactly the windows whose latents carry the
+# most information, and nothing errors.
+CMD+=("data.data_dir=${DATA_DIR}")
 # Pre-extracted V-JEPA latents (skipped for S1 which sets emit_vision=false).
 [[ -n "${VJEPA_CACHE:-}" && -d "${VJEPA_CACHE}" ]] && CMD+=("data.vjepa_cache_dir=${VJEPA_CACHE}")
+# The cache records the data_dir it was built from. Frames and latents must come
+# from the same place or the masks describe a different frame set than the
+# latents encode -- the failure above, made loud.
+if [[ -n "${VJEPA_CACHE:-}" && -f "${VJEPA_CACHE}/_extract_meta.txt" ]]; then
+  _cache_data_dir="$(sed -n 's/.*data_dir=\([^|]*\).*/\1/p' "${VJEPA_CACHE}/_extract_meta.txt")"
+  if [[ -n "$_cache_data_dir" && "$_cache_data_dir" != "$DATA_DIR" ]]; then
+    echo "FATAL: latent cache was built from '${_cache_data_dir}' but DATA_DIR is" >&2
+    echo "  '${DATA_DIR}'. mask_visual/video_delta_t would describe a different" >&2
+    echo "  frame set than the latents encode. Point both at the same data." >&2
+    exit 1
+  fi
+fi
 # n_visual_context_steps per dataset (patch=16 alignment) — see slurm_curriculum.sh:nvis_for.
 [[ -n "${N_VIS:-}" ]] && CMD+=("model.vision_cfg.n_visual_context_steps=${N_VIS}")
 [[ -n "${SP_REF:-}" ]] && CMD+=("model.sp_reference_path=${SP_REF}")
