@@ -63,3 +63,11 @@ backbone_lr_ratio: 0.1       # LR multiplier for pretrained Chronos-2 backbone
 results_dir: results
 results_tag: mmtsfm_s2_ukpv
 sp_reference_path: null
+
+# Forced vision-OFF pass over the SAME weights during the test epoch, reported as
+# dNMAE/dNRMSE alongside the normal metrics. That isolates how much the trained
+# model RELIES on vision from how much its training recipe happened to help --
+# two things a stage-to-stage SS comparison cannot separate. Declared here rather
+# than left to `+model.compute_marginal_gain=true` so the documented override
+# works and the option is discoverable.
+compute_marginal_gain: false
