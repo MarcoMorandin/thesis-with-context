@@ -30,7 +30,12 @@ CKPT_DIR="${CKPT_DIR:-${TEAM_SCRATCH}/checkpoints/curriculum}"
 RESULTS_DIR="${RESULTS_DIR:-${REPO_ROOT}/baselines/results}"
 VJEPA_CACHE_ROOT="${VJEPA_CACHE_ROOT:-/leonardo_work/IscrC_MTSFM/vjepa_cache}"
 VJEPA_ARCH="${VJEPA_ARCH:-vit_large}"
-VJEPA_CACHE_VER="${VJEPA_CACHE_VER:-${VJEPA_ARCH}_f8_s224}"
+# Cache of record: v2 non-HRV frames, 8 frames over 6 h => 45-min spacing. The
+# bare `${VJEPA_ARCH}_f8_s224` name still exists on /leonardo_work and holds the
+# OBSOLETE v1 HRV latents, so defaulting to it would silently train a wave on
+# grayscale daylight-only imagery. Verified 2026-08-25: this is the cache the
+# s2b run of record consumed.
+VJEPA_CACHE_VER="${VJEPA_CACHE_VER:-${VJEPA_ARCH}_f8_s224_nonhrv_sp45}"
 MODEL_CFG="${MODEL_CFG:-vision_chronos2_grassmann}"
 # uk_pv is the primary cross-plant benchmark and the only protocol-compliant
 # curriculum target. goes_pvdaq is intentionally NOT run here: knowledge/protocol.md
@@ -84,13 +89,44 @@ STAGES=(s1 s2a s2b s3)
 # START_STAGE: resume the curriculum from a later stage (e.g. after S1 is done).
 # RUN_STAGES = STAGES from START_STAGE onward; STAGE_BEFORE_START = the stage just
 # before it, whose best.ckpt warm-starts START_STAGE (no in-submission dependency).
+# END_STAGE: stop the chain early. The curriculum terminates at s2b whenever s3 is
+# a reported regression rather than a stage to improve — without this knob every
+# arm pays ~24 h for a stage already known to hurt cross-plant generalization.
 START_STAGE="${START_STAGE:-s1}"
-RUN_STAGES=(); STAGE_BEFORE_START=""; _seen=0
+END_STAGE="${END_STAGE:-s3}"
+RUN_STAGES=(); STAGE_BEFORE_START=""; _seen=0; _past_end=0
 for _st in "${STAGES[@]}"; do
   [[ "$_st" == "$START_STAGE" ]] && _seen=1
-  if [[ $_seen -eq 1 ]]; then RUN_STAGES+=("$_st"); else STAGE_BEFORE_START="$_st"; fi
+  if [[ $_seen -eq 1 && $_past_end -eq 0 ]]; then RUN_STAGES+=("$_st")
+  elif [[ $_seen -eq 0 ]]; then STAGE_BEFORE_START="$_st"; fi
+  [[ "$_st" == "$END_STAGE" ]] && _past_end=1
 done
 [[ ${#RUN_STAGES[@]} -gt 0 ]] || { echo "FATAL: START_STAGE='${START_STAGE}' not in [${STAGES[*]}]"; exit 1; }
+printf '%s\n' "${STAGES[@]}" | grep -qx "$END_STAGE" || {
+  echo "FATAL: END_STAGE='${END_STAGE}' not in [${STAGES[*]}]"; exit 1; }
+
+# ---- arm identity -----------------------------------------------------------
+# Wave runs submit several chains that differ ONLY in MODEL_CFG and SEED. Both
+# must reach the run tag AND the checkpoint dir, or the chains share a results
+# JSON and a checkpoint dir and silently clobber each other mid-run.
+#
+# The canonical (grassmann, seed 42) arm keeps the historical bare tag, because
+# `mmtsfm_<stage>_<ds>.json` is referenced by the A03 gate, ALL_RESULTS and the
+# manuscript; every other combination gets an explicit suffix.
+variant_slug() {
+  case "$1" in
+    vision_chronos2_grassmann)    echo grassmann;;
+    vision_chronos2_timeselfattn) echo selfattn;;
+    vision_chronos2)              echo base;;
+    *)                            echo "${1#vision_chronos2_}";;
+  esac
+}
+ARM_SUFFIX=""
+if [[ "$MODEL_CFG" != "vision_chronos2_grassmann" || "$SEED" != "42" ]]; then
+  ARM_SUFFIX="_$(variant_slug "$MODEL_CFG")_s${SEED}"
+fi
+
+DRY_RUN="${DRY_RUN:-0}"
 
 dcfg_for() { case "$1" in uk_pv) echo ukpv;; goes_pvdaq) echo goespvdaq;; *) echo "$1";; esac; }
 # n_visual_context_steps per dataset for patch=16: the 6h visual window spans
@@ -138,7 +174,8 @@ fi
 # ---------------------------------------------------------------------------
 # Cluster: submit 4 dependency-linked jobs per dataset.
 # ---------------------------------------------------------------------------
-command -v sbatch >/dev/null || { echo "FATAL: sbatch not found (run on a Leonardo login node, or SMOKE=1)"; exit 1; }
+[[ "$DRY_RUN" == "1" ]] || command -v sbatch >/dev/null || {
+  echo "FATAL: sbatch not found (run on a Leonardo login node, or SMOKE=1/DRY_RUN=1)"; exit 1; }
 
 for ds in $DATASETS; do
   dcfg="$(dcfg_for "$ds")"
@@ -158,16 +195,17 @@ for ds in $DATASETS; do
   # a previous submission). prev_jid stays empty → no in-submission dependency.
   prev_jid=""; prev_ckpt=""
   if [[ -n "$STAGE_BEFORE_START" ]]; then
-    prev_ckpt="${CKPT_DIR}/${ds}_${STAGE_BEFORE_START}/best.ckpt"
+    prev_ckpt="${CKPT_DIR}/${ds}_${STAGE_BEFORE_START}${ARM_SUFFIX}/best.ckpt"
     [[ -f "$prev_ckpt" ]] || echo "  ! WARN: warm-start ckpt missing: ${prev_ckpt} — ${START_STAGE} will start from scratch"
   fi
   for st in "${RUN_STAGES[@]}"; do
-    tag="mmtsfm_${st}_${dcfg}"
-    stage_dir="${CKPT_DIR}/${ds}_${st}"
+    tag="mmtsfm_${st}_${dcfg}${ARM_SUFFIX}"
+    stage_dir="${CKPT_DIR}/${ds}_${st}${ARM_SUFFIX}"
     bs="${BATCH_SIZE:-${ST_BATCH[$st]}}"    # global override else per-stage default
     accum="${ST_ACCUM[$st]}"
     declare -a DEP=(); [[ -n "$prev_jid" ]] && DEP=(--dependency="afterok:${prev_jid}")
     exports="ALL,STAGE=${st},DS=${ds},DCFG=${dcfg},MODEL_CFG=${MODEL_CFG},TAG=${tag}"
+    exports+=",STAGE_DIR=${stage_dir}"
     exports+=",DATA_DIR=${DATA_DIR},CKPT_DIR=${CKPT_DIR},RESULTS_DIR=${RESULTS_DIR}"
     exports+=",MAX_EPOCHS=${ST_EPOCHS[$st]},BATCH_SIZE=${bs},ACCUM=${accum},NUM_WORKERS=${NUM_WORKERS}"
     exports+=",SEED=${SEED},TRAIN_STRIDE=${TRAIN_STRIDE},N_VIS=${nvis}"
@@ -175,8 +213,25 @@ for ds in $DATASETS; do
     [[ -n "$sp_ref" ]]   && exports+=",SP_REF=${sp_ref}"
     # S1 skips vision (emit_vision=false); no cache needed there.
     [[ "$st" != "s1" ]]  && exports+=",VJEPA_CACHE=${vjepa_cache}"
+    # Forced vision-off pass at test time, reported as dNMAE/dNRMSE (incl. ramp)
+    # beside the normal metrics. Wave runs need it on EVERY arm.
+    [[ "${MARGINAL_GAIN:-0}" == "1" ]] && exports+=",MARGINAL_GAIN=1"
 
     declare -a MAIL=(); [[ -n "$MAIL_USER" ]] && MAIL=(--mail-type="${MAIL_TYPE}" --mail-user="${MAIL_USER}")
+    if [[ "$DRY_RUN" == "1" ]]; then
+      # Print the plan instead of submitting. Lets a wave be inspected for tag /
+      # checkpoint-dir collisions before five afterok chains hit the queue, and
+      # is the seam the wave-safety tests assert against.
+      echo "  --- would submit ---"
+      echo "    STAGE=${st}"
+      echo "    TAG=${tag}"
+      echo "    STAGE_DIR=${stage_dir}"
+      echo "    MODEL_CFG=${MODEL_CFG}"
+      echo "    SEED=${SEED}"
+      echo "    EXPORTS=${exports}"
+      prev_jid="dry"; prev_ckpt="${stage_dir}/best.ckpt"
+      continue
+    fi
     jid="$(sbatch --parsable "${DEP[@]}" "${MAIL[@]}" \
       --job-name="${tag}" --account="${ACCOUNT}" --partition="${PARTITION}" \
       --time="${ST_TIME[$st]}" --export="${exports}" \
