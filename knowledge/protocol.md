@@ -22,7 +22,7 @@ We use a **Disjoint Cross-Plant Protocol** rather than a few-shot context-matchi
 * **Val Plants**: Disjoint from Train; used for hyperparameter tuning and early stopping.
 * **Test Plants**: Disjoint from both Train and Val; used strictly for final reporting.
 
-Numerical track data of record: `/leonardo_scratch/fast/IscrC_MTSFM/data/dataset_all.parquet` (+ frames `images_all.h5`, pointer `image_h5_index`) — both `uk_pv` and `goes_pvdaq` are now fully present (knowledge/dataset.md §1.0). For the numerical track the split is generated once (seed 42, per-dataset 70/15/15, `bad_site_flag` sites excluded) and committed to `baselines/configs/splits.json`; disjointness is asserted at every load (`baselines/common/splits.py`). **`goes_pvdaq` (10 plants) must additionally be evaluated leave-one-plant-out** — its 15 % test share is 1-2 plants and per-plant variance would dominate a fixed split (see knowledge/baselines.md §4.1).
+Numerical track data of record: `/leonardo_scratch/fast/IscrC_MTSFM/data_v2/dataset_all.parquet` (+ frames `images_all.h5`, pointer `image_h5_index`; the `_v2` is the directory, the filenames are canonical — knowledge/dataset.md §1.0) — both `uk_pv` and `goes_pvdaq` are now fully present (knowledge/dataset.md §1.0). For the numerical track the split is generated once (seed 42, per-dataset 70/15/15, `bad_site_flag` sites excluded) and committed to `baselines/configs/splits.json`; disjointness is asserted at every load (`baselines/common/splits.py`). **`goes_pvdaq` (10 plants) must additionally be evaluated leave-one-plant-out** — its 15 % test share is 1-2 plants and per-plant variance would dominate a fixed split (see knowledge/baselines.md §4.1).
 
 ### Committed plant assignment — `uk_pv` (numerical track)
 
@@ -100,11 +100,58 @@ All models must output forecasts in the normalized range. Metrics must be comput
    \text{NRMSE} = \sqrt{\frac{1}{M \cdot H} \sum_{i=1}^{M} \sum_{h=1}^{H} \left( \frac{\hat{y}_{i,h} - y_{i,h}}{C_i} \right)^2}
    \]
 
-3. **Forecast Skill Score (SS)**:
+3. **Ramp NMAE / Ramp NRMSE** — NMAE and NRMSE restricted to the **ramp subset**, a **P0
+   metric** ([scope.md](scope.md)). Renewable forecasting is judged on sudden changes; an
+   aggregate error that improves while the ramp column worsens is not an improvement.
+
+   The subset is a property of the **data**, never of a model — computed once per evaluation
+   split and shared by every model, exactly as
+   `baselines/common/runner.compute_ramp_thresholds` implements it:
+
+   * **Step delta**: \(\Delta_{i,h} = |y_{i,h} - y_{i,h-1}|\), where \(h=1\) uses the **last
+     history step** as its predecessor.
+   * **Validity**: `mask_future · daylight · prev_mask` — both endpoints of the difference
+     must be observed and in daylight.
+   * **Threshold**: the **top decile** (0.9 quantile) of the valid \(\Delta\) values, taken
+     **per plant** over the *whole* test set. A ramp step is a valid step with
+     \(\Delta \ge\) that plant's threshold.
+   * **Aggregation**: per-plant macro-average, matching NMAE/NRMSE.
+
+   Deriving thresholds per model — or per evaluation pass — scores different models on
+   different subsets and makes the comparison meaningless. When a model is scored twice
+   (e.g. a forced vision-off pass), **both passes use the same subsets**; MMTSFM's evaluator
+   derives them once from the vision-on pass and shares them
+   (`eval/protocol_eval.py::_ramp_masks`).
+
+   ⚠ Only tiers 0–3 and MMTSFM are protocol-aligned here. The T4–T6 ramp figures come from
+   native, non-aligned evaluation windows (`n_steps` of 417k–5.6M against the protocol's
+   165,295) and are **not comparable** — see [baselines.md](baselines.md).
+
+4. **Forecast Skill Score (SS)**:
    Relative improvement over the Smart Persistence baseline. **The headline SS is NRMSE-based** (matches knowledge/baselines.md §4.2 and the `baselines/` implementation); an NMAE-based SS may be reported as a secondary column but must be labeled as such:
    \[
    \text{Skill Score} = 1 - \frac{\text{NRMSE}_{\text{Model}}}{\text{NRMSE}_{\text{Smart Persistence}}}
    \]
+
+### 5.1 Pre-registered decision rules
+
+A rule that selects itself after seeing the data is not a rule. Any comparison whose
+outcome changes a design decision records its rule **here, before the runs launch**.
+
+**A03 — Grassmann mixer vs. TimeSelfAttention** (registered 2026-08-25, before wave 1):
+
+> Swap the temporal mixer **iff** self-attention's ramp NMAE beats Grassmann's by more than
+> the seed floor, **and** its skill score does not regress by more than the seed floor.
+> Ramp win + skill-score win → swap. Ramp win + flat skill score → swap. A ramp win bought
+> by a skill-score collapse → do not swap.
+>
+> **seed floor** = max( the MMTSFM 3-seed sd for that configuration, 2 x iTransformer's
+> 3-seed sd ) — the latter being **0.0011** on ramp NMAE and **0.0037** on skill score. The
+> borrowed lower bound stops an unusually tight sample from making a null look decisive.
+
+Deltas inside the floor are "no measurable difference at n=3", which is itself a result
+about the operator, not a licence to pick the nicer number. Full context:
+`.scratch/ramp-gap/map.md`.
 
 ---
 

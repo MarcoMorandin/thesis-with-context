@@ -526,7 +526,7 @@ DATASETS="uk_pv goes_pvdaq" sbatch scripts/run_all_mmtsfm.sh
 ## Datasets
 
 PV forecasting is the sole scope. All experiments of record use the consolidated
-**dataset of record** at `/leonardo_scratch/fast/IscrC_MTSFM/data/` (`dataset_all.parquet` +
+**dataset of record** at `/leonardo_scratch/fast/IscrC_MTSFM/data_v2/` (`dataset_all.parquet` +
 `images_all.h5`, frame pointer `image_h5_index`), under the disjoint cross-plant
 protocol (see *Evaluation Protocol*). Additional public PV datasets are listed as
 **optional pretraining / external-validation** sources, not as the reporting
