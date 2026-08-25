@@ -172,9 +172,22 @@ initialized modules corrupt pretrained residual streams.
 | Stage | Fusion | Vision | Chronos | Purpose |
 |-------|--------|--------|---------|---------|
 | **S1** | — (vision skipped) | off | trainable + Grassmann warmup (2000 steps) | TS pretraining; anchor the mixer before it can corrupt the residual stream |
-| **S2a** | late | V-JEPA last-4 unfrozen | frozen | learn the V-JEPA→Chronos mapping against a stable late-fusion target |
+| **S2a** | late | V-JEPA last-4 unfrozen *(intended — see ⚠ below)* | frozen | learn the V-JEPA→Chronos mapping against a stable late-fusion target |
 | **S2b** | interleaved | V-JEPA re-frozen | frozen except mixer | teach the mixer cross-modal (TS↔visual) geometry |
-| **S3** | interleaved | progressive unfreeze | all trainable | full joint fine-tuning |
+| **S3** | interleaved | progressive unfreeze *(intended — see ⚠ below)* | all trainable | full joint fine-tuning |
+
+> ⚠ **The V-JEPA unfreeze never happens in the runs of record.**
+> `slurm_curriculum.sh` exports `VJEPA_CACHE` for s2a/s2b/s3 → `data.vjepa_cache_dir`
+> is set → `_unpack_batch` populates `video_latents` and leaves `video=None` → both
+> fusion branches in `vision_chronos2.py` take `if video_latents is not None:
+> video_tokens = video_latents` and **never call the encoder**.
+> `_apply_vision_unfreeze_policy` and `on_train_epoch_start`'s progressive unfreeze
+> flip `requires_grad` on modules that are outside the autograd graph, so they receive
+> zero gradient. **V-JEPA is frozen at its torch.hub weights in every stage**, and was
+> never adapted to satellite imagery. Side effect: `_vjepa_finetuned` flips `True`, so
+> `on_save_checkpoint` stops stripping the ~1.2 GB encoder from s2a/s3 checkpoints for
+> weights that never changed. To actually fine-tune the encoder, drop
+> `data.vjepa_cache_dir` for that stage and pay the live-encode cost.
 
 Stage overrides live in `MMTSFM/configs/stage/{s1,s2a,s2b,s3}.yaml`. Each stage warm-starts
 (weights only, via `init_ckpt`) from the previous stage's `best.ckpt`.
@@ -206,5 +219,23 @@ Facts confirmed by test or run log, not by design intent:
 
 - **Checkpoint integrity** — checkpoints do not reproduce their in-process scores when
   re-scored fresh. In-process numbers are the record; there is no post-hoc re-scoring path.
-- **Measured lift** — on `uk_pv`, both the vision and the Grassmann arms show ≈ 0 lift over
-  the TS-only arm. See [../report/BASELINE_TEST_REPORT.md](../report/BASELINE_TEST_REPORT.md).
+- **Measured lift (updated 2026-08-25, post-retrain)** — vision is no longer ≈ 0. The
+  forced vision-off pass on s2b's own weights (`mmtsfm_s2b_ukpv_marginal.json`,
+  `compute_marginal_gain=true`) gives ΔNMAE `0.00200` (2.7 % rel.) and ΔNRMSE `0.00232`
+  (2.1 % rel.), positive on **14/14** test plants, ≈ 4–5 σ against the 3-seed
+  iTransformer noise floor (sd NMAE 0.00047). That is **+0.0101 SS of the +0.0197 s2b
+  holds over s1** — roughly half the curriculum gain. Supersedes the ≈ 0.4 % figure in
+  [specs/2026-08-19-visual-fusion-diagnosis.md](specs/2026-08-19-visual-fusion-diagnosis.md)
+  §1, which was measured on the pre-retrain s2b (SS 0.5188).
+- **Grassmann lift is still unmeasured** — `ablations.md` A03 (Grassmann vs
+  TimeSelfAttention) has never run, though the arm ships in
+  `scripts/run_all_mmtsfm.sh::ABLATIONS_DEFAULT` as `selfattn_interleaved`.
+- **Interleaved path drops the context attention mask** — `vision_chronos2.py` sets
+  `all_mask = torch.ones(...)` instead of the `attention_mask` returned by
+  `_prepare_patched_context`. Night rows are NaN on the reindexed grid, so all-night
+  16-step patches exist and get unmasked in s2b/s3 but not in s1/s2a. Low impact on
+  `uk_pv`, but it means the s2b-vs-s2a delta is not fusion-only.
+- **No vision-off prediction dump** — `ProtocolEvaluator.update` calls `_store_batch`
+  only when `vision_off=False`, so no `pred_off` npz is written and
+  `probes/localize.decompose_by_horizon` has no data to run on. Blocks the per-horizon
+  visual decomposition (G1).

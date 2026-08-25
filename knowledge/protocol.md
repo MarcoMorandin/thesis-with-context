@@ -35,11 +35,18 @@ Numerical track data of record: `/leonardo_scratch/fast/IscrC_MTSFM/data/dataset
 | **Test** | 14 | 172 656 | 171 543 | Final reporting only — never seen in fit |
 | _excluded_ | 2 (bad) | — | — | `7239`, `8587` (`bad_site_flag`) |
 
-Exact `site_id` membership (source of truth: `baselines/configs/splits.json`):
+Exact `site_id` membership — **source of truth is `baselines/configs/splits.json`**;
+the lists below are a transcription of it, verified 2026-08-25. (An earlier revision
+of this file carried a *different*, stale assignment that placed `3432 7315 7756 8066
+9191` in test; every run of record used `splits.json`, so that list was wrong, not the
+runs.)
 
-* **Train (69)**: `10048 10367 10512 10589 10630 10702 10840 10843 11042 11287 12495 12642 13309 13311 13390 13773 14394 14467 14531 14649 14859 14924 16216 16921 18161 26811 26831 26844 26846 26848 26869 26879 26904 26919 27054 3149 3175 3333 3770 3872 4090 6427 6493 6618 6669 6675 6827 6838 6892 6966 6975 7017 7051 7088 7338 7359 7378 7401 7412 7498 7521 7533 7547 7608 7651 7674 7834 7836 9153`
-* **Validation (15)**: `6075 6481 6498 6732 7019 7356 7648 10973 12826 13057 16474 16769 18249 26901 26970`
-* **Test (14)**: `3432 6648 7315 7756 8066 9191 10793 11176 13388 13817 18989 26854 26933 27020`
+* **Train (69)**: `10048 10367 10512 10589 10630 10702 10840 10843 11042 12495 12826 13309 13311 13390 13773 14394 14467 14531 14649 14859 14924 16216 16921 18161 26811 26831 26844 26846 26848 26869 26879 26904 26919 26970 27054 3149 3175 3770 3872 4090 6427 6481 6493 6618 6669 6675 6827 6838 6892 6966 6975 7017 7051 7338 7356 7359 7378 7401 7412 7498 7521 7547 7608 7651 7674 7834 8066 9153 9191`
+* **Validation (15)**: `10973 13057 16474 16769 18249 26901 3432 6075 6498 6732 7019 7088 7315 7533 7756`
+* **Test (14)**: `10793 11176 11287 12642 13388 13817 18989 26854 26933 27020 3333 6648 7648 7836`
+
+Every protocol-aligned result JSON (`n_steps = 165295`, `n_plants = 14`) carries
+exactly these 14 test plants — MMTSFM stages and tiers 0–4 alike.
 
 The `goes_pvdaq` companion split (used only when its dataset is in scope) is 7 train / 2 val / 1 test (sites: train `1202 1277 1278 1283 1289 1367 1420`, val `1203 51`, test `36`), and is additionally rotated leave-one-plant-out per §4.1 of knowledge/baselines.md. **`goes_pvdaq` is now fully downloaded** (10 plants, 104,792 rows, 2019-01-01 → 2019-09-30 UTC, 15-min, `(256,256,3)` RGB frames, 1.8–408 kW capacities). ⚠ The new dataset flags `goes_pvdaq` sites `1283` and `51` with `bad_site_flag`, yet the committed split still lists them (train/val) — reconcile (regenerate the split excluding the 2 bad sites → 8 usable) before running `goes_pvdaq`. The runs documented in `baselines/results/ALL_RESULTS.md` are restricted to `uk_pv` (`--train-datasets uk_pv --eval-datasets uk_pv`) — they predate the `goes_pvdaq` download and the consolidated `thesis-dataset`.
 

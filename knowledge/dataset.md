@@ -22,22 +22,34 @@ datasets (`uk_pv` and `goes_pvdaq` — `goes_pvdaq` is now fully present, see §
 ```
 /leonardo_scratch/fast/IscrC_MTSFM/data/
 ├── dataset_all.parquet     # 1,337,654 rows × 35 cols (uk_pv + goes_pvdaq); see §1bis
-└── images_all.h5           # 27 GB, 110 per-site HDF5 groups <dataset>_<site>
+└── images_all.h5           # v2 non-HRV, 98 GB, 110 per-site HDF5 groups <dataset>_<site>
 ```
+
+Local sync (verified 2026-08-25): `/Volumes/dataset/dataset/` holds
+`dataset_all_v2.parquet` (92,099,550 B) + `images_all_v2.h5` (105,237,477,184 B).
+The numeric table is unchanged from the runs of record — rebuilding the test
+windows from it reproduces `n_steps = 165,295` exactly — but the `_v2` filenames
+differ from the `dataset_all.parquet` name recorded in every result manifest.
+**Confirm which filename the Leonardo `data/` dir now exposes before repointing
+`DATA_DIR`.**
 
 `images_all.h5` packs every frame referenced by the table. Each per-site group
 `<dataset>_<site>` holds `images` + `timestamps` (`|S20` ISO-8601, e.g.
-`2019-01-01T08:00:00Z`). Frames are aligned to table rows by the canonical
-**`image_h5_index`** pointer — a *local-to-group* index into
+`2019-01-01T08:00:00Z`). **v2 stores PNG-encoded bytes** (variable-length
+`object` dtype), not raw arrays — `pv_record._decode_frame` detects this via
+`_frame_maps_from_h5` and decodes with PIL. Frames are aligned to table rows by
+the canonical **`image_h5_index`** pointer — a *local-to-group* index into
 `images_all.h5[<dataset>_<site>]["images"]`, timestamp-exact, valid for **both**
-datasets (verified row-by-row).
+datasets (verified row-by-row). The frame grid is denser than the power grid, so
+`PVRecordDataset` builds its lookup from the H5's own `timestamps`, not from the
+parquet pointer (§2).
 
 #### 1.0a Per-dataset specs
 
 | Dataset | Sites | Rows | Valid power steps | Cadence | Span (UTC) | Frame tensor | Capacity | Region |
 | :--- | :---: | :---: | :---: | :---: | :--- | :--- | :--- | :--- |
-| `uk_pv` | 100 | 1,232,862 | 1,217,399 | 30-min | 2019-01-01 → 2020-12-31 | `(N,128,128)` uint8 grayscale | 1.5–4.0 kW (residential rooftop) | UK (lat 50.7–57.8, lon −5.6–0.5) |
-| `goes_pvdaq` | 10 | 104,792 | 103,451 | 15-min | 2019-01-01 → 2019-09-30 | `(N,256,256,3)` uint8 RGB | 1.8–408 kW (residential→utility) | US (lat 36.0–39.9, lon −115.2…−75.0) |
+| `uk_pv` | 100 | 1,232,862 | 1,217,399 | 30-min (power) / **15-min (frames)** | 2019-01-01 → 2020-12-31 | `(128,128,3)` uint8 RGB, PNG | 1.5–4.0 kW (residential rooftop) | UK (lat 50.7–57.8, lon −5.6–0.5) |
+| `goes_pvdaq` | 10 | 104,792 | 103,451 | 15-min | 2019-01-01 → 2019-09-30 | `(256,256,3)` uint8 RGB, PNG | 1.8–408 kW (residential→utility) | US (lat 36.0–39.9, lon −115.2…−75.0) |
 
 Quality flags (`dataset_all.parquet`): `bad_site_flag` on **`uk_pv` 7239, 8587**
 and **`goes_pvdaq` 1283, 51**; `outage_flag` 15,486; `stuck_flag` 1,318;
@@ -72,18 +84,67 @@ Splits for this track are generated once (seed 42) and committed to `baselines/c
 
 ---
 
-## 2. Frames (`images_all.h5`)
+## 2. Frames (`images_all.h5`) — **v2, non-HRV**
 
 Frames live in `images_all.h5` as per-site HDF5 groups `<dataset>_<site>`, each with
-`images` (`uint8`) + `timestamps` (`|S20` ISO-8601), addressed by `image_h5_index`
-(§1.0):
+`images` (PNG bytes, `object` dtype) + `timestamps` (`|S20` ISO-8601), addressed by
+`image_h5_index` (§1.0). **110 groups, 4,103,892 frames, 98 GB.**
 
-* `uk_pv` — `(N, 128, 128)` single-channel satellite crops, 30-min daylight cadence.
-* `goes_pvdaq` — `(N, 256, 256, 3)` RGB satellite frames, 15-min daylight cadence.
+| | `uk_pv` | `goes_pvdaq` |
+|---|---|---|
+| Decoded frame | `(128, 128, 3)` uint8 RGB | `(256, 256, 3)` uint8 RGB |
+| Encoding | PNG, ~20 KB/frame | PNG, ~79 KB/frame |
+| Cadence | **15-min** | 15-min |
+| Frames/site | 39,991 (uniform, all 100 sites) | 7,537–12,655 |
+| Diurnal coverage (UTC) | **02:00–16:00**, every day | **10:00–23:00** |
+| Span | 2019-01-01 → 2020-12-31 | 2019-01-01 → 2019-09-30 |
 
-Normalize to `[0, 1]` on load (÷255); average-pool to a smaller side when a model
-needs one. A frame is valid (`mask_visual = 1`) on a step iff that step has a row with
-a matching `image_h5_index`/timestamp (daylight); night/outage steps have no frame.
+### 2.1 Non-HRV: the three channels are real, and they work at night
+
+v2 replaced the earlier single-channel HRV crops. **This supersedes any doc,
+comment, or memory describing `uk_pv` frames as grayscale or daylight-only.**
+Measured on `uk_pv_10793` (2026-08-25):
+
+* **Three genuinely distinct bands.** Inter-channel correlation R–G 0.91, R–B 0.67,
+  G–B 0.83; mean `|R−G|` 16.1 DN, `|G−B|` 24.5 DN. A grayscale-replicated frame
+  would give correlation 1.0 and difference 0. `pv_record._prep_frame` therefore
+  takes the native 3-channel path — **no gray→RGB replication**, chroma features are
+  live.
+* **Night frames carry structure.** December pre-dawn (02:00–05:00 UTC, well before
+  UK sunrise) frames have mean 134 / std 37, versus midday mean 123 / std 38. These
+  are IR bands, not visible, so cloud fields are observable through the night. This
+  is exactly what the non-HRV re-extraction was for.
+* **Advection decorrelates in ~2 h.** Frame-to-frame mean absolute difference is
+  8.3 DN at Δt = 15 min and 35.3 DN at Δt = 2 h, against a within-frame std of
+  38.6 DN. Cloud-motion information is effectively exhausted by ~2 h ahead — i.e.
+  horizon steps `h ≲ 4` on the `uk_pv` 30-min grid. Treat any claimed visual gain at
+  `h > 4` as suspect.
+
+### 2.2 Visual coverage of the scored windows
+
+Measured by rebuilding the protocol test windows from `dataset_all_v2.parquet`
+(14 test plants, `T=672`, `H=12`, `stride=H`) and running
+`PVRecordDataset._load_vision`'s slot-selection rule (8 frames, 45-min spacing,
+±22.5-min tolerance) against the H5 grid. Reproduces `n_steps = 165,295` exactly:
+
+| Origin (UTC) | Windows | Mean frames filled | Windows with 0 frames | Share of scored steps |
+|---|---:|---:|---:|---:|
+| 07:30 | 10,004 | 7.68 / 8 | 3.9 % | **70.7 %** |
+| 13:30 |  9,960 | 7.67 / 8 | 3.8 % | 29.3 % |
+
+`stride = H` admits only two origin times; the 01:30 and 19:30 origins are dropped
+by `min_future_valid` (no daylight in their horizon). **96.1 % of scored windows
+carry all 8 frames**; only 3.7 % of scored steps have no visual input at all.
+
+> Retired claim: an earlier note held that "all 07:30 origins are a blank-frame
+> embedding", diluting every vision number ~2×. That was true of the v1 HRV
+> daylight-only archive. It is **false for v2** — the 07:30 window (02:15–07:30) is
+> fully covered by IR frames.
+
+Normalize to `[0, 1]` on load (÷255). `pv_record` then applies ImageNet mean/std
+(`data.imagenet_norm: true`) because V-JEPA 2's own transform does — note the
+`visual_encoder.VisualEncoder.forward` docstring still says "normalized to [0, 1]",
+which is stale; the code is correct.
 
 ---
 
