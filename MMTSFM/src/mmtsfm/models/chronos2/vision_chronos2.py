@@ -855,16 +855,42 @@ class VisionChronos2Model(nn.Module):
 
             # Full sequence: [B, T_ctx + n_vis + T_fut, d]
             T_fut = future_embeds_mm.shape[1]
+            T_M = T_ctx - n_vis  # macro region: context patches with no visual partner
             all_embeds = torch.cat([interleaved_ctx, future_embeds_mm], dim=1)
             modality_mask_fut = torch.zeros(B, T_fut, dtype=torch.long, device=device)
             modality_mask = torch.cat([modality_mask_ctx, modality_mask_fut], dim=1)
 
-            # All interleaved positions are valid
-            all_mask = torch.ones(B, T_ctx + n_vis + T_fut, device=device, dtype=dtype)
+            # Interleave the CONTEXT attention mask the same way the tokens were
+            # interleaved. This path used to hand the encoder all-ones, discarding
+            # `attention_mask` from _prepare_patched_context (the late and numeric
+            # paths never did). `build_site_series` reindexes onto a regular grid, so
+            # night steps are NaN and — at input_patch_size 16, an 8-hour patch —
+            # whole patches can be unobserved; they were being presented as valid
+            # tokens for temporal mixing. Note the mask is ALSO a patch feature, so
+            # the embedding always reflected it; only the mixing/attention side was
+            # wrong, which is why the symptom was subtle rather than catastrophic.
+            ctx_mask = attention_mask.to(dtype)  # [B, T_ctx]
+            macro_mask = ctx_mask[:, :T_M]
+            refine_mask = torch.stack(
+                [
+                    ctx_mask[:, T_M:],  # the TS token of each (ts, vis) pair
+                    torch.ones(
+                        B, n_vis, device=device, dtype=dtype
+                    ),  # its visual partner
+                ],
+                dim=2,
+            ).reshape(B, 2 * n_vis)
+            all_mask = torch.cat(
+                [
+                    macro_mask,
+                    refine_mask,
+                    torch.ones(B, T_fut, device=device, dtype=dtype),
+                ],
+                dim=1,
+            )
             all_group_ids = group_ids
 
             # Position IDs: TS and vis tokens at same step share position
-            T_M = T_ctx - n_vis
             position_ids = build_interleaved_position_ids(
                 T_M, n_vis, T_fut, device
             ).expand(B, -1)
