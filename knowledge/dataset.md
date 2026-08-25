@@ -13,25 +13,39 @@ No ETL or raw data processing code should be present in the model or baseline co
 
 ## 1. Physical Location and Directory Structure
 
-### 1.0 Experiment dataset of record — `/leonardo_scratch/fast/IscrC_MTSFM/data/`
+### 1.0 Experiment dataset of record — `/leonardo_scratch/fast/IscrC_MTSFM/data_v2/`
 
 All experiments run against the **consolidated, experiment-ready dataset**: one
 flat numerical table plus one packed image archive covering **both** numerical-track
 datasets (`uk_pv` and `goes_pvdaq` — `goes_pvdaq` is now fully present, see §1.0a):
 
+Verified on the cluster 2026-08-25. The `_v2` is the **directory** name; the files
+inside keep the canonical names:
+
 ```
-/leonardo_scratch/fast/IscrC_MTSFM/data/
-├── dataset_all.parquet     # 1,337,654 rows × 35 cols (uk_pv + goes_pvdaq); see §1bis
-└── images_all.h5           # v2 non-HRV, 98 GB, 110 per-site HDF5 groups <dataset>_<site>
+/leonardo_scratch/fast/IscrC_MTSFM/data_v2/
+├── dataset_all.parquet     #  92,099,550 B — 1,337,654 rows × 35 cols; see §1bis
+└── images_all.h5           # 105,237,477,184 B — v2 non-HRV, 110 groups; see §2
 ```
 
-Local sync (verified 2026-08-25): `/Volumes/dataset/dataset/` holds
-`dataset_all_v2.parquet` (92,099,550 B) + `images_all_v2.h5` (105,237,477,184 B).
-The numeric table is unchanged from the runs of record — rebuilding the test
-windows from it reproduces `n_steps = 165,295` exactly — but the `_v2` filenames
-differ from the `dataset_all.parquet` name recorded in every result manifest.
-**Confirm which filename the Leonardo `data/` dir now exposes before repointing
-`DATA_DIR`.**
+So `pv_record.py`'s hard-coded `dataset_all.parquet` / `images_all.h5` are
+correct as written — only `DATA_DIR` moves. The local sync at
+`/Volumes/dataset/dataset/` is the same data with `_v2` appended to the
+*filenames*; sizes match byte-for-byte, and rebuilding the test windows from it
+reproduces `n_steps = 165,295` exactly.
+
+**V-JEPA latent cache of record**:
+`/leonardo_work/IscrC_MTSFM/vjepa_cache/uk_pv/vit_large_f8_s224_nonhrv_sp45`,
+built 2026-08-21 from `data_v2` (`_extract_meta.txt`: `arch=vit_large|frames=8|
+img=224|window_h=6.0|spacing_min=auto|train_stride=12`; auto spacing resolves to
+45 min). This is the cache the s2b run of record consumed, so every vision number
+describes v2 imagery.
+
+> ⚠ The obsolete **v1 HRV** cache still exists at `.../uk_pv/vit_large_f8_s224`.
+> `slurm_curriculum.sh` used to default to that bare name; it now defaults to the
+> `_nonhrv_sp45` cache, and `curriculum_stage.sbatch` treats an absent cache — or
+> one with no `_extract_meta.txt` — as fatal rather than silently falling back to
+> live encoding or to unknown imagery.
 
 `images_all.h5` packs every frame referenced by the table. Each per-site group
 `<dataset>_<site>` holds `images` + `timestamps` (`|S20` ISO-8601, e.g.
@@ -57,15 +71,16 @@ and **`goes_pvdaq` 1283, 51**; `outage_flag` 15,486; `stuck_flag` 1,318;
 `baselines/configs/splits.json` predates these bad-site flags and still lists
 `1283`/`51` — reconcile before running `goes_pvdaq`.)
 
-`/leonardo_scratch/fast/IscrC_MTSFM/data/` is the **only** dataset volume — `dataset_all.parquet`
+`/leonardo_scratch/fast/IscrC_MTSFM/data_v2/` is the **only** dataset volume — `dataset_all.parquet`
 (numerical) + `images_all.h5` (frames), covering both `uk_pv` and `goes_pvdaq`. There
 is no separate source/ETL volume.
 
 > **Code note:** any code with a hardcoded data path
 > (`baselines/common/config.py::DEFAULT_DATA_PATH`,
 > `tier6/uk_multimodal.py::DEFAULT_H5`, the per-model `run_ukpv.py` `--h5` defaults)
-> must point at `thesis-dataset/dataset_all.parquet` + `images_all.h5` with frame
-> pointer `image_h5_index`.
+> must point inside `/leonardo_scratch/fast/IscrC_MTSFM/data_v2/`, with frame pointer
+> `image_h5_index`. `MMTSFM` needs no such edit — `pv_record` resolves both filenames
+> from `data.data_dir`, so only `DATA_DIR` changes.
 
 ### 1bis. Numerical table (`dataset_all.parquet`)
 

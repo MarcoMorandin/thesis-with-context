@@ -42,7 +42,7 @@ The canonical-source table in `knowledge/INDEX.md` §2 says which file owns whic
 | **Git** | Never work on `main`. Branch `exp/`, `feat/`, or `fix/`. Micro-commit per verified sub-task. Merge locally; push `main` only. |
 | **Models** | Multimodal foundation models (TS FM + vision FM). No classical ML (XGBoost, LightGBM, scikit-learn) without explicit approval. |
 | **Literature** | Prefer 2026, then late 2025. Nothing before 2025. |
-| **Data** | Dataset of record `/leonardo_scratch/fast/IscrC_MTSFM/data/` is **read-only**. Do not refactor data pipelines. Schema → `knowledge/dataset.md`. |
+| **Data** | Dataset of record `/leonardo_scratch/fast/IscrC_MTSFM/data_v2/` is **read-only**. Do not refactor data pipelines. Schema → `knowledge/dataset.md`. |
 
 Detail behind these rules: [`knowledge/conventions.md`](knowledge/conventions.md).
 
@@ -114,7 +114,7 @@ Never hand-edit generated artifacts: `knowledge/graphify-out/`, `.gitnexus/`,
   explicitly ablating them out.
 - Add `scikit-learn`, `lightgbm`, or `xgboost` without explicit user approval.
 - Create monolithic files with multiple classes.
-- Modify `/leonardo_scratch/fast/IscrC_MTSFM/data` (read-only).
+- Modify `/leonardo_scratch/fast/IscrC_MTSFM/data_v2` (read-only).
 - Commit data, checkpoints, logs, or large binaries.
 - Report a checkpoint's score re-derived post-hoc — checkpoints are known not to reproduce
   their in-process numbers. In-process numbers are the record.
@@ -132,6 +132,12 @@ GitHub remote is not used for issue tracking. `.scratch/` is working state, exem
 §5 — promote anything that outlives its ticket into `knowledge/`.
 See [`knowledge/agents/issue-tracker.md`](knowledge/agents/issue-tracker.md).
 
+### Triage labels
+
+The five canonical roles, each label string equal to its name. Recorded as a `Status:`
+line in the ticket file, since the tracker is local markdown with nothing to label.
+See [`knowledge/agents/triage-labels.md`](knowledge/agents/triage-labels.md).
+
 ### Domain docs
 
 Single-context, rehomed into `knowledge/`: this repo has no `docs/` tree and no root
@@ -139,13 +145,10 @@ Single-context, rehomed into `knowledge/`: this repo has no `docs/` tree and no 
 `knowledge/specs/` for ADRs.
 See [`knowledge/agents/domain.md`](knowledge/agents/domain.md).
 
-> Triage labels are not configured — the `triage` skill is not installed. Re-run
-> `/mattpocock-skills:setup-matt-pocock-skills` if that changes.
-
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **thesis-with-context** (2900 symbols, 4978 relationships, 117 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **thesis-with-context** (2955 symbols, 5098 relationships, 119 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

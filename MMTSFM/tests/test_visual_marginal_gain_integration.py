@@ -182,3 +182,94 @@ def test_lightning_test_step_runs_both_passes():
     assert "delta_nmae" in res["overall"]
     assert "delta_nrmse" in res["overall"]
     assert abs(res["overall"]["delta_nmae"] - 0.2) < 1e-6
+
+
+def test_lightning_test_step_emits_ramp_decomposition():
+    """The ramp on/off fields survive the Lightning path, not just the evaluator.
+
+    Guards the failure that costs a cluster queue slot: unit tests drive
+    ProtocolEvaluator directly, so nothing otherwise proves `_accumulate_protocol`
+    feeds BOTH passes what `_score_ramp` needs. Requires `context_mask` in the
+    unpacked batch — without it `delta` is never built and no ramp appears at all.
+
+    Deltas are all zero here, so the ramp subset degenerates to every step: this
+    asserts the plumbing, NOT ramp selectivity (that is covered by
+    test_ramp_thresholds_are_shared_across_vision_passes).
+    """
+    from mmtsfm.models.chronos2.lightning_module import VisionChronos2LightningModule
+
+    model_mock = MagicMock()
+    out_on = MagicMock()
+    out_on.quantile_preds = torch.zeros(2, 9, 4)
+    out_on.loss = torch.tensor(0.5)
+    out_off = MagicMock()
+    out_off.quantile_preds = torch.full((2, 9, 4), 0.2)
+    out_off.loss = torch.tensor(0.6)
+
+    def mock_forward(**kwargs):
+        return out_off if kwargs.get("force_vision_off", False) else out_on
+
+    model_mock.forward.side_effect = mock_forward
+    model_mock.chronos.num_quantiles = 9
+
+    hparams = {
+        "horizon": 4,
+        "sp_reference_path": None,
+        "compute_marginal_gain": True,
+        "results_dir": "results",
+        "results_tag": "test_run",
+    }
+
+    class StubModule(VisionChronos2LightningModule):
+        def __init__(self, model):
+            super(VisionChronos2LightningModule, self).__init__()
+            self.model = model
+            self.save_hyperparameters(hparams)
+            self._protocol_eval = None
+
+        @property
+        def device(self):
+            class _D:
+                type = "cpu"
+
+            return _D()
+
+        def _unpack_batch(self, batch):
+            return {
+                "context": batch["context"],
+                "context_mask": batch["context_mask"],
+                "future_target": batch["future_target"],
+                "future_target_mask": batch["future_target_mask"],
+            }
+
+        def log(self, *args, **kwargs):
+            pass
+
+    lm = StubModule(model_mock)
+    lm.on_test_start()
+
+    batch = {
+        "context": torch.zeros(2, 32),
+        "context_mask": torch.ones(2, 32),
+        "future_target": torch.zeros(2, 4),
+        "future_target_mask": torch.ones(2, 4),
+        "daylight_future": torch.ones(2, 4),
+        "site_id": ["site1", "site2"],
+    }
+    lm.test_step(batch, 0)
+
+    res = lm._protocol_eval.finalize()
+    for key in (
+        "nmae_ramp_vision_on",
+        "nmae_ramp_vision_off",
+        "delta_nmae_ramp",
+        "nrmse_ramp_vision_on",
+        "nrmse_ramp_vision_off",
+        "delta_nrmse_ramp",
+    ):
+        assert key in res["overall"], f"{key} missing from overall"
+    # every step is in the degenerate ramp subset, so the ramp delta must equal
+    # the aggregate delta the existing test already pins at 0.2
+    assert abs(res["overall"]["delta_nmae_ramp"] - 0.2) < 1e-6
+    assert abs(res["overall"]["delta_nmae_ramp"] - res["overall"]["delta_nmae"]) < 1e-6
+    assert "delta_nmae_ramp" in res["per_plant"]["site1"]

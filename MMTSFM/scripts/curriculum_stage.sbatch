@@ -35,7 +35,11 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 : "${DATA_DIR:?DATA_DIR not set}" "${CKPT_DIR:?CKPT_DIR not set}" "${RESULTS_DIR:?RESULTS_DIR not set}"
 : "${MAX_EPOCHS:=50}" "${BATCH_SIZE:=8}" "${ACCUM:=2}" "${NUM_WORKERS:=8}" "${SEED:=42}"
 
-STAGE_DIR="${CKPT_DIR}/${DS}_${STAGE}"
+# The submitter owns arm identity (MODEL_CFG + SEED) and exports the resolved
+# STAGE_DIR. Recomputing it here would drop the arm suffix and put every chain of
+# a wave back in one checkpoint directory — the collision the tag fix exists to
+# prevent. Fall back only for a hand-run stage with no submitter.
+STAGE_DIR="${STAGE_DIR:-${CKPT_DIR}/${DS}_${STAGE}}"
 mkdir -p "$STAGE_DIR" logs/slurm
 
 declare -a CMD=(
@@ -67,12 +71,33 @@ declare -a CMD=(
 # model is told vision is invalid on exactly the windows whose latents carry the
 # most information, and nothing errors.
 CMD+=("data.data_dir=${DATA_DIR}")
-# Pre-extracted V-JEPA latents (skipped for S1 which sets emit_vision=false).
-[[ -n "${VJEPA_CACHE:-}" && -d "${VJEPA_CACHE}" ]] && CMD+=("data.vjepa_cache_dir=${VJEPA_CACHE}")
-# The cache records the data_dir it was built from. Frames and latents must come
-# from the same place or the masks describe a different frame set than the
-# latents encode -- the failure above, made loud.
-if [[ -n "${VJEPA_CACHE:-}" && -f "${VJEPA_CACHE}/_extract_meta.txt" ]]; then
+# Pre-extracted V-JEPA latents (skipped for S1, which sets emit_vision=false so
+# VJEPA_CACHE is never exported for it). When a cache IS requested, every failure
+# below is fatal: silently continuing costs either 10x the compute or, worse, a
+# whole wave trained on the wrong imagery.
+if [[ -n "${VJEPA_CACHE:-}" ]]; then
+  # 1. Requested but absent. The old code dropped the override and logged a WARN,
+  #    so a typo'd VJEPA_CACHE_VER re-encoded V-JEPA live for every batch and the
+  #    only evidence was one line in a log read after the fact.
+  if [[ ! -d "${VJEPA_CACHE}" ]]; then
+    echo "FATAL: no V-JEPA latent cache at '${VJEPA_CACHE}'." >&2
+    echo "  Refusing to fall back to live encoding, which is ~10x the cost." >&2
+    echo "  Check VJEPA_CACHE_ROOT / VJEPA_CACHE_VER, or extract it first." >&2
+    exit 1
+  fi
+  # 2. Present but with no provenance record. Unknown imagery is not a cache we
+  #    are willing to train on: caches built before the extractor wrote
+  #    _extract_meta.txt cannot be checked by (3) at all, so an obsolete one
+  #    sitting at the default path would be consumed without a word.
+  if [[ ! -f "${VJEPA_CACHE}/_extract_meta.txt" ]]; then
+    echo "FATAL: '${VJEPA_CACHE}' has no _extract_meta.txt, so the imagery it was" >&2
+    echo "  built from cannot be established. Re-extract it, or delete it so the" >&2
+    echo "  wrong cache cannot be picked up by a default path." >&2
+    exit 1
+  fi
+  # 3. Present, with provenance that disagrees with DATA_DIR. Frames and latents
+  #    must come from the same place or mask_visual/video_delta_t -- computed live
+  #    from the frame grid -- describe a different frame set than the latents encode.
   _cache_data_dir="$(sed -n 's/.*data_dir=\([^|]*\).*/\1/p' "${VJEPA_CACHE}/_extract_meta.txt")"
   if [[ -n "$_cache_data_dir" && "$_cache_data_dir" != "$DATA_DIR" ]]; then
     echo "FATAL: latent cache was built from '${_cache_data_dir}' but DATA_DIR is" >&2
@@ -80,7 +105,12 @@ if [[ -n "${VJEPA_CACHE:-}" && -f "${VJEPA_CACHE}/_extract_meta.txt" ]]; then
     echo "  frame set than the latents encode. Point both at the same data." >&2
     exit 1
   fi
+  CMD+=("data.vjepa_cache_dir=${VJEPA_CACHE}")
 fi
+# Forced vision-off pass at test time -> dNMAE/dNRMSE incl. ramp, beside the
+# normal metrics. Wave runs set this on every arm; without it the on/off ramp
+# decomposition is simply absent from the results JSON.
+[[ "${MARGINAL_GAIN:-0}" == "1" ]] && CMD+=("model.compute_marginal_gain=true")
 # n_visual_context_steps per dataset (patch=16 alignment) — see slurm_curriculum.sh:nvis_for.
 [[ -n "${N_VIS:-}" ]] && CMD+=("model.vision_cfg.n_visual_context_steps=${N_VIS}")
 [[ -n "${SP_REF:-}" ]] && CMD+=("model.sp_reference_path=${SP_REF}")
@@ -90,4 +120,6 @@ fi
 
 echo ">>> [$TAG] stage=$STAGE ds=$DS prev=${PREV_CKPT:-<none>}"
 echo "    uv run ${CMD[*]}"
+# Inspect the composed Hydra command without training (wave pre-flight + tests).
+[[ "${DRY_RUN:-0}" == "1" ]] && exit 0
 exec uv run "${CMD[@]}"

@@ -1458,3 +1458,97 @@ class TestVisualContextDerivation:
             ValueError, match="exceeds the number of TS context patches"
         ):
             VisionChronos2Model(chronos, vcfg, video_encoder=_make_fake_video_encoder())
+
+
+class TestInterleavedRespectsContextMask:
+    """The interleaved path must not present unobserved context patches as valid.
+
+    It set `all_mask = torch.ones(...)`, discarding the attention_mask that
+    `_prepare_patched_context` derives from context_mask; the late and numeric
+    paths used it correctly. `build_site_series` reindexes onto a regular grid, so
+    night steps are NaN and — at input_patch_size 16, an 8-hour patch — entire
+    patches can be unobserved. Presenting them as valid also means s2b changed
+    mask handling at the same moment it changed fusion mode, confounding H2.
+    """
+
+    def _model(self, n_vis=2):
+        from mmtsfm.models.chronos2.config import Chronos2CoreConfig
+        from mmtsfm.models.chronos2.model import Chronos2Model
+        from mmtsfm.models.chronos2.vision_chronos2 import (
+            VisionChronos2Config,
+            VisionChronos2Model,
+        )
+
+        core_cfg = Chronos2CoreConfig(
+            d_model=64,
+            d_kv=16,
+            d_ff=128,
+            num_heads=4,
+            num_layers=2,
+            chronos_config={
+                "context_length": 32,
+                "input_patch_size": 4,
+                "input_patch_stride": 4,
+                "output_patch_size": 4,
+                "quantiles": [0.1, 0.5, 0.9],
+                "use_arcsinh": True,
+                "max_output_patches": 2,
+            },
+        )
+        vcfg = VisionChronos2Config(
+            fusion_mode="interleaved",
+            n_visual_context_steps=n_vis,
+            skip_vision_stack=False,
+            visual_dropout_prob=0.0,
+            numeric_dropout_prob=0.0,
+        )
+        enc = _make_fake_video_encoder(d_v=4, t_lat=5, h_lat=4, w_lat=4)
+        return VisionChronos2Model(Chronos2Model(core_cfg), vcfg, video_encoder=enc)
+
+    def test_encoder_receives_the_context_mask(self):
+        """The encoder must be handed a mask derived from context_mask.
+
+        Asserting on the forecast cannot discriminate here: `_prepare_patched_context`
+        concatenates patched_mask into the patch FEATURES, so context_mask changes the
+        embedding whether or not the attention mask survives, and an output-level test
+        passes even with the mask discarded. So capture what actually crosses the
+        encoder boundary — that is the contract the bug broke.
+        """
+        torch.manual_seed(0)
+        model = self._model(n_vis=2)
+        model.eval()
+        B, T = 2, 32
+        context = torch.randn(B, T)
+        video = torch.randn(B, 3, 8, 32, 32)
+        mask = torch.ones(B, T)
+        mask[:, :4] = 0.0  # one whole input patch unobserved
+
+        seen = {}
+        real = model.chronos.encoder.forward
+
+        def spy(*args, **kwargs):
+            seen["attention_mask"] = kwargs["attention_mask"].detach().clone()
+            return real(*args, **kwargs)
+
+        model.chronos.encoder.forward = spy
+        try:
+            with torch.no_grad():
+                model(
+                    context=context, context_mask=mask, video=video,
+                    num_output_patches=2,
+                )
+        finally:
+            model.chronos.encoder.forward = real
+
+        am = seen["attention_mask"]
+        # interleaved layout: macro(T_M) | (ts,vis) x n_vis | future(T_fut)
+        T_ctx, n_vis, T_fut = 8, 2, 2
+        T_M = T_ctx - n_vis
+        assert am.shape[1] == T_M + 2 * n_vis + T_fut
+        assert am[:, 0].eq(0).all(), (
+            f"patch 0 is fully unobserved but reached the encoder as valid: {am[0]}"
+        )
+        assert am[:, 1:T_M].eq(1).all(), "observed macro patches must stay valid"
+        # visual tokens sit at the odd slots of the refinement window and are always valid
+        assert am[:, T_M + 1].eq(1).all()
+        assert am[:, -T_fut:].eq(1).all(), "future positions are always valid"
