@@ -20,7 +20,15 @@ ROOT = os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd())
 INDEX = os.path.join(ROOT, "knowledge", "INDEX.md")
 
 # Trees allowed to hold prose without an INDEX.md row.
-PROSE_OK = ("report/", "manuscript/", "knowledge/papers/", "knowledge/specs/")
+# `.scratch/` is the issue tracker (AGENTS.md §7 / knowledge/agents/issue-tracker.md):
+# tickets and wayfinder maps are working state, not prose of record.
+PROSE_OK = (
+    "report/",
+    "manuscript/",
+    "knowledge/papers/",
+    "knowledge/specs/",
+    ".scratch/",
+)
 # Component-local READMEs are legitimate: they document how to run that subtree.
 LOCAL_DOC_NAMES = ("README.md", "VENDOR_NOTICE.md", "AGENTS.md", "CLAUDE.md")
 
