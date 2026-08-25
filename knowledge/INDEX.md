@@ -23,6 +23,8 @@ those rules point at.
 | Where does code go? Naming, Hydra, git | [conventions.md](conventions.md) |
 | Which ablations exist and what is their status? | [ablations.md](ablations.md) |
 | Dated design decisions, superseded designs | [specs/](specs/) |
+| Where do issues live? How do agent skills read/write tickets? | [agents/issue-tracker.md](agents/issue-tracker.md) |
+| How should agent skills consume domain docs? | [agents/domain.md](agents/domain.md) |
 | The papers themselves | [papers/](papers/) — query via Graphify, don't read PDFs |
 
 Outside this tree:

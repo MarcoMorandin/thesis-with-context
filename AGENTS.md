@@ -120,10 +120,32 @@ Never hand-edit generated artifacts: `knowledge/graphify-out/`, `.gitnexus/`,
   their in-process numbers. In-process numbers are the record.
 - Claim a fix works without running the tests and reading the output.
 
+## 7. Agent skills
+
+Configuration the `mattpocock-skills` engineering skills read. These files are a
+contract for those skills; they restate nothing from `knowledge/` — they point at it.
+
+### Issue tracker
+
+Local markdown under `.scratch/<feature-slug>/`. No `gh` CLI in this repo, and the
+GitHub remote is not used for issue tracking. `.scratch/` is working state, exempt from
+§5 — promote anything that outlives its ticket into `knowledge/`.
+See [`knowledge/agents/issue-tracker.md`](knowledge/agents/issue-tracker.md).
+
+### Domain docs
+
+Single-context, rehomed into `knowledge/`: this repo has no `docs/` tree and no root
+`CONTEXT.md` (§5). `knowledge/INDEX.md` stands in for the glossary and
+`knowledge/specs/` for ADRs.
+See [`knowledge/agents/domain.md`](knowledge/agents/domain.md).
+
+> Triage labels are not configured — the `triage` skill is not installed. Re-run
+> `/mattpocock-skills:setup-matt-pocock-skills` if that changes.
+
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **thesis-with-context** (2275 symbols, 4006 relationships, 104 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **thesis-with-context** (2900 symbols, 4978 relationships, 117 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
