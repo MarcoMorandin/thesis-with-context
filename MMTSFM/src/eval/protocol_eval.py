@@ -55,6 +55,12 @@ class ProtocolEvaluator:
         # cannot be streamed — they need a second pass in finalize(). The same
         # buffers back the per-site prediction npz dump in write().
         self._store: dict[str, dict[str, list[np.ndarray]]] = {}
+        # Vision-OFF buffers, kept separate so the on-pass dump and its ramp
+        # numbers stay byte-identical when compute_marginal_gain is off. The
+        # ramp SUBSET is never recomputed from these: thresholds are a property
+        # of the data, so finalize() derives them once from the on-pass store
+        # and scores both passes against them (see _ramp_metrics).
+        self._store_off: dict[str, dict[str, list[np.ndarray]]] = {}
 
     def update(
         self,
@@ -81,8 +87,22 @@ class ProtocolEvaluator:
         )
         if not vision_off:
             self._store_batch(site_ids, y_true, median, mask, delta, delta_valid)
+        elif self.compute_marginal_gain:
+            self._store_batch(
+                site_ids,
+                y_true,
+                median,
+                mask,
+                delta,
+                delta_valid,
+                store=self._store_off,
+            )
 
-    def _store_batch(self, site_ids, y_true, median, mask, delta, delta_valid):
+    def _store_batch(
+        self, site_ids, y_true, median, mask, delta, delta_valid, store=None
+    ):
+        if store is None:
+            store = self._store
         arrs = {
             "true": np.asarray(y_true, dtype=np.float32),
             "pred": np.asarray(median, dtype=np.float32),
@@ -94,7 +114,7 @@ class ProtocolEvaluator:
         sites = np.asarray([str(s) for s in site_ids])
         for site in np.unique(sites):
             rows = sites == site
-            bucket = self._store.setdefault(str(site), {k: [] for k in arrs})
+            bucket = store.setdefault(str(site), {k: [] for k in arrs})
             for k, v in arrs.items():
                 bucket.setdefault(k, []).append(v[rows])
 
@@ -107,8 +127,18 @@ class ProtocolEvaluator:
         windows are protocol-aligned, so these ramp numbers are comparable with
         tiers 0-3, unlike the T4-T6 native-window proxies.
         """
-        out: dict[str, dict[str, float]] = {}
-        acc = PerPlantAccumulator()
+        return self._score_ramp(self._store, self._ramp_masks())
+
+    def _ramp_masks(self) -> dict[str, np.ndarray]:
+        """Per-site ramp subset, derived ONCE from the vision-on store.
+
+        The threshold is a property of the data, not of a model — exactly as in
+        ``baselines/common/runner.compute_ramp_thresholds``, which computes it
+        once per eval split and shares it across every baseline. Deriving it
+        per pass would score vision-on and vision-off on different subsets and
+        make their difference meaningless.
+        """
+        masks: dict[str, np.ndarray] = {}
         for site, bucket in self._store.items():
             # ramp needs delta for EVERY stored batch — a mixed stream (some
             # updates without history) would misalign delta rows with pred/true
@@ -119,10 +149,28 @@ class ProtocolEvaluator:
             if (valid > 0).sum() == 0:
                 continue
             thr = float(np.quantile(delta[valid > 0], 0.9))
-            ramp = ((delta >= thr) & (valid > 0)).astype(np.float64)
+            masks[site] = ((delta >= thr) & (valid > 0)).astype(np.float64)
+        return masks
+
+    @staticmethod
+    def _score_ramp(
+        store: dict[str, dict[str, list[np.ndarray]]],
+        ramp_masks: dict[str, np.ndarray],
+    ) -> dict[str, dict[str, float]]:
+        """Score one pass's predictions on the supplied per-site ramp subsets."""
+        out: dict[str, dict[str, float]] = {}
+        acc = PerPlantAccumulator()
+        for site, ramp in ramp_masks.items():
+            bucket = store.get(site)
+            if not bucket:
+                continue
             true = np.concatenate(bucket["true"], axis=0).astype(np.float64)
             pred = np.concatenate(bucket["pred"], axis=0).astype(np.float64)
             mask = np.concatenate(bucket["mask"], axis=0).astype(np.float64)
+            # A pass that saw a different number of windows cannot be aligned to
+            # this subset; skip rather than score the wrong rows.
+            if true.shape != ramp.shape:
+                continue
             acc.update(
                 plants=np.asarray([site] * len(true)),
                 y_true=true,
@@ -151,6 +199,16 @@ class ProtocolEvaluator:
                 true=np.concatenate(bucket["true"], axis=0),
                 mask=np.concatenate(bucket["mask"], axis=0),
             )
+        # Vision-off pass in its own file, so `localize.decompose_by_horizon`
+        # has a pred_off to read and existing consumers of the on-pass npz are
+        # untouched. Absent entirely when compute_marginal_gain is off.
+        for site, bucket in self._store_off.items():
+            np.savez(
+                pred_dir / f"{model_name}_{site}_pred_off.npz",
+                pred=np.concatenate(bucket["pred"], axis=0),
+                true=np.concatenate(bucket["true"], axis=0),
+                mask=np.concatenate(bucket["mask"], axis=0),
+            )
         return pred_dir
 
     def _reference_nrmse(self) -> tuple[float | None, dict]:
@@ -162,7 +220,8 @@ class ProtocolEvaluator:
 
     def finalize(self) -> dict:
         results = {"overall": self.acc.macro(), "per_plant": self.acc.per_plant()}
-        ramp = self._ramp_metrics()
+        ramp_masks = self._ramp_masks()
+        ramp = self._score_ramp(self._store, ramp_masks)
         if ramp:
             for plant, row in results["per_plant"].items():
                 if plant in ramp:
@@ -173,6 +232,28 @@ class ProtocolEvaluator:
             results["overall"]["nrmse_ramp"] = float(
                 np.mean([r["nrmse_ramp"] for r in ramp.values()])
             )
+            # Ramp decomposed across the visual passes, on the SAME subsets.
+            # Without this the project's P0 metric is never attributed to the
+            # visual stream: the aggregate marginal gain says nothing about the
+            # top-decile |Δy| rows, which are the ones vision is supposed to buy.
+            if self.compute_marginal_gain:
+                ramp_off = self._score_ramp(self._store_off, ramp_masks)
+                if ramp_off:
+                    for key in ("nmae_ramp", "nrmse_ramp"):
+                        on_v = results["overall"][key]
+                        off_v = float(np.mean([r[key] for r in ramp_off.values()]))
+                        results["overall"][f"{key}_vision_on"] = on_v
+                        results["overall"][f"{key}_vision_off"] = off_v
+                        results["overall"][f"delta_{key}"] = off_v - on_v
+                    for plant, row in results["per_plant"].items():
+                        if plant not in ramp or plant not in ramp_off:
+                            continue
+                        for key in ("nmae_ramp", "nrmse_ramp"):
+                            row[f"{key}_vision_on"] = ramp[plant][key]
+                            row[f"{key}_vision_off"] = ramp_off[plant][key]
+                            row[f"delta_{key}"] = (
+                                ramp_off[plant][key] - ramp[plant][key]
+                            )
         ref_nrmse, ref_per_plant = self._reference_nrmse()
         if ref_nrmse:
             results["overall"]["skill_score"] = skill_score(

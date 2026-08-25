@@ -170,3 +170,88 @@ def test_dump_predictions_per_site_npz(tmp_path):
         vision_off=True,
     )
     assert ev2.dump_predictions(str(tmp_path), "off_only") is None
+
+
+def test_ramp_thresholds_are_shared_across_vision_passes():
+    """S2: both passes are scored on the SAME per-site top-decile subset.
+
+    Thresholds are a property of the data, not of a model. In production both
+    passes see identical `delta` (it derives from y_true/context, never from the
+    predictions), so a per-pass threshold bug is invisible there. Feeding the
+    off pass a *different* delta makes the two implementations disagree:
+
+      shared thresholds  -> off is scored on the ON pass's ramp row  -> 0.3
+      per-pass threshold -> off is scored on its own ramp row        -> 0.5
+    """
+    from eval.protocol_eval import ProtocolEvaluator
+
+    ev = ProtocolEvaluator(horizon=1, compute_marginal_gain=True)
+    n = 10
+    y = np.zeros((n, 1))
+    mask = np.ones((n, 1))
+
+    # delta 0 everywhere except the LAST row -> top decile is row 9 alone
+    delta_on = np.zeros((n, 1))
+    delta_on[9, 0] = 10.0
+    # deliberately different: top decile would be row 0 alone
+    delta_off = np.zeros((n, 1))
+    delta_off[0, 0] = 10.0
+
+    pred_on = np.zeros((n, 1))  # zero error everywhere
+    pred_off = np.zeros((n, 1))
+    pred_off[0, 0] = 0.5  # error on the OFF pass's would-be ramp row
+    pred_off[9, 0] = 0.3  # error on the ON pass's ramp row
+
+    ev.update(
+        site_ids=["A"] * n, y_true=y, median=pred_on, mask=mask,
+        delta=delta_on, delta_valid=mask, vision_off=False,
+    )
+    ev.update(
+        site_ids=["A"] * n, y_true=y, median=pred_off, mask=mask,
+        delta=delta_off, delta_valid=mask, vision_off=True,
+    )
+
+    res = ev.finalize()
+    # tolerance is float32: _store_batch stores the buffers as float32 on purpose
+    assert abs(res["overall"]["nmae_ramp_vision_on"] - 0.0) < 1e-6
+    assert abs(res["overall"]["nmae_ramp_vision_off"] - 0.3) < 1e-6
+    assert abs(res["overall"]["delta_nmae_ramp"] - 0.3) < 1e-6
+    # the discriminating assertion: a per-pass threshold would score row 0 (0.5)
+    assert res["overall"]["nmae_ramp_vision_off"] < 0.4
+
+
+def test_dump_predictions_writes_vision_off_alongside(tmp_path):
+    """S3: the off pass lands in its own npz so localize can read both.
+
+    Separate file, not extra keys: `decompose_by_horizon(pred_on, pred_off, ...)`
+    takes two arrays, and any existing consumer of the on-pass npz keeps working.
+    """
+    from eval.protocol_eval import ProtocolEvaluator
+
+    ev = ProtocolEvaluator(horizon=4, compute_marginal_gain=True)
+    y = np.random.default_rng(2).uniform(0, 1, (3, 4))
+    mask = np.ones_like(y)
+    ev.update(site_ids=["A"] * 3, y_true=y, median=y + 0.1, mask=mask, vision_off=False)
+    ev.update(site_ids=["A"] * 3, y_true=y, median=y + 0.4, mask=mask, vision_off=True)
+
+    ev.dump_predictions(str(tmp_path), "mmtsfm_marg")
+
+    on = np.load(tmp_path / "predictions" / "mmtsfm_marg_A_pred.npz")
+    off = np.load(tmp_path / "predictions" / "mmtsfm_marg_A_pred_off.npz")
+    assert on["pred"].shape == (3, 4)
+    assert off["pred"].shape == (3, 4)
+    # the two passes carry different predictions over identical ground truth
+    assert np.allclose(on["true"], off["true"])
+    assert not np.allclose(on["pred"], off["pred"])
+
+
+def test_no_off_dump_when_marginal_gain_disabled(tmp_path):
+    """Default path stays byte-identical: no off store, no off file."""
+    from eval.protocol_eval import ProtocolEvaluator
+
+    ev = ProtocolEvaluator(horizon=4)
+    y = np.zeros((2, 4))
+    ev.update(site_ids=["A"] * 2, y_true=y, median=y, mask=np.ones_like(y))
+    ev.dump_predictions(str(tmp_path), "plain")
+    assert (tmp_path / "predictions" / "plain_A_pred.npz").exists()
+    assert not (tmp_path / "predictions" / "plain_A_pred_off.npz").exists()
