@@ -93,6 +93,16 @@ parallel width is a queue question, not a node question.
   output-level test cannot catch this bug (the mask is also a patch feature); the guard is a
   spy on the encoder boundary.
 
+- [Widen the visual bottleneck](issues/13-widen-the-visual-bottleneck.md): the cause of the
+  ramp/aggregate split is **pooling**, measured model-free. Three rivals falsified first: the
+  ramp subset is ~90 % cloud-driven (metric is right), 30-min ramps have R² ≤ 0.015 against
+  themselves at any lag (frame spacing is the wrong dial), and the crop already spans ~100 km.
+  A pooled 1×1 feature is neutral-to-**negative** on ramps while spatial resolution helps
+  monotonically. `n_soft_tokens` turned out to be **inert in interleaved fusion** — the
+  adapter was built only for late fusion, so every ramp number on this map was produced at an
+  effective N=1 no config could change. Now wired, N=1 bit-identical, plus a dormant
+  late-path flatten bug fixed. `vision_chronos2_wide.yaml` is ready to run.
+
 - [Does wave 1 fit the monthly cap?](issues/01-leonardo-billing-conversion.md): yes — ~370
   GPU-h for six chains against 5,202 h left in August plus a fresh 6,545 on 1 September.
   Compute is not the binding constraint; the local-h conversion stays unmeasured until a
@@ -108,11 +118,14 @@ parallel width is a queue question, not a node question.
   unresolved fairness question: tier-2 baselines optimise plain pinball, so a ramp-weighted
   MMTSFM beating them needs either a ramp-weighted baseline or an explicit note in
   `protocol.md`.
-- **Visual-branch interventions, all gated on G0.** Widening the bottleneck
-  (`n_visual_tokens_per_step` 1→8, currently ~1000:1 compression into one token); an auxiliary
-  clear-sky-index loss on the visual tokens; injecting visual representations at the *future*
-  positions rather than the context, since advection is a claim about the future and frames
-  decorrelate in ~2 h against a 6 h horizon.
+- **Visual-branch interventions.** Widening the bottleneck is no longer gated on G0 and no
+  longer unspecified — ticket 13 measured the mechanism from the data side and shipped the
+  code; what remains is the run (N ∈ {1,16}, three seeds, self-attention mixer). Still open
+  and still gated: an auxiliary clear-sky-index loss on the visual tokens, and injecting
+  visual representations at the *future* positions rather than the context. Note ticket 13
+  retires the stated rationale for the latter — frames do decorrelate in ~2 h, but the ramp
+  itself has no temporal persistence to exploit at ANY lag, so a future-position argument has
+  to rest on spatial advection, not on frame recency.
 - **Whether a mixer swap needs a fresh curriculum** or can warm-start from existing weights.
 - **How H1/H2 verdicts get presented** once measured — which chapter carries which claim.
 - **Whether V-JEPA should ever be unfrozen.** The latent cache bypasses the encoder, so the
