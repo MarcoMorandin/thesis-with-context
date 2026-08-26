@@ -1,0 +1,82 @@
+# MMTSFM — self-attention mixer, n_soft_tokens=1 (NARROW visual bottleneck).
+#
+# Model-identical to vision_chronos2_timeselfattn.yaml. It exists only to give
+# the s1->s2b "direct" arm its OWN identity: reusing the timeselfattn config
+# would emit tag mmtsfm_s2b_ukpv_selfattn_s<seed>, colliding with the wave-1 s2b
+# that came via s2a — overwriting its results JSON and, with RESUME=1, resuming
+# its last.ckpt. That is the contamination that invalidated grassmann@42.
+#
+# Pair with vision_chronos2_wide.yaml (n_soft_tokens: 16) under START_STAGE=s2b
+# to read the bottleneck width at a fixed curriculum path; pair with the wave-1
+# s2b results to read what the s2a alignment stage is worth.
+_target_: mmtsfm.models.chronos2.lightning_module.VisionChronos2LightningModule
+
+# ---- Chronos-2 backbone ----
+pretrained_model_name_or_path: "amazon/chronos-2"
+chronos_core_cfg:
+  d_model: 512
+  d_kv: 64
+  d_ff: 2048
+  num_layers: 6
+  num_heads: 8
+  dropout_rate: 0.1
+  layer_norm_epsilon: 1.0e-6
+  initializer_factor: 0.05
+  feed_forward_proj: relu
+  rope_theta: 10000.0
+  use_grassmann: false
+  grassmann_reduced_dim: 32
+  grassmann_window_offsets: [1, 2, 4, 8, 12, 16]
+  grassmann_modality_pair_bias: true
+  attn_implementation: sdpa    # "sdpa" (default) or "eager"
+  chronos_config:
+    context_length: 2048   # covers the 14-day protocol history (uk_pv 672, goes_pvdaq 1344 steps); 512 silently truncated it
+    # Match the amazon/chronos-2 checkpoint (native 16) so the pretrained tokenizer transfers.
+    input_patch_size: 16
+    input_patch_stride: 16
+    output_patch_size: 16
+    quantiles: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+    use_reg_token: false
+    use_arcsinh: true
+    max_output_patches: 4
+
+# ---- Vision modules (V-JEPA 2.1 + adapter + summarizer) ----
+vision_cfg:
+  visual_encoder_ckpt_path: ""
+  freeze_visual_encoder: true
+  skip_vision_stack: false
+  fusion_mode: "late"
+  n_visual_context_steps: 1  # patch=16: uk_pv 6h = ceil(12/16)=1 TS patch (goes=2). Runner overrides per dataset (N_VIS).
+  n_soft_tokens: 1
+  adapter_type: linear
+  adapter_n_layers: 2
+  summarizer_n_heads: 4
+  visual_dropout_prob: 0.3   # Stage 2a fix: reduced from 0.7 to restore gradient to cross-modal adapter
+  numeric_dropout_prob: 0.1  # asymmetric Bernoulli — numeric stream dropout rate
+  dropout: 0.1
+  n_entities: 0              # set to num_entities of your dataset to enable entity-identity embedding
+
+# ---- Optimiser & schedule ----
+lr: 1.0e-4
+weight_decay: 1.0e-2
+warmup_steps: 500
+min_lr_ratio: 0.1
+horizon: ${data.horizon}     # inherit from data config
+
+# ---- Training strategy ----
+freeze_chronos: true        # Stage 2a: train vision modules only (adapter alignment)
+n_unfreeze_encoder_blocks: 3  # unfreeze last 3/6 encoder blocks to give adapter sufficient gradient signal
+backbone_lr_ratio: 0.1       # LR multiplier for pretrained Chronos-2 backbone (prevents catastrophic forgetting)
+
+# ---- Protocol evaluation ----
+results_dir: results
+results_tag: mmtsfm_s2_ukpv
+sp_reference_path: null
+
+# Forced vision-OFF pass over the SAME weights during the test epoch, reported as
+# dNMAE/dNRMSE alongside the normal metrics. That isolates how much the trained
+# model RELIES on vision from how much its training recipe happened to help --
+# two things a stage-to-stage SS comparison cannot separate. Declared here rather
+# than left to `+model.compute_marginal_gain=true` so the documented override
+# works and the option is discoverable.
+compute_marginal_gain: false
