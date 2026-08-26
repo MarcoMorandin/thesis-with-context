@@ -14,6 +14,7 @@
 #
 #   bash scripts/slurm_curriculum.sh                       # uk_pv (protocol-compliant default)
 #   START_STAGE=s2a bash scripts/slurm_curriculum.sh       # skip finished S1, warm-start S2a from S1/best.ckpt
+#   START_STAGE=s2a INIT_CKPT=<path> bash ...              # ... from ANOTHER arm's ckpt (see INIT_CKPT below)
 #   SMOKE=1 bash scripts/slurm_curriculum.sh               # local CPU dry-run, no sbatch
 # =============================================================================
 set -uo pipefail
@@ -193,8 +194,23 @@ for ds in $DATASETS; do
   fi
   # Seed the warm-start ckpt from the stage before START_STAGE (already trained in
   # a previous submission). prev_jid stays empty → no in-submission dependency.
+  #
+  # INIT_CKPT overrides the derived path so an arm can warm-start from ANOTHER
+  # arm's checkpoint. The case that needs it: s1 skips the vision stack entirely
+  # (skip_vision_stack + emit_vision=false), so an s1 checkpoint is a function of
+  # mixer and seed ONLY — no visual parameters exist in it. A vision-side ablation
+  # such as n_soft_tokens therefore has nothing to re-learn at s1 and can borrow
+  # the matching selfattn/grassmann s1 instead of retraining ~18 GPU-h of
+  # identical weights. Warm-start is load_state_dict(strict=False), which is
+  # already how s2a picks up an s1 checkpoint that lacks every vision key.
+  # Missing file is FATAL here, not a warning: an explicit INIT_CKPT that silently
+  # falls back to random init would produce a plausible-looking but meaningless arm.
   prev_jid=""; prev_ckpt=""
-  if [[ -n "$STAGE_BEFORE_START" ]]; then
+  if [[ -n "${INIT_CKPT:-}" ]]; then
+    prev_ckpt="$INIT_CKPT"
+    [[ -f "$prev_ckpt" ]] || { echo "FATAL: INIT_CKPT not found: ${prev_ckpt}"; exit 1; }
+    echo "  warm-start (INIT_CKPT override): ${prev_ckpt}"
+  elif [[ -n "$STAGE_BEFORE_START" ]]; then
     prev_ckpt="${CKPT_DIR}/${ds}_${STAGE_BEFORE_START}${ARM_SUFFIX}/best.ckpt"
     [[ -f "$prev_ckpt" ]] || echo "  ! WARN: warm-start ckpt missing: ${prev_ckpt} — ${START_STAGE} will start from scratch"
   fi

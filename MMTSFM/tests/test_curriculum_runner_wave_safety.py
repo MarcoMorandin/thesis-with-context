@@ -214,3 +214,127 @@ def test_cache_from_a_different_data_dir_is_fatal(tmp_path):
     r = _stage_rc(tmp_path, VJEPA_CACHE=str(cache))
     assert r.returncode != 0
     assert "/data" in (r.stderr + r.stdout)
+def _export(plan: str, key: str) -> list[str]:
+    """Values of `key` inside each EXPORTS= line, in submission order.
+
+    PREV_CKPT and friends are exported to sbatch as one comma-joined string, so
+    they never appear as standalone `KEY=value` lines and _field cannot see them.
+    """
+    out = []
+    for line in plan.splitlines():
+        if "EXPORTS=" not in line:
+            continue
+        for field in line.split("EXPORTS=", 1)[1].split(","):
+            k, _, v = field.partition("=")
+            if k == key:
+                out.append(v)
+    return out
+
+
+def _plan_rc(tmp_path: Path, **env_overrides: str):
+    """Like _plan but returns the process, for the paths that must FAIL."""
+    env = dict(os.environ)
+    env.update(
+        {
+            "DRY_RUN": "1",
+            "DATA_DIR": str(tmp_path / "data"),
+            "CKPT_DIR": str(tmp_path / "ckpt"),
+            "RESULTS_DIR": str(tmp_path / "results"),
+            "VJEPA_CACHE_ROOT": str(tmp_path / "cache"),
+        }
+    )
+    env.update(env_overrides)
+    return subprocess.run(
+        ["bash", str(SCRIPT)],
+        env=env,
+        capture_output=True,
+        text=True,
+        cwd=SCRIPT.parent.parent,
+    )
+
+
+# ---------------------------------------------------------------------------
+# INIT_CKPT — warm-start one arm from another arm's checkpoint
+#
+# s1 skips the vision stack entirely (skip_vision_stack + emit_vision=false), so
+# an s1 checkpoint is a function of mixer and seed ONLY — it holds no visual
+# parameters. A vision-side ablation such as n_soft_tokens has nothing to
+# re-learn there and should borrow the matching s1 rather than spend ~18 GPU-h
+# reproducing identical weights.
+# ---------------------------------------------------------------------------
+
+
+def test_init_ckpt_replaces_the_derived_warm_start_path(tmp_path):
+    ck = tmp_path / "borrowed_s1.ckpt"
+    ck.write_text("")
+    plan = _plan(
+        tmp_path,
+        MODEL_CFG="vision_chronos2_wide",
+        SEED="42",
+        START_STAGE="s2a",
+        END_STAGE="s2b",
+        INIT_CKPT=str(ck),
+    )
+    prev = _export(plan, "PREV_CKPT")
+    tags = _field(plan, "TAG")
+    assert tags == ["mmtsfm_s2a_ukpv_wide_s42", "mmtsfm_s2b_ukpv_wide_s42"], tags
+    assert prev[0] == str(ck), prev
+    # s2b must chain from the WIDE arm's own s2a, never from the borrowed ckpt
+    assert prev[1].endswith("uk_pv_s2a_wide_s42/best.ckpt"), prev
+
+
+def test_missing_init_ckpt_is_fatal_not_a_warning(tmp_path):
+    """A silent fall-back to random init would produce a plausible-looking but
+    meaningless arm — worse than refusing to launch."""
+    r = _plan_rc(
+        tmp_path,
+        MODEL_CFG="vision_chronos2_wide",
+        SEED="42",
+        START_STAGE="s2a",
+        INIT_CKPT=str(tmp_path / "absent.ckpt"),
+    )
+    assert r.returncode != 0, r.stdout
+    assert "FATAL" in r.stdout and "INIT_CKPT" in r.stdout, r.stdout
+
+
+def test_without_init_ckpt_the_derived_path_is_unchanged(tmp_path):
+    plan = _plan(
+        tmp_path,
+        MODEL_CFG="vision_chronos2_timeselfattn",
+        SEED="43",
+        START_STAGE="s2a",
+        END_STAGE="s2b",
+    )
+    prev = _export(plan, "PREV_CKPT")
+    assert prev[0].endswith("uk_pv_s1_selfattn_s43/best.ckpt"), prev
+
+
+def test_wide_arm_tags_do_not_collide_with_wave_one(tmp_path):
+    """The widened arm must not claim a tag or checkpoint dir any wave-1 arm owns —
+    the collision that made wave 1 unlaunchable in the first place (ticket 11)."""
+    ck = tmp_path / "s1.ckpt"
+    ck.write_text("")
+    wide_tags: set[str] = set()
+    wide_dirs: set[str] = set()
+    for seed in ("42", "43", "44"):
+        plan = _plan(
+            tmp_path,
+            MODEL_CFG="vision_chronos2_wide",
+            SEED=seed,
+            START_STAGE="s2a",
+            END_STAGE="s2b",
+            INIT_CKPT=str(ck),
+        )
+        wide_tags.update(_field(plan, "TAG"))
+        wide_dirs.update(_field(plan, "STAGE_DIR"))
+    assert len(wide_tags) == 6, wide_tags
+
+    w1_tags: set[str] = set()
+    w1_dirs: set[str] = set()
+    for model_cfg, seed in WAVE_1:
+        plan = _plan(tmp_path, MODEL_CFG=model_cfg, SEED=seed, END_STAGE="s2b")
+        w1_tags.update(_field(plan, "TAG"))
+        w1_dirs.update(_field(plan, "STAGE_DIR"))
+
+    assert not (wide_tags & w1_tags), wide_tags & w1_tags
+    assert not (wide_dirs & w1_dirs), wide_dirs & w1_dirs
