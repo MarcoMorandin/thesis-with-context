@@ -39,8 +39,20 @@ Legend — **Priority**: `P0` = mandatory for submission; `P1` = strongly expect
 | **PatchTST** | `Y, X_cov` | Strongest supervised patch transformer | ✅ **P0** `baselines/tslib/` |
 | **iTransformer** | `Y, X_cov` | Channel-attention SOTA, covariate-friendly | ✅ P1 `baselines/tslib/` |
 | TFT | `Y, X_cov` | Quantile-native; gives CRPS comparison for free | ✅ `baselines/tslib/` (TFT-lite; deviations in baselines/README) |
+| **iTransformer (library)** | `Y, X_cov` incl. future weather | Like-for-like control: pre-built [`neuralforecast`](https://github.com/Nixtla/neuralforecast) model on MMTSFM's windows, recipe and scorer | ✅ **P0** `baselines/tier2_lib/`, tag `itransformer_nf_s2_ukpv` |
 
 All Tier-2 models come essentially free via the [Time-Series-Library](https://github.com/thuml/Time-Series-Library) (PatchTST, iTransformer, DLinear share one trainer). One `baselines/tslib/` port covers the whole tier.
+
+**Two iTransformer rows, on purpose.** `itransformer` (tslib port) is trained by
+`run_eval.py`: stride-1 windows — about 12x what MMTSFM sees — batch 256, lr 1e-3,
+up to 100 epochs, history-only covariates. `itransformer_nf` is the same
+architecture from a pre-built library trained on MMTSFM's exact protocol
+(`PVRecordDataset` windows, train stride 12, effective batch 16, AdamW 1e-4 /
+wd 1e-2 with 500-step warmup + cosine, bf16, EarlyStopping(val/loss, 7),
+future weather known) and scored by the same `ProtocolEvaluator`. The pair
+separates *architecture* from *training budget* in the tier-2 vs MMTSFM
+comparison; only `itransformer_nf` is a fair opponent for `mmtsfm_s2b_ukpv`.
+Runner: `baselines/scripts/slurm_itransformer_nf.sh` (seeds 42/43/44).
 
 ### Tier 3 — TS foundation models, zero-shot & fine-tuned
 

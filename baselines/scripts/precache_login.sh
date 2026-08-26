@@ -87,8 +87,11 @@ echo "=============================================================="
 
 # --- 1/6 + 2/6: Tier-3/4 HF weights + RAG export (reuse login_node_prep) ----
 if [[ "$STAGE" == "all" || "$STAGE" == "weights" ]]; then
-    info "uv sync (base + tier3)"
-    uv sync --group tier3 || warn "uv sync failed"
+    info "uv sync (base + tier3 + nf)"
+    # `nf` = neuralforecast, the pre-built iTransformer of the tier-2 control
+    # arm (scripts/slurm_itransformer_nf.sh). Compute nodes are offline, so it
+    # has to be resolved here like every other dependency.
+    uv sync --group tier3 --group nf || warn "uv sync failed"
     # Standalone Chronos-2 baselines (chronos2_zs / chronos2_ft / chronos2_oracle)
     # use the official chronos-forecasting package — a CORE dep, so the uv sync
     # above installs it — plus the amazon/chronos-2 snapshot cached by

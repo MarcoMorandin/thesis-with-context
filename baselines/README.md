@@ -28,6 +28,7 @@ grids, capacity-normalized `norm_power` target. Both datasets fully present
 | 2 | `dlinear` | DLinear (Y only) | — |
 | 2 | `patchtst` | PatchTST (channel-independent, RevIN) | — |
 | 2 | `itransformer` | iTransformer (variates as tokens) | — |
+| 2 | `itransformer_nf` | iTransformer from **neuralforecast**, trained on MMTSFM's protocol (not `run_eval.py`) — `scripts/train_itransformer_nf.py` | ✅ |
 | 2 | `tft` | TFT-lite (quantile-native) | ✅ |
 | 3 | `chronos2_zs` / `chronos2_ft` | Chronos-2 zero-shot / fine-tuned (MMTSFM source) | ✅ |
 | 3 | `timesfm_zs` | TimesFM 2.5 zero-shot | ✅ |
@@ -36,6 +37,28 @@ grids, capacity-normalized `norm_power` target. Both datasets fully present
 | 4 | _ts_rag_ | TS-RAG — **cluster-only, vendored original code** (`tier4/vendor/`), not a registry baseline | via backbone |
 | 4 | _cross_rag_ | Cross-RAG — **cluster-only, vendored original code** (`tier4/vendor/`), not a registry baseline | via backbone |
 | 4 | `cora` | CoRA-style covariate adapter on frozen backbone (zero-init residual) | via backbone |
+
+### `itransformer_nf` — the like-for-like control (`uv sync --group nf`)
+
+Every other tier-2 row is trained by `run_eval.py`: stride-1 windows (~12x more
+than MMTSFM sees), batch 256, lr 1e-3, up to 100 epochs, history-only
+covariates. That budget, not the architecture, is what the in-repo
+`itransformer` row buys. `itransformer_nf` removes it: the model comes from the
+`neuralforecast` library and is trained on MMTSFM's own `PVRecordDataset`
+windows with MMTSFM's recipe and scored by MMTSFM's `ProtocolEvaluator`, so the
+gap against `mmtsfm_s2b_ukpv` is attributable to the model. It does not go
+through `run_eval.py`:
+
+```bash
+uv sync --group nf                                   # login node (internet)
+for s in 42 43 44; do
+  sbatch --export=ALL,SEED=$s scripts/slurm_itransformer_nf.sh
+done
+```
+
+The parity list (windows, optimizer, schedule, precision, early stopping, loss
+mask, Skill-Score reference) is in the script docstring and asserted by
+`tests/test_itransformer_nf.py`.
 
 Tier 3 needs `uv sync --group tier3` (transformers/einops for Chronos-2 via
 `MMTSFM/src`, timesfm, tirex, granite-tsfm). Tier 4 wraps any registered
