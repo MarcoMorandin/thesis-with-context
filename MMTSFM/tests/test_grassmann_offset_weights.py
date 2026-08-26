@@ -106,6 +106,44 @@ def _reference_g(mix, h_ln, z, valid_mask, weights, valid_offsets):
     return num / den.clamp(min=1e-6)
 
 
+def _accumulate_then_project(mix, z, mixing, valid_offsets, B, L):
+    """The shipped path: accumulate in Plücker space, then one W_plu."""
+    p_sum = torch.zeros(B, L, mix.plucker_dim, dtype=z.dtype)
+    z_i, z_j = mix._pair_components(z)
+    for i, delta in enumerate(valid_offsets):
+        mix._accumulate_offset(z_i, z_j, delta, mixing[:, :, i : i + 1], p_sum)
+    g = mix.W_plu(p_sum)
+    return g * (mixing.sum(dim=-1, keepdim=True) > 0).to(g.dtype)
+
+
+def _project_then_accumulate(mix, z, mixing, valid_offsets, B, L):
+    """The pre-refactor path: one W_plu PER offset, accumulate in d_model space."""
+    g_sum = torch.zeros(B, L, mix.W_plu.out_features, dtype=torch.float64)
+    for i, delta in enumerate(valid_offsets):
+        L_eff = L - delta
+        plucker = mix._compute_plucker(z[:, :L_eff], z[:, delta:])
+        g = mix.W_plu(plucker).double()
+        g_sum[:, delta:, :] += g * mixing[:, delta:, i : i + 1].double()
+    return g_sum
+
+
+def _reference_forward(mix, h, attn, pos, mod):
+    """Whole layer, computed with the PRE-REFACTOR per-offset projection.
+
+    Must be compared against the real ``mix(...)`` — a helper that reimplements
+    the shipped masking would pass whether or not the shipped code does it.
+    Requires ``mix.eval()`` and dropout_rate=0, both true of ``_mixer()``.
+    """
+    B, L, _ = h.shape
+    h_ln, z = _layer_internals(mix, h, pos)
+    valid_mask = attn[:, 0, 0, :] > -1.0
+    valid_offsets = [d for d in OFFSETS if d < L]
+    mixing, _ = mix._offset_weights_for(valid_offsets, valid_mask, mod, L, h.device)
+    g = _project_then_accumulate(mix, z, mixing, valid_offsets, B, L).to(h_ln.dtype)
+    alpha = torch.sigmoid(mix.W_gate(torch.cat([h_ln, g], dim=-1)))
+    return h + (alpha * h_ln + (1 - alpha) * g)
+
+
 class TestNormalisationEquivalence:
     """Weight-first renormalisation must equal the old accumulate-then-divide."""
 
@@ -126,9 +164,7 @@ class TestNormalisationEquivalence:
             mix, h_ln, z, valid_mask, weights.expand(B, L, -1), valid_offsets
         )
         mixing, _ = mix._offset_weights_for(valid_offsets, valid_mask, mod, L, h.device)
-        g_new = torch.zeros_like(h_ln)
-        for i, delta in enumerate(valid_offsets):
-            mix._process_offset(z, delta, mixing[:, :, i : i + 1], g_new)
+        g_new = _accumulate_then_project(mix, z, mixing, valid_offsets, B, L)
 
         assert torch.allclose(g_new.double(), g_ref, atol=1e-6), (
             (g_new.double() - g_ref).abs().max()
@@ -192,3 +228,115 @@ class TestOffsetWeightGradientIsFinite:
         assert torch.equal(
             mix.offset_weights.grad[3:], torch.zeros_like(mix.offset_weights.grad[3:])
         )
+
+
+class TestSingleProjectionEquivalence:
+    """One W_plu over the accumulated Plücker sum == one W_plu per offset.
+
+    W_plu is affine and `mixing` sums to 1 at every position with a valid pair,
+    so Σ_δ w_δ·(A·p_δ + b) = W_plu(Σ_δ w_δ·p_δ) exactly. Collapsing the six
+    projections into one removes the layer's dominant cost (C(r,2)·d_model per
+    offset) and is what moves the FLOP crossover against self-attention below the
+    ~44 tokens this protocol actually produces. These tests pin the equivalence
+    so a later edit cannot quietly reintroduce the per-offset form, nor drop the
+    all-invalid masking that keeps the bias out of empty positions.
+    """
+
+    @staticmethod
+    def _setup(left_pad):
+        mix = _mixer()
+        # A ZERO bias would let the two forms agree even WITHOUT the all-invalid
+        # mask, so force a large one — that is the discriminating case. Note
+        # model.py zero-inits this bias, but it trains away from zero.
+        mix.W_plu.bias.data.fill_(3.0)
+        return (mix, *_inputs(left_pad=left_pad))
+
+    @staticmethod
+    def _internals(mix, h, attn, pos, mod):
+        B, L, _ = h.shape
+        _, z = _layer_internals(mix, h, pos)
+        valid_mask = attn[:, 0, 0, :] > -1.0
+        valid_offsets = [d for d in OFFSETS if d < L]
+        mixing, _ = mix._offset_weights_for(valid_offsets, valid_mask, mod, L, h.device)
+        return z, mixing, valid_offsets, B, L
+
+    @pytest.mark.parametrize("left_pad", [0, 5, 20])
+    def test_forward_matches_per_offset_projection(self, left_pad):
+        """Drives the real forward, not a reimplementation of it."""
+        mix, h, attn, pos, mod = self._setup(left_pad)
+
+        new = mix(h, attn, pos, modality_mask=mod).hidden_states
+        old = _reference_forward(mix, h, attn, pos, mod)
+
+        assert torch.allclose(new, old, atol=1e-5), (new - old).abs().max()
+
+    def test_bias_does_not_leak_into_all_invalid_positions(self):
+        """Positions with no valid pair at any offset must contribute g = 0.
+
+        `mixing` is all-zero there, so the per-offset form contributed 0. A bare
+        W_plu(0) contributes the bias instead — this is what the `any_valid`
+        re-zeroing in forward exists for. left_pad=20 with max offset 16
+        guarantees such a position: index 20 is itself valid but has no valid
+        partner at any δ. With g = 0 the gated fusion degenerates to
+        α·h_ln + residual, which is what this asserts.
+        """
+        mix, h, attn, pos, mod = self._setup(left_pad=20)
+        h_ln, _ = _layer_internals(mix, h, pos)
+        zero_g = torch.zeros_like(h_ln)
+        alpha = torch.sigmoid(mix.W_gate(torch.cat([h_ln, zero_g], dim=-1)))
+        expected = h + alpha * h_ln
+
+        out = mix(h, attn, pos, modality_mask=mod).hidden_states
+
+        assert torch.allclose(out[:, 20], expected[:, 20], atol=1e-6), (
+            "W_plu bias leaked into the all-invalid position 20, max diff "
+            f"{(out[:, 20] - expected[:, 20]).abs().max():.4e}"
+        )
+
+    @pytest.mark.parametrize("left_pad", [0, 20])
+    def test_gradients_match_per_offset_projection(self, left_pad):
+        """Equivalence must hold in backward too — training is what consumes it."""
+        mix, h, attn, pos, mod = self._setup(left_pad)
+        z, mixing, valid_offsets, B, L = self._internals(mix, h, attn, pos, mod)
+        # `mixing` carries its own graph back to offset_weights; both paths below
+        # would try to traverse that same graph. Its gradients are covered by
+        # TestOffsetWeightGradientIsFinite — here only W_plu and z are at stake.
+        mixing = mixing.detach()
+
+        z_new = z.detach().clone().requires_grad_(True)
+        out_new = _accumulate_then_project(mix, z_new, mixing, valid_offsets, B, L)
+        out_new.sum().backward()
+        g_w_new = mix.W_plu.weight.grad.double().clone()
+        g_b_new = mix.W_plu.bias.grad.double().clone()
+        mix.zero_grad(set_to_none=True)
+
+        z_old = z.detach().clone().requires_grad_(True)
+        out_old = _project_then_accumulate(mix, z_old, mixing, valid_offsets, B, L)
+        out_old.sum().backward()
+
+        assert torch.allclose(z_new.grad, z_old.grad, atol=1e-5), (
+            (z_new.grad - z_old.grad).abs().max()
+        )
+        assert torch.allclose(g_w_new, mix.W_plu.weight.grad.double(), atol=1e-5), (
+            (g_w_new - mix.W_plu.weight.grad.double()).abs().max()
+        )
+        assert torch.allclose(g_b_new, mix.W_plu.bias.grad.double(), atol=1e-5)
+
+    def test_w_plu_is_applied_exactly_once_per_forward(self):
+        """The point of the refactor: six offsets, one projection."""
+        mix = _mixer()
+        h, attn, pos, mod = _inputs()
+        calls = []
+        real = mix.W_plu.forward
+
+        def _spy(x, _real=real, _calls=calls):
+            _calls.append(tuple(x.shape))
+            return _real(x)
+
+        mix.W_plu.forward = _spy
+        mix(h, attn, pos, modality_mask=mod)
+
+        n_offsets = len([d for d in OFFSETS if d < h.shape[1]])
+        assert n_offsets == 6, "test setup no longer exercises multiple offsets"
+        assert len(calls) == 1, f"W_plu applied {len(calls)}x - expected 1: {calls}"
+        assert calls[0][-1] == mix.plucker_dim

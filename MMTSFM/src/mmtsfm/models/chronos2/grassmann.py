@@ -125,27 +125,40 @@ class CausalGrassmannMixing(nn.Module):
         # on-device inside _compute_plucker is O(r²), negligible next to the linear
         # layers, and immune to materialization order.
 
-    def _compute_plucker(self, u: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
-        """Compute normalized Plücker vectors for pairs (u, v)."""
-        # Advanced indexing (u[..., idx]) instead of torch.gather + expand.
+    def _pair_components(self, z: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """`z` [B, L, r] → (z_i, z_j), each [B, L, plucker_dim].
+
+        The two upper-triangular gathers every Plücker pairing is built from.
+        They do not depend on the offset, so `forward` does this ONCE and slices
+        the results per offset — a view, hence free — instead of paying four
+        gathers per offset (24 at six offsets). That gather traffic, not the
+        arithmetic, is what dominates this layer at short sequence lengths.
+        """
+        # Advanced indexing (z[..., idx]) instead of torch.gather + expand.
         # gather on stride-0 expanded views triggers CUDA OOB asserts on A100+newer
         # drivers even after .contiguous(). Advanced indexing uses a safe kernel path.
-        # Indices derived on-the-fly on u's device (see __init__ note).
-        idx_i, idx_j = torch.triu_indices(self.r, self.r, offset=1, device=u.device)
+        # Indices derived on-the-fly on z's device (see __init__ note).
+        idx_i, idx_j = torch.triu_indices(self.r, self.r, offset=1, device=z.device)
+        return z[..., idx_i], z[..., idx_j]
 
-        u_i = u[..., idx_i]  # [B, L, plucker_dim]
-        v_j = v[..., idx_j]
-        u_j = u[..., idx_j]
-        v_i = v[..., idx_i]
-
-        p = u_i * v_j - u_j * v_i
+    def _normalise_plucker(self, p: torch.Tensor) -> torch.Tensor:
+        """L2-normalise a raw wedge product, with the NaN tracer on the way."""
         _probe(self, "plucker_raw", p)
-
         p_norm = torch.sqrt((p * p).sum(dim=-1, keepdim=True) + self.plucker_eps)
         _probe(self, "plucker_norm", p_norm)
         p = p / p_norm
         _probe(self, "plucker_normalised", p)
         return p
+
+    def _compute_plucker(self, u: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
+        """Normalized Plücker vectors for pairs (u, v), gathering on the spot.
+
+        `forward` takes the hoisted path above instead; this stays as the
+        self-contained definition of the encoding for direct callers and tests.
+        """
+        u_i, u_j = self._pair_components(u)
+        v_i, v_j = self._pair_components(v)
+        return self._normalise_plucker(u_i * v_j - u_j * v_i)
 
     def _pair_validity(
         self,
@@ -164,31 +177,36 @@ class CausalGrassmannMixing(nn.Module):
             )
         return out
 
-    def _process_offset(
+    def _accumulate_offset(
         self,
-        z: torch.Tensor,
+        z_i: torch.Tensor,  # [B, L, plucker_dim] — from _pair_components
+        z_j: torch.Tensor,  # [B, L, plucker_dim]
         delta: int,
         weight: torch.Tensor,  # [B, L, 1] — already masked AND renormalised
-        g_sum: torch.Tensor,
+        p_sum: torch.Tensor,  # [B, L, plucker_dim]
     ) -> None:
-        """Process a single offset: Plücker + project + accumulate."""
-        L_eff = z.shape[1] - delta
+        """Accumulate one offset's weighted Plücker vector into `p_sum`.
+
+        W_plu is deliberately NOT applied here — `forward` applies it once to the
+        accumulated sum, which is exactly equivalent and `num_offsets`× cheaper.
+        See the proof in `forward`.
+        """
+        L_eff = z_i.shape[1] - delta
 
         # C2 fix: causal pairing — position i receives Plücker(z[i-δ], z[i]).
         # Old code used (z_curr=z[:,:L_eff], z_future=z[:,delta:]) written to
         # positions 0..L-δ-1, which made position i ingest z[i+δ] (future leak).
         # Correct: z_past covers positions 0..L-δ-1, z_curr covers δ..L-1;
-        # result is written to g_sum[:,delta:,:] (positions δ..L-1).
-        z_past = z[:, :L_eff, :]  # [B, L-δ, r]  — the earlier tokens
-        z_curr = z[:, delta:, :]  # [B, L-δ, r]  — the later tokens (present)
-
-        # Plücker encoding + projection
-        plucker = self._compute_plucker(z_past, z_curr)
-        g = self.W_plu(plucker)
+        # result is written to p_sum[:,delta:,:] (positions δ..L-1).
+        # These are slices of the pre-gathered components, so `_i`/`_j` here are
+        # exactly _compute_plucker(z[:, :L_eff], z[:, delta:]) without regathering.
+        p = self._normalise_plucker(
+            z_i[:, :L_eff] * z_j[:, delta:] - z_j[:, :L_eff] * z_i[:, delta:]
+        )
 
         # Weighted accumulation into positions δ..L-1 (causal write target).
         # `weight` already carries the pair-validity mask, so no separate v here.
-        g_sum[:, delta:, :] += g * weight[:, delta:, :].to(g.dtype)
+        p_sum[:, delta:, :] += p * weight[:, delta:, :].to(p.dtype)
 
     def _compute_modality_biases(
         self,
@@ -323,14 +341,39 @@ class CausalGrassmannMixing(nn.Module):
                 ),
             )
 
-            g_sum = torch.zeros(
-                batch_size, seq_len, d_model, device=z.device, dtype=hidden_states.dtype
+            # Accumulate in PLÜCKER space [B, L, C(r,2)], then project ONCE.
+            #
+            # W_plu is affine, W_plu(p) = A·p + b, and `mixing` sums to exactly 1
+            # at every position holding at least one valid pair (that is what the
+            # renormalisation in _offset_weights_for guarantees). So
+            #
+            #   Σ_δ w_δ·(A·p_δ + b) = A·(Σ_δ w_δ·p_δ) + b·(Σ_δ w_δ)
+            #                       = W_plu(Σ_δ w_δ·p_δ)
+            #
+            # exactly — not an approximation. That turns num_offsets projections
+            # of cost C(r,2)·d_model into one, which is the layer's dominant term:
+            # at r=32 / 6 offsets / d=768 it is 2.29M → 0.38M MAC per token, and
+            # moves the FLOP crossover against self-attention from L≈736 tokens
+            # (far beyond the ~44 this protocol produces at patch 16) to L≈0.
+            p_sum = torch.zeros(
+                batch_size,
+                seq_len,
+                self.plucker_dim,
+                device=z.device,
+                dtype=hidden_states.dtype,
             )
+            # Pair gathers are offset-independent — do them once, not per offset.
+            z_i, z_j = self._pair_components(z)
             for i, delta in enumerate(valid_offsets):
-                self._process_offset(z, delta, mixing[:, :, i : i + 1], g_sum)
+                self._accumulate_offset(z_i, z_j, delta, mixing[:, :, i : i + 1], p_sum)
+            _probe(self, "p_sum", p_sum)
 
-            # No trailing division: `mixing` is already normalised per position.
-            g = g_sum
+            g = self.W_plu(p_sum)
+            # Where NO offset has a valid pair, `mixing` is all-zero, so the
+            # per-offset form contributed exactly 0. A bare W_plu contributes the
+            # bias b there instead, so re-zero those positions to stay identical.
+            any_valid = (mixing.sum(dim=-1, keepdim=True) > 0).to(g.dtype)
+            g = g * any_valid
             _probe(self, "g_sum", g)
 
         # Step 5: Gated fusion
