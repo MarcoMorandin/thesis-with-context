@@ -75,29 +75,42 @@ def validate_n_visual_context_steps(
 
 def interleave_sequences(
     ts_tokens: torch.Tensor,  # [B, T_ctx, d]
-    vis_tokens: torch.Tensor,  # [B, n_vis, d]
+    vis_tokens: torch.Tensor,  # [B, n_vis, d] or [B, n_vis, N_soft, d]
     n_vis: int,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Selectively interleave visual summary tokens into the refinement window.
 
-    Builds: [ts_0..ts_{T_M-1}] || [ts_{T_M}, v_{T_M}, ..., ts_{T_ctx-1}, v_{T_ctx-1}]
+    Builds, with N = N_soft visual tokens per refined step:
+
+        [ts_0..ts_{T_M-1}] || [ts_{T_M}, v¹_{T_M}..v^N_{T_M}, ts_{T_M+1}, ...]
+
+    A 3-D ``vis_tokens`` is treated as N=1, which is the historical shape and
+    reproduces the original pairwise interleave exactly.
 
     Returns:
-        interleaved: ``[B, T_ctx + n_vis, d]``
-        modality_mask: ``[B, T_ctx + n_vis]`` long tensor — 0=TS, 1=visual
+        interleaved: ``[B, T_ctx + n_vis*N, d]``
+        modality_mask: ``[B, T_ctx + n_vis*N]`` long tensor — 0=TS, 1=visual
     """
     B, T_ctx, d = ts_tokens.shape
     T_M = T_ctx - n_vis
+    if vis_tokens.dim() == 3:
+        vis_tokens = vis_tokens.unsqueeze(2)  # [B, n_vis, 1, d]
+    n_soft = vis_tokens.shape[2]
 
     macro = ts_tokens[:, :T_M, :]
-    ts_refine = ts_tokens[:, T_M:, :]
-    pairs = torch.stack([ts_refine, vis_tokens], dim=2)  # [B, n_vis, 2, d]
-    refinement = pairs.reshape(B, 2 * n_vis, d)
-    interleaved = torch.cat([macro, refinement], dim=1)  # [B, T_ctx+n_vis, d]
+    ts_refine = ts_tokens[:, T_M:, :].unsqueeze(2)  # [B, n_vis, 1, d]
+    blocks = torch.cat([ts_refine, vis_tokens], dim=2)  # [B, n_vis, 1+N, d]
+    refinement = blocks.reshape(B, n_vis * (1 + n_soft), d)
+    interleaved = torch.cat([macro, refinement], dim=1)  # [B, T_ctx+n_vis*N, d]
 
     device = ts_tokens.device
-    modality_mask = torch.zeros(B, T_ctx + n_vis, dtype=torch.long, device=device)
-    vis_positions = T_M + 1 + torch.arange(n_vis, device=device) * 2
+    seq_len = T_ctx + n_vis * n_soft
+    modality_mask = torch.zeros(B, seq_len, dtype=torch.long, device=device)
+    # Offsets 1..N inside each (1+N)-token block are the visual ones.
+    block_start = T_M + torch.arange(n_vis, device=device) * (1 + n_soft)
+    vis_positions = (
+        block_start[:, None] + 1 + torch.arange(n_soft, device=device)[None, :]
+    ).reshape(-1)
     modality_mask[:, vis_positions] = 1
 
     return interleaved, modality_mask
@@ -108,20 +121,22 @@ def build_interleaved_position_ids(
     n_vis: int,
     T_fut: int,
     device: torch.device,
+    n_soft: int = 1,
 ) -> torch.Tensor:
     """Build temporal position IDs for the interleaved sequence.
 
-    TS and vis tokens at the same step share the same position ID so that
-    RoPE treats them as co-temporal.
+    A refined step and ALL of its visual tokens share one position ID, so RoPE
+    treats the whole (1+N_soft)-token block as co-temporal and the N visual
+    tokens are order-free within it.
 
     Returns:
-        ``[1, T_M + 2*n_vis + T_fut]`` long tensor
+        ``[1, T_M + n_vis*(1+n_soft) + T_fut]`` long tensor
     """
     macro_ids = torch.arange(T_M, device=device)
     refine_ids = torch.arange(T_M, T_M + n_vis, device=device)
-    refine_pairs = torch.stack([refine_ids, refine_ids], dim=1).reshape(2 * n_vis)
+    refine_blocks = refine_ids[:, None].expand(n_vis, 1 + n_soft).reshape(-1)
     future_ids = torch.arange(T_M + n_vis, T_M + n_vis + T_fut, device=device)
-    return torch.cat([macro_ids, refine_pairs, future_ids]).unsqueeze(0)
+    return torch.cat([macro_ids, refine_blocks, future_ids]).unsqueeze(0)
 
 
 # ---------------------------------------------------------------------------
@@ -336,7 +351,15 @@ class VisionChronos2Model(nn.Module):
                 dropout=vision_config.dropout,
             )
 
-            if vision_config.fusion_mode == "late":
+            # Late fusion always expands through the adapter. Interleaved fusion
+            # only needs it to widen the bottleneck: at N_soft == 1 it would be an
+            # identity-shaped extra projection, and building it would add
+            # parameters that no existing curriculum checkpoint carries. So it is
+            # constructed for interleaved ONLY when it does something.
+            needs_adapter = (
+                vision_config.fusion_mode == "late" or vision_config.n_soft_tokens > 1
+            )
+            if needs_adapter:
                 self.cross_modal_adapter: Optional[nn.Module] = CrossModalAdapter(
                     d_model=d_model,
                     n_soft_tokens=vision_config.n_soft_tokens,
@@ -553,9 +576,14 @@ class VisionChronos2Model(nn.Module):
         )
         soft[:, T_ctx - n_vis :, :, :] = soft_win
 
-        # Flatten N_soft into batch — [B * N_soft, T_ctx, d_model]
+        # Flatten N_soft into batch — [B * N_soft, T_ctx, d_model], row b*N_soft+n.
+        # The permute is load-bearing: `soft` is [B, T_ctx, N_soft, d], so a bare
+        # reshape walks t before n and interleaves the two axes. It happens to be
+        # correct at N_soft == 1 (the only value ever run), which is why this never
+        # fired. Consumers index the flat batch as b*N_soft+n — see the
+        # repeat_interleave(N_soft) calls on entity/group ids below.
         return (
-            soft.reshape(B_ * N_s, T_ctx, D_),
+            soft.permute(0, 2, 1, 3).reshape(B_ * N_s, T_ctx, D_),
             input_embeds_mm,
             future_embeds_mm,
             visual_active,
@@ -788,6 +816,17 @@ class VisionChronos2Model(nn.Module):
                 frame_delta_t=video_delta_t,
             )
 
+            # Widen the bottleneck: one summary token per step becomes N_soft.
+            # Everything downstream (modality embeds, dropout, interleave, masks)
+            # treats them as ordinary visual tokens, so this is the only place
+            # N_soft enters the interleaved path. At N_soft == 1 the adapter is
+            # not built and vis_summary passes through untouched.
+            if self.cross_modal_adapter is not None:
+                vis_summary = self.cross_modal_adapter(
+                    vis_summary
+                )  # [B, n_vis, N_soft, d]
+                vis_summary = vis_summary.reshape(B_, n_vis * N_soft, -1)
+
             # Multimodal embeddings for TS tokens
             input_embeds_mm = self.multimodal_embed.add_modality(
                 input_embeds, modality_id=0
@@ -848,13 +887,17 @@ class VisionChronos2Model(nn.Module):
                     vis_active_3d, future_embeds_mm, future_embeds
                 )
 
-            # Interleave refinement window
+            # Interleave refinement window. Regroup the flat visual tokens back to
+            # [B, n_vis, N_soft, d] so each refined step gets its own block.
             interleaved_ctx, modality_mask_ctx = interleave_sequences(
-                input_embeds_mm, vis_summary, n_vis
+                input_embeds_mm,
+                vis_summary.reshape(B, n_vis, N_soft, -1),
+                n_vis,
             )
 
-            # Full sequence: [B, T_ctx + n_vis + T_fut, d]
+            # Full sequence: [B, T_ctx + n_vis*N_soft + T_fut, d]
             T_fut = future_embeds_mm.shape[1]
+            n_vis_tok = n_vis * N_soft  # visual tokens inserted into the context
             T_M = T_ctx - n_vis  # macro region: context patches with no visual partner
             all_embeds = torch.cat([interleaved_ctx, future_embeds_mm], dim=1)
             modality_mask_fut = torch.zeros(B, T_fut, dtype=torch.long, device=device)
@@ -871,15 +914,15 @@ class VisionChronos2Model(nn.Module):
             # wrong, which is why the symptom was subtle rather than catastrophic.
             ctx_mask = attention_mask.to(dtype)  # [B, T_ctx]
             macro_mask = ctx_mask[:, :T_M]
-            refine_mask = torch.stack(
+            refine_mask = torch.cat(
                 [
-                    ctx_mask[:, T_M:],  # the TS token of each (ts, vis) pair
-                    torch.ones(
-                        B, n_vis, device=device, dtype=dtype
-                    ),  # its visual partner
+                    ctx_mask[:, T_M:, None],  # the TS token opening each block
+                    torch.ones(  # its N_soft visual partners
+                        B, n_vis, N_soft, device=device, dtype=dtype
+                    ),
                 ],
                 dim=2,
-            ).reshape(B, 2 * n_vis)
+            ).reshape(B, n_vis * (1 + N_soft))
             all_mask = torch.cat(
                 [
                     macro_mask,
@@ -892,23 +935,27 @@ class VisionChronos2Model(nn.Module):
 
             # Position IDs: TS and vis tokens at same step share position
             position_ids = build_interleaved_position_ids(
-                T_M, n_vis, T_fut, device
+                T_M, n_vis, T_fut, device, n_soft=N_soft
             ).expand(B, -1)
 
             # Covariate rows (batch-axis) — the interleaved path previously dropped
             # them, so known future weather never reached the encoder in the final
-            # (interleaved) model. Context is zeros (length T_ctx+n_vis to match the
+            # (interleaved) model. Context is zeros (length T_ctx+n_vis*N_soft to match
             # interleaved target seq); only the future positions carry the covariate
             # embedding and are valid for GroupSelfAttention. Rows are all-numeric,
             # so their modality_mask is 0 everywhere.
             if cov_fut_rows:
-                seq_len = T_ctx + n_vis + T_fut
+                seq_len = T_ctx + n_vis_tok + T_fut
                 cov_ctx_il = torch.zeros(
-                    B, T_ctx + n_vis, self.chronos.model_dim, device=device, dtype=dtype
+                    B,
+                    T_ctx + n_vis_tok,
+                    self.chronos.model_dim,
+                    device=device,
+                    dtype=dtype,
                 )
                 cov_valid = torch.cat(
                     [
-                        torch.zeros(B, T_ctx + n_vis, device=device, dtype=dtype),
+                        torch.zeros(B, T_ctx + n_vis_tok, device=device, dtype=dtype),
                         torch.ones(B, T_fut, device=device, dtype=dtype),
                     ],
                     dim=1,
