@@ -1,7 +1,7 @@
 # 14 — Build the s2c arm: future queries cross-attend a retained spatial field
 
 Type: task
-Status: ready-for-agent
+Status: done (2026-08-28, commit d5de785)
 Blocks: 15, 16
 
 ## Question
@@ -90,9 +90,56 @@ exactly this.
 
 ## Done when
 
-- [ ] s2c runs end to end, loss finite, on the fake-encoder test fixture
-- [ ] visual residual provably reaches future positions and provably does NOT reach context
+- [x] s2c runs end to end, loss finite, on the fake-encoder test fixture
+- [x] visual residual provably reaches future positions and provably does NOT reach context
       positions (asserted by test, not by inspection)
-- [ ] `output_patch_size=4` produces 3 future positions and 12 scored steps, no leftover
-- [ ] N=1-equivalent path (s2b) is untouched — existing tests still pass
-- [ ] arm identity is disjoint from every wave-1 and wave-2 tag and checkpoint dir
+- [x] `output_patch_size=4` produces 3 future positions and 12 scored steps, no leftover
+- [x] N=1-equivalent path (s2b) is untouched — existing tests still pass
+- [x] arm identity is disjoint from every wave-1 and wave-2 tag and checkpoint dir
+
+## Resolution (2026-08-28, commit `d5de785`)
+
+Built as specified. Every "Done when" box checked: 24 new tests in
+`MMTSFM/tests/test_s2c_future_query.py`, full suite 312 passed.
+
+Config surface: `visual_cross_attn_blocks` (core config, default **0** — arms predating s2c
+build no cross-attention module at all, so no checkpoint key and no forward-path difference
+can creep in), `visual_grid` (vision config), `fusion_mode: future_query`. Arm identity
+`mmtsfm_s2c_ukpv`, configs `configs/model/vision_chronos2_s2c.yaml` +
+`configs/stage/s2c.yaml`, launched by
+
+```
+START_STAGE=s2c END_STAGE=s2c INIT_CKPT=<uk_pv_s1_selfattn_sNN/best.ckpt> \
+  MODEL_CFG=vision_chronos2_s2c ARM_SUFFIX=_s2c bash scripts/slurm_curriculum.sh
+```
+
+`s2c` is appended last in `STAGES`, so the default `END_STAGE=s3` chain is unchanged.
+
+### Two latent bugs found while building, both silent
+
+1. **`MHA.forward` pinned the KV length to the QUERY length** when shaping K and V. Correct
+   for self-attention, where they are equal by construction; it made *any* cross-attention
+   with a differently-sized KV impossible — which is the normal case and precisely s2c's (64
+   KV tokens against 3 queries). Fixed with a `shape_kv()` that infers the length. This had
+   never surfaced because `TimeCrossAttention` was dead code.
+2. **`visual_cross_attn_blocks` was not propagated to the config `from_pretrained` restores**,
+   whose default is 0. Real training loads the hub checkpoint, so the YAML value would have
+   been discarded, **no cross-attention module would have been built, and s2c would have
+   trained as an s2b-shaped model while every log line said s2c** — a null indistinguishable
+   from a falsified hypothesis. Same trap the neighbouring `grassmann_modality_pair_bias`
+   line already warns about.
+
+### One design point sharpened during the build
+
+The learned lead-time embedding is applied **whether or not the batch carries vision**. It
+parameterises the forecast positions; it is not part of the visual pathway. Gating it on
+`use_video` would make the vision-free forward a different model, and the marginal-gain pass
+would then be measuring tau as well as vision.
+
+### One idealisation the tests document rather than assert
+
+`GroupSelfAttention` runs *after* cross-attention inside the same block and attends along the
+**batch** axis. So a row with vision masked off still sees the visual update if another row in
+its group had vision on — at future positions only. This is structurally identical to s2b,
+where the pooled visual tokens are likewise group-visible. The load-bearing claim is the one
+about **time** positions (context positions stay clean), and that is asserted directly.
