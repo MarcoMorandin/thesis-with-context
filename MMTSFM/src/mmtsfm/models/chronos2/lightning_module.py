@@ -138,6 +138,14 @@ class VisionChronos2LightningModule(LightningModule):
             pretrained_config.grassmann_modality_pair_bias = (
                 core_config.grassmann_modality_pair_bias
             )
+            # s2c: same trap as the flag above. `from_pretrained` restores the hub
+            # config, whose default is 0, so without this line the YAML's
+            # visual_cross_attn_blocks is discarded, NO cross-attention module is
+            # built, and the arm trains as a plain s2b-shaped model while every log
+            # line still says s2c.
+            pretrained_config.visual_cross_attn_blocks = (
+                core_config.visual_cross_attn_blocks
+            )
             pretrained_config._attn_implementation = core_config._attn_implementation
             # Propagate nested chronos_config overrides (use_arcsinh, max_output_patches, quantiles, …).
             # Without this, YAML values silently lose to the values stored in the HF checkpoint —
@@ -190,6 +198,12 @@ class VisionChronos2LightningModule(LightningModule):
                 "input_patch_embedding",
                 "output_patch_embedding",
                 "shared",
+                # s2c: the visual cross-attention sits inside `chronos.encoder.block`,
+                # so the blanket freeze above catches it. It is a NEW module with no
+                # pretrained weights — it must learn. Named here rather than left to
+                # the `n_unfreeze_encoder_blocks` tail below, so that trainability does
+                # not silently depend on two independent settings happening to agree.
+                "visual_cross_attn",
             )
             for name, p in self.model.chronos.named_parameters():
                 if any(k in name for k in keep_trainable_substrings):

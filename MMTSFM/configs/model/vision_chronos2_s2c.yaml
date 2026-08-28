@@ -1,0 +1,84 @@
+_target_: mmtsfm.models.chronos2.lightning_module.VisionChronos2LightningModule
+
+# ---- Chronos-2 backbone ----
+pretrained_model_name_or_path: "amazon/chronos-2"
+chronos_core_cfg:
+  d_model: 512
+  d_kv: 64
+  d_ff: 2048
+  num_layers: 6
+  num_heads: 8
+  dropout_rate: 0.1
+  layer_norm_epsilon: 1.0e-6
+  initializer_factor: 0.05
+  feed_forward_proj: relu
+  rope_theta: 10000.0
+  use_grassmann: false
+  grassmann_reduced_dim: 32
+  grassmann_window_offsets: [1, 2, 4, 8, 12, 16]
+  grassmann_modality_pair_bias: true
+  attn_implementation: sdpa
+  # s2c: visual cross-attention on the LAST 4 of 6 encoder blocks. Mirrors the
+  # existing n_unfreeze_encoder_blocks convention (new capacity goes at the top,
+  # against a frozen backbone). 0 elsewhere, so every other arm builds no
+  # cross-attention module at all and keeps its exact parameter set.
+  visual_cross_attn_blocks: 4
+  chronos_config:
+    context_length: 2048   # covers the 14-day protocol history (uk_pv 672 steps)
+    input_patch_size: 16
+    input_patch_stride: 16
+    # 16 -> 4 is the whole reason s2c can have per-horizon queries at all.
+    # At 16, num_output_patches = ceil(12/16) = 1: the entire 6 h horizon is ONE
+    # decoder position, so there is nothing for three lead-time queries to be.
+    # At 4 there are 3 positions — steps 1-4 (30-120 min), 5-8 (150-240 min),
+    # 9-12 (270-360 min) — and patch 0 covers exactly the window where the latent
+    # probe found ramp signal (R^2 0.0512 at t+30, 0.0815 at t+60, gone by t+120).
+    # This costs no pretrained weights: output_patch_embedding is ALREADY
+    # reinitialised on load because of the quantile-head shape mismatch.
+    output_patch_size: 4
+    quantiles: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+    use_reg_token: false
+    use_arcsinh: true
+    max_output_patches: 4
+
+# ---- Vision modules ----
+vision_cfg:
+  visual_encoder_ckpt_path: ""
+  freeze_visual_encoder: true
+  skip_vision_stack: false
+  # No LatentSummarizer, no CrossModalAdapter on this path: the V-JEPA patch
+  # field is block-pooled to 4x4 per temporal slice and projected straight to
+  # 64 KV tokens. Pooling to a 4x4 GRID rather than to one vector is the change
+  # under test — a coordinate system, not a content summary.
+  fusion_mode: "future_query"
+  visual_grid: 4
+  n_visual_context_steps: 1
+  n_soft_tokens: 1
+  adapter_type: linear
+  adapter_n_layers: 2
+  summarizer_n_heads: 4
+  visual_dropout_prob: 0.5   # matches s2b
+  numeric_dropout_prob: 0.1
+  dropout: 0.1
+  n_entities: 0
+
+# ---- Optimiser & schedule ----
+lr: 1.0e-4
+weight_decay: 1.0e-2
+warmup_steps: 500
+min_lr_ratio: 0.1
+horizon: ${data.horizon}
+
+# ---- Training strategy ----
+# Identical to the s2b arm on purpose. s2c-vs-s2b must isolate the fusion
+# mechanism; a different freeze policy would change two things at once.
+freeze_chronos: true
+n_unfreeze_encoder_blocks: 3
+backbone_lr_ratio: 0.1
+
+# ---- Protocol evaluation ----
+results_dir: results
+results_tag: mmtsfm_s2c_ukpv
+sp_reference_path: null
+
+compute_marginal_gain: false
