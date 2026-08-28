@@ -100,4 +100,24 @@ ticket 14 closed — the sixteen s2c tests all build a `Chronos2EncoderBlock` or
   both shapes, and refuses a donor that mismatches on more than max(8, 5%) — a wrong
   `INIT_CKPT` must not become a from-scratch run that logs as a chained stage.
 
-Suite 337 passed; `main` at `423d7e6`. Third submission still pending.
+- **54838774** — `RuntimeError: mat1 and mat2 shapes cannot be multiplied (12x12 and
+  48x3072)`, in Lightning's sanity check at `vision_chronos2.py:741`. 12 is
+  `output_patch_size * 3`, 48 is `input_patch_size * 3`. The previous fix taught
+  `Chronos2Model.encode` to pick the right embedding, and the arm that needs it never
+  calls `encode`: `VisionChronos2Model` overrides `forward` and inlines its own copy of
+  the encode path, so the one arm that sets unequal patch sizes was still handing future
+  patches to the context embedding. Fixed in `5033fa8`: the dispatch moves into
+  `Chronos2Model.embed_future` and both files call that, so a third copy of the encode
+  path would have to bypass it deliberately.
+  - Found in the same pass, before it shipped: `vision_chronos2.py:785` embedded the
+    **covariate** rows with `input_patch_embedding` too. They come from a second
+    `_prepare_patched_future` call, so they are `output_patch_size` wide as well, and
+    uk_pv passes weather covariates — that was failure #4, one `grep -n` earlier than it
+    needed to be.
+
+The pattern across all three: each fix was verified against `Chronos2Model` while the arm
+that actually runs is `VisionChronos2Model`. The new tests build the vision arm from the
+shipped YAML across video on/off x covariates on/off, and were verified adversarially —
+reverting only `vision_chronos2.py` fails 5 of them.
+
+Suite 342 passed; `main` at `9ea5dc5`. Third relaunch pending.
