@@ -128,3 +128,51 @@ def test_unequal_sizes_reach_the_future_positions():
             p.zero_()
     after = _forward(model).quantile_preds
     assert not torch.allclose(before, after)
+
+
+# --- warm start ------------------------------------------------------------
+# s2c is chained off s1, and the second cluster failure was here, not in
+# construction: strict=False skips ABSENT keys but raises on keys present at the
+# wrong shape, and the resized quantile head is present in every s1 donor.
+
+
+def _donor_state_dict() -> dict:
+    """An s1-shaped donor: the same model with the original patch size."""
+    cc = dict(_shipped_chronos_config(), output_patch_size=16)
+    return Chronos2Model(_core(cc)).state_dict()
+
+
+def test_an_s1_donor_warm_starts_into_s2c():
+    from mmtsfm.train import drop_reshaped_tensors
+
+    model = Chronos2Model(_core(_shipped_chronos_config()))
+    sd, n = drop_reshaped_tensors(_donor_state_dict(), model.state_dict(), "donor.ckpt")
+    assert n == 4, "expected exactly the quantile head's 4 tensors"
+    assert all("output_patch_embedding" in k for k in _donor_state_dict() if k not in sd)
+    # The load that raised on the cluster.
+    missing, _ = model.load_state_dict(sd, strict=False)
+    assert not [k for k in missing if k.startswith("encoder.")], (
+        "the backbone must still warm-start; only the resized head is dropped"
+    )
+
+
+def test_a_matching_donor_is_returned_untouched():
+    from mmtsfm.train import drop_reshaped_tensors
+
+    model = Chronos2Model(_core(_shipped_chronos_config()))
+    sd = model.state_dict()
+    out, n = drop_reshaped_tensors(dict(sd), sd, "donor.ckpt")
+    assert n == 0 and out.keys() == sd.keys()
+
+
+def test_a_mismatched_donor_is_refused_not_silently_discarded():
+    """The failure mode this guard exists for: pointing INIT_CKPT at another
+    arm would drop most of the tensors and train from scratch while every log
+    line said the stage was chained."""
+    from mmtsfm.train import drop_reshaped_tensors
+
+    model = Chronos2Model(_core(_shipped_chronos_config()))
+    wrong = {k: torch.zeros(3, 3) for k in model.state_dict()}
+    with pytest.raises(RuntimeError, match="mismatched donor"):
+        drop_reshaped_tensors(wrong, model.state_dict(), "wrong_arm.ckpt")
+

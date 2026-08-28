@@ -53,6 +53,54 @@ def _best_finite_checkpoint_path(trainer) -> str | None:
     return None
 
 
+def drop_reshaped_tensors(
+    sd: dict,
+    model_sd: dict,
+    source: str,
+    max_fraction: float = 0.05,
+    min_allowed: int = 8,
+) -> tuple[dict, int]:
+    """Remove donor tensors whose shape does not match the current model.
+
+    ``load_state_dict(strict=False)`` skips keys that are ABSENT but still raises
+    on keys that are present at the wrong shape, so a stage whose head was
+    deliberately resized cannot warm-start from its own donor without this. s2c is
+    the first such arm: ``output_patch_embedding`` is
+    ``num_quantiles * output_patch_size`` wide, 9*16=144 in the s1 donor against
+    9*4=36 here, and those tensors are already in the freeze policy's
+    "reinitialised, must learn" list. Dropping them is the intended warm start;
+    doing it quietly is not, so every one is logged.
+    """
+    shapes = {k: v.shape for k, v in model_sd.items()}
+    reshaped = [
+        (k, tuple(v.shape), tuple(shapes[k]))
+        for k, v in sd.items()
+        if k in shapes and hasattr(v, "shape") and v.shape != shapes[k]
+    ]
+    if not reshaped:
+        return sd, 0
+
+    for key, donor_shape, model_shape in reshaped:
+        log.warning(
+            f"Warm start: dropping {key} — donor {donor_shape} vs model "
+            f"{model_shape}; this tensor starts from its init."
+        )
+    # A handful of reshaped tensors is a deliberate head resize. A large fraction
+    # means the donor is the wrong checkpoint for this arm, and a "warm start"
+    # that discarded most of it would train from scratch while every log line
+    # claimed the stage was chained. The absolute floor keeps the guard from
+    # firing on a small model, where a 4-tensor head resize is already 5%; a
+    # genuinely wrong donor mismatches on d_model and trips it by hundreds.
+    if len(reshaped) > max(min_allowed, max_fraction * len(sd)):
+        raise RuntimeError(
+            f"{len(reshaped)} of {len(sd)} tensors in {source} do not match this "
+            "model's shapes. That is a mismatched donor, not a head resize — "
+            "check INIT_CKPT points at the right arm."
+        )
+    dropped = {r[0] for r in reshaped}
+    return {k: v for k, v in sd.items() if k not in dropped}, len(reshaped)
+
+
 @hydra.main(version_base="1.3", config_path="../../configs", config_name="config.yaml")
 def main(cfg: DictConfig):
     from utils.reproducibility import set_seed
@@ -86,15 +134,24 @@ def main(cfg: DictConfig):
     # ckpt_path (full-state resume): load only the prior stage's model weights so
     # the new stage starts at epoch 0 with a fresh optimizer whose param groups
     # match the CURRENT freezing. strict=False tolerates added/removed modules
-    # (e.g. S1 numeric-only -> S2a with vision) and the reinit'd output head.
+    # (e.g. S1 numeric-only -> S2a with vision).
     init_ckpt = cfg.get("init_ckpt", None) or None
     if init_ckpt:
         log.info(f"Warm-starting weights from: {init_ckpt}")
         state = torch.load(init_ckpt, map_location="cpu", weights_only=False)
         sd = state.get("state_dict", state)
+
+        # strict=False does NOT tolerate a shape mismatch: it skips keys that are
+        # absent, and raises on keys that are present at the wrong shape. s2c is
+        # the first arm to hit that — output_patch_embedding is
+        # num_quantiles * output_patch_size wide, so 9*16=144 in the s1 donor
+        # against 9*4=36 here.
+        sd, n_reshaped = drop_reshaped_tensors(sd, model.state_dict(), init_ckpt)
+
         missing, unexpected = model.load_state_dict(sd, strict=False)
         log.info(
-            f"Warm start: loaded (missing={len(missing)}, unexpected={len(unexpected)})"
+            f"Warm start: loaded (missing={len(missing)}, unexpected={len(unexpected)}"
+            f", reshaped={n_reshaped})"
         )
 
         # This is a RAW load_state_dict, so Lightning's on_load_checkpoint never
