@@ -93,6 +93,16 @@ parallel width is a queue question, not a node question.
   output-level test cannot catch this bug (the mask is also a patch feature); the guard is a
   spy on the encoder boundary.
 
+- **s2c design settled** (grilling, 2026-08-28) — external review rejected the summarizer
+  rewrite: N Perceiver queries give N *content summaries*, not a *coordinate system*, and
+  advection is a claim about coordinates. The arm instead retains a 4x4x4 V-JEPA spatial
+  field as 64 KV tokens and lets **3 future positions** (`output_patch_size` 16 -> 4), each
+  carrying a learned lead-time embedding, cross-attend it via the already-present but unused
+  `TimeCrossAttention`, residual gated to future positions only. Freeze policy mirrors s2b
+  exactly. Full spec and rationale in
+  [Build the s2c arm](issues/14-build-the-s2c-arm.md); gate pre-registered in
+  [Call the pre-registered s2c gate](issues/17-call-the-s2c-gate.md).
+
 - [Widen the visual bottleneck](issues/13-widen-the-visual-bottleneck.md): the cause of the
   ramp/aggregate split is **pooling**, measured model-free. Three rivals falsified first: the
   ramp subset is ~90 % cloud-driven (metric is right), 30-min ramps have R² ≤ 0.015 against
@@ -109,6 +119,32 @@ parallel width is a queue question, not a node question.
   wave is large enough for it to matter.
 
 ## Not yet specified
+
+- **Retarget the model to clear-sky index.** Every external reviewer's top recommendation,
+  and deliberately parked: `P = P_clear * CSI` assumes cloud is the only thing between
+  irradiance and power, when soiling, clipping, curtailment, outages and shading all live in
+  that gap. Revisit as a *multitask* auxiliary (`L_power + lambda * L_CSI`) rather than a
+  target swap, after s2c reports.
+- **Explicit cloud-motion vectors as a model input** (not merely as the measuring instrument
+  of ticket 18). The literature-standard answer, and the one that would convert this thesis
+  from fusion-mechanism research into feature engineering. Kept in scope but deliberately
+  behind s2c.
+- **Neighbour-plant csi as covariates.** Our own hypothesis-3 measurement found neighbour
+  csi anomalies explain R^2 0.18-0.28 of the future 30-min csi change — 4-6x the best vision
+  probe. Caveat nobody raised: using concurrent neighbour power changes the task from
+  single-plant to networked forecasting, so it cannot be dropped in as "one more covariate"
+  without a protocol note.
+- **Encoder domain gap.** Whether V-JEPA (natural video) should be swapped for an EO
+  foundation model or LoRA-tuned. The latent probe partially exonerates it — the structure
+  signal is present when spatial layout is retained — so this sits below the fusion fix.
+- **Weakened claim to repair in the writeup**: the 45-min frame-spacing falsification does
+  not hold as stated. csi *level* autocorrelation of 0.78 says nothing about whether a fast
+  *edge* is adequately sampled for motion estimation. Downgrade from "falsified" to
+  "untested"; the right test is optical-flow endpoint error at 15/30/45/60-min separations.
+- **Threshold-based ramp definition** (swinging-door or threshold-duration) reported
+  alongside the top-decile subset, for comparability with the published literature.
+- **12 future query positions** (`output_patch_size=1`) and **14x14 spatial resolution**,
+  both follow-ups gated on s2c at 3 positions / 4x4 showing signal.
 
 - **Wave 2 composition.** Hangs entirely on the gate outcome and on G0. If the gate swaps the
   mixer, wave 2 is a re-baselined curriculum; if it holds, wave 2 is the objective work.
