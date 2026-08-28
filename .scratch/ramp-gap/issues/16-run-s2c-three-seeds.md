@@ -1,7 +1,7 @@
 # 16 — Run s2c, 3 seeds, against s2b
 
 Type: task
-Status: blocked
+Status: open
 Blocked by: 14, 15
 Blocks: 17, 18
 

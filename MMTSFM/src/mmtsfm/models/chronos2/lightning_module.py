@@ -653,6 +653,61 @@ class VisionChronos2LightningModule(LightningModule):
             reference_path=self.hparams.sp_reference_path,
             compute_marginal_gain=getattr(self.hparams, "compute_marginal_gain", False),
         )
+        # s2c (ticket 15): capture is armed for EVAL ONLY. It forces the eager
+        # attention path in the cross-attention modules, which is slower and would
+        # perturb nothing numerically but has no business running during training.
+        self._horizon_attn = None
+        self._horizon_attn_blocks = self._cross_attn_blocks()
+        for blk in self._horizon_attn_blocks:
+            blk.capture_visual_attn = True
+
+    def _cross_attn_blocks(self) -> list:
+        """Encoder blocks that actually own a visual cross-attention module.
+
+        Empty for every arm before s2c (visual_cross_attn_blocks defaults to 0), so
+        the whole diagnostic is inert rather than conditional on a config flag.
+        """
+        enc = getattr(getattr(self.model, "chronos", None), "encoder", None)
+        blocks = getattr(enc, "block", None)
+        if blocks is None:
+            return []
+        return [b for b in blocks if getattr(b, "visual_cross_attn", None) is not None]
+
+    def _capture_horizon_attention(self) -> None:
+        """Harvest one batch of per-tau attention over the visual field.
+
+        Called after the vision-ON pass only. The vision-off pass builds no
+        visual_kv, so the cross-attention never runs and the stored maps would be
+        stale; they are cleared here so a missed call fails loudly (None) instead of
+        silently double-counting the previous batch.
+        """
+        blocks = getattr(self, "_horizon_attn_blocks", None)
+        if not blocks:
+            return
+        maps = [getattr(b, "last_visual_attn", None) for b in blocks]
+        active = getattr(self.model, "_last_visual_active", None)
+        if any(m is None for m in maps) or active is None:
+            return
+        idx = torch.nonzero(active.reshape(-1).bool(), as_tuple=False).flatten()
+        if idx.numel() == 0:
+            return
+        t_fut = int(self._num_output_patches)
+        # [rows, heads, seq, n_kv] -> head-average -> active target rows, future
+        # positions only. Covariate rows live past index B and are masked out of the
+        # residual anyway; taking them here would pollute the distribution.
+        stack = [m.float().mean(dim=1)[idx][:, -t_fut:, :] for m in maps]
+        arr = torch.stack(stack, dim=0).detach().cpu().numpy()
+        if self._horizon_attn is None:
+            from mmtsfm.models.chronos2.horizon_attention import (
+                HorizonAttentionAccumulator,
+            )
+
+            self._horizon_attn = HorizonAttentionAccumulator(
+                n_blocks=arr.shape[0], n_tau=arr.shape[2], n_kv=arr.shape[3]
+            )
+        self._horizon_attn.update(arr)
+        for blk in blocks:
+            blk.last_visual_attn = None
 
     def test_step(self, batch, batch_idx):
         # Pass 1: vision-on
@@ -662,6 +717,7 @@ class VisionChronos2LightningModule(LightningModule):
             self.log("test/loss", loss, on_epoch=True, prog_bar=True, sync_dist=True)
         if self._protocol_eval is not None and out.quantile_preds is not None:
             self._accumulate_protocol(batch, inputs, out, vision_off=False)
+        self._capture_horizon_attention()
 
         # Pass 2: vision-off (W6 visual marginal gain). Same window, forced
         # vision-masked forward; only run when marginal gain is requested.
@@ -714,9 +770,34 @@ class VisionChronos2LightningModule(LightningModule):
             delta_valid=None if delta_valid is None else delta_valid.cpu().numpy(),
         )
 
+    def _emit_horizon_attention(self) -> None:
+        """Fold the s2c horizon-attention diagnostic into the results JSON.
+
+        Runs whenever the arm HAS cross-attention blocks, even if nothing was
+        captured: a missing key and a "not_measured" verdict are different claims,
+        and the second one is the honest one when the machinery was present but
+        never fired.
+        """
+        for blk in getattr(self, "_horizon_attn_blocks", []) or []:
+            blk.capture_visual_attn = False
+            blk.last_visual_attn = None
+        if not getattr(self, "_horizon_attn_blocks", None):
+            return
+        acc = getattr(self, "_horizon_attn", None)
+        if acc is None:
+            self._protocol_eval.extra["horizon_attention"] = {
+                "n_rows": 0,
+                "verdict": "not_measured",
+            }
+            return
+        emb = getattr(self.model, "lead_time_embed", None)
+        tau = None if emb is None else emb.detach().float().cpu().numpy()
+        self._protocol_eval.extra["horizon_attention"] = acc.report(tau_embed=tau)
+
     def on_test_epoch_end(self):
         if self._protocol_eval is None or not self.trainer.is_global_zero:
             return
+        self._emit_horizon_attention()
         results = self._protocol_eval.finalize()
         overall = results.get("overall", {})
         for k in (

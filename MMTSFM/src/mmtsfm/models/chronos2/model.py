@@ -54,6 +54,12 @@ class Chronos2EncoderBlock(nn.Module):
         self.visual_cross_attn: Optional[nn.Module] = (
             TimeCrossAttention(config) if k > 0 and block_idx >= num_layers - k else None
         )
+        # s2c diagnostics (ticket 15): OFF by default and never set during training.
+        # Turning it on forces the eager attention path for the cross-attention only,
+        # because that is the only path that returns weights. Plain attributes, not
+        # buffers, so nothing enters the state_dict and no checkpoint changes shape.
+        self.capture_visual_attn: bool = False
+        self.last_visual_attn: Optional[torch.Tensor] = None
 
         self.layer = nn.ModuleList()
         if getattr(config, "use_grassmann", True):
@@ -97,9 +103,19 @@ class Chronos2EncoderBlock(nn.Module):
                 hidden_states.shape[0], 1, 1, visual_kv.shape[1],
                 device=hidden_states.device, dtype=hidden_states.dtype,
             )
-            cross = self.visual_cross_attn(
-                hidden_states, attention_mask=kv_mask, encoder_states=visual_kv
-            )[0]
+            cross_out = self.visual_cross_attn(
+                hidden_states,
+                attention_mask=kv_mask,
+                encoder_states=visual_kv,
+                output_attentions=self.capture_visual_attn,
+            )
+            cross = cross_out[0]
+            if self.capture_visual_attn:
+                # [rows, heads, seq, n_kv] -- the raw softmax over the visual field,
+                # kept whole. Head-averaging and the future-position slice happen in
+                # the accumulator, so the diagnostic can be changed without touching
+                # the model.
+                self.last_visual_attn = cross_out.attn_weights.detach()
             if visual_query_mask is None:
                 hidden_states = cross
             else:
