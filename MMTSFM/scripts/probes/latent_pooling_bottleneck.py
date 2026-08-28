@@ -98,12 +98,25 @@ def r2_oos(X, y, sites, tt, eval_mask):
     )
 
 
-def pca(X: np.ndarray, k: int) -> np.ndarray:
+def pca(X: np.ndarray, k: int, seed: int = 0) -> np.ndarray:
+    """Randomized PCA (Halko), one power iteration.
+
+    A full `svd(X, full_matrices=False)` on the 4x4 arm is [N, 2*16*D] — at
+    D=1024 and N~14k that is a 14000x32768 decomposition whose Vt alone is
+    ~1.8 GB, with workspace on top. That overruns lrd_all_serial's 30 GB cap.
+    The randomized form touches only [d, k+10] and [k+10, d] blocks.
+    """
     Xc = X - X.mean(0)
     k = min(k, Xc.shape[0] - 1, Xc.shape[1])
     if k >= Xc.shape[1]:
         return Xc
-    _, _, Vt = np.linalg.svd(Xc, full_matrices=False)
+    rng = np.random.default_rng(seed)
+    p = min(Xc.shape[1], k + 10)
+    Q, _ = np.linalg.qr(Xc @ rng.standard_normal((Xc.shape[1], p)).astype(Xc.dtype))
+    # one power iteration — the latent spectrum decays slowly, and without it
+    # the leading directions bleed into each other
+    Q, _ = np.linalg.qr(Xc @ np.linalg.qr(Xc.T @ Q)[0])
+    _, _, Vt = np.linalg.svd(Q.T @ Xc, full_matrices=False)
     return Xc @ Vt[:k].T
 
 
