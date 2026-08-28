@@ -44,6 +44,11 @@ class ProtocolEvaluator:
     ):
         self.acc = PerPlantAccumulator()
         self.H = int(horizon)
+        # Free-form diagnostics a caller wants carried into the results JSON
+        # (ticket 15: s2c horizon-attention). Merged inside finalize() rather than
+        # into the dict it returns, because write() calls finalize() a SECOND time
+        # internally -- anything added to the returned dict never reaches the file.
+        self.extra: dict = {}
         self.reference_path = reference_path
         # W6: when enabled, a second accumulator collects the vision-off pass so
         # finalize() can report the visual marginal gain (Δ on/off).
@@ -292,6 +297,10 @@ class ProtocolEvaluator:
                 if row_off.get("nrmse") is not None:
                     row["delta_nrmse"] = row_off["nrmse"] - row["nrmse"]
 
+        # Last, and never overwriting a computed metric: diagnostics are evidence
+        # ABOUT the run, not part of the protocol's metric contract.
+        for key, value in self.extra.items():
+            results.setdefault(key, value)
         return results
 
     def write(

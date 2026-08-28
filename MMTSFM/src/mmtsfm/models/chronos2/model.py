@@ -25,6 +25,7 @@ from .layers import (
     FeedForward,
     GroupSelfAttention,
     ResidualBlock,
+    TimeCrossAttention,
     TimeSelfAttention,
 )
 
@@ -37,9 +38,28 @@ class Chronos2EncoderBlockOutput(ModelOutput):
 
 
 class Chronos2EncoderBlock(nn.Module):
-    def __init__(self, config: Chronos2CoreConfig):
+    def __init__(
+        self,
+        config: Chronos2CoreConfig,
+        block_idx: int = 0,
+        num_layers: int = 1,
+    ):
         super().__init__()
         assert not config.is_decoder
+
+        # s2c: visual cross-attention on the LAST k blocks only. Built solely when
+        # asked for, so blocks in every other arm hold no extra parameters and take
+        # the identical forward path.
+        k = int(getattr(config, 'visual_cross_attn_blocks', 0))
+        self.visual_cross_attn: Optional[nn.Module] = (
+            TimeCrossAttention(config) if k > 0 and block_idx >= num_layers - k else None
+        )
+        # s2c diagnostics (ticket 15): OFF by default and never set during training.
+        # Turning it on forces the eager attention path for the cross-attention only,
+        # because that is the only path that returns weights. Plain attributes, not
+        # buffers, so nothing enters the state_dict and no checkpoint changes shape.
+        self.capture_visual_attn: bool = False
+        self.last_visual_attn: Optional[torch.Tensor] = None
 
         self.layer = nn.ModuleList()
         if getattr(config, "use_grassmann", True):
@@ -58,6 +78,8 @@ class Chronos2EncoderBlock(nn.Module):
         group_time_mask: torch.Tensor,
         output_attentions: bool = False,
         modality_mask: Optional[torch.Tensor] = None,
+        visual_kv: Optional[torch.Tensor] = None,
+        visual_query_mask: Optional[torch.Tensor] = None,
     ) -> Chronos2EncoderBlockOutput:
         # apply time attention
         time_self_attn_outputs: AttentionOutput = self.layer[0](
@@ -68,6 +90,38 @@ class Chronos2EncoderBlock(nn.Module):
             modality_mask=modality_mask,
         )
         hidden_states = time_self_attn_outputs[0]
+
+        # s2c: forecast positions query the retained visual field.
+        #
+        # The `torch.where` is the load-bearing part. TimeCrossAttention adds its own
+        # residual, so its output is the UPDATED sequence; gating it back to the
+        # future positions is what keeps satellite information out of the historical
+        # context. Without that gate this arm would change two things at once and the
+        # comparison against s2b would be meaningless (ticket 14).
+        if self.visual_cross_attn is not None and visual_kv is not None:
+            kv_mask = torch.zeros(
+                hidden_states.shape[0], 1, 1, visual_kv.shape[1],
+                device=hidden_states.device, dtype=hidden_states.dtype,
+            )
+            cross_out = self.visual_cross_attn(
+                hidden_states,
+                attention_mask=kv_mask,
+                encoder_states=visual_kv,
+                output_attentions=self.capture_visual_attn,
+            )
+            cross = cross_out[0]
+            if self.capture_visual_attn:
+                # [rows, heads, seq, n_kv] -- the raw softmax over the visual field,
+                # kept whole. Head-averaging and the future-position slice happen in
+                # the accumulator, so the diagnostic can be changed without touching
+                # the model.
+                self.last_visual_attn = cross_out.attn_weights.detach()
+            if visual_query_mask is None:
+                hidden_states = cross
+            else:
+                hidden_states = torch.where(
+                    visual_query_mask.unsqueeze(-1), cross, hidden_states
+                )
         # Intra-block guard: NaN produced inside time-attn (e.g. from
         # uniform-attention backward at fully-masked timesteps under bf16
         # autocast) must not reach group-attn's KV and contaminate its
@@ -119,7 +173,10 @@ class Chronos2Encoder(nn.Module):
         assert not config.is_decoder
 
         self.block = nn.ModuleList(
-            [Chronos2EncoderBlock(config) for i in range(config.num_layers)]
+            [
+                Chronos2EncoderBlock(config, block_idx=i, num_layers=config.num_layers)
+                for i in range(config.num_layers)
+            ]
         )
         # Stamp the block index onto each time-mixing layer so the
         # MMTSFM_GRASSMANN_DEBUG tracer can name the block it fired in — the
@@ -181,6 +238,8 @@ class Chronos2Encoder(nn.Module):
         position_ids: torch.Tensor | None = None,
         output_attentions: bool = False,
         modality_mask: Optional[torch.Tensor] = None,
+        visual_kv: Optional[torch.Tensor] = None,
+        visual_query_mask: Optional[torch.Tensor] = None,
     ) -> Chronos2EncoderOutput:
         batch_size, seq_length = inputs_embeds.size()[:-1]
 
@@ -220,6 +279,8 @@ class Chronos2Encoder(nn.Module):
                 group_time_mask=group_time_mask,
                 output_attentions=output_attentions,
                 modality_mask=modality_mask,
+                visual_kv=visual_kv,
+                visual_query_mask=visual_query_mask,
             )
 
             hidden_states = layer_outputs[0]

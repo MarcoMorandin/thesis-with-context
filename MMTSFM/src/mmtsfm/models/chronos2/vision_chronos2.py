@@ -177,6 +177,12 @@ class VisionChronos2Config:
 
     n_visual_context_steps: int = 24
     n_soft_tokens: int = 1
+    # s2c (fusion_mode='future_query'): side of the spatial grid retained from the
+    # V-JEPA patch field. 4 -> a 4x4 grid per temporal slice. 4 is not arbitrary: it
+    # is exactly the arm the latent probe measured (ramp R^2 0.0512 at t+30, 0.0815
+    # at t+60), so a null here is interpretable rather than confounded by an
+    # unmeasured resolution.
+    visual_grid: int = 4
     adapter_type: str = "linear"
     adapter_n_layers: int = 2
     summarizer_n_heads: int = 4
@@ -356,6 +362,26 @@ class VisionChronos2Model(nn.Module):
             # identity-shaped extra projection, and building it would add
             # parameters that no existing curriculum checkpoint carries. So it is
             # constructed for interleaved ONLY when it does something.
+            # s2c bypasses the summarizer and the adapter entirely: the whole point is
+            # that no stage pools the patch grid before fusion.
+            if vision_config.fusion_mode == "future_query":
+                self.visual_kv_proj: Optional[nn.Module] = nn.Linear(_d_v, d_model)
+                # Learned lead-time embedding, one per future patch position. This is
+                # explicit and learnable ON PURPOSE: three queries distinguished only
+                # by sequence position can collapse to near-duplicates, and the model
+                # then learns three generic visual summaries. That failure produces
+                # the same flat metric as a genuinely falsified hypothesis, so it must
+                # be made detectable (ticket 15) rather than merely hoped against.
+                n_lead = int(
+                    getattr(chronos_model.chronos_config, "max_output_patches", 4)
+                )
+                self.lead_time_embed: Optional[nn.Parameter] = nn.Parameter(
+                    torch.randn(n_lead, d_model) * (d_model**-0.5)
+                )
+            else:
+                self.visual_kv_proj = None
+                self.lead_time_embed = None
+
             needs_adapter = (
                 vision_config.fusion_mode == "late" or vision_config.n_soft_tokens > 1
             )
@@ -371,6 +397,8 @@ class VisionChronos2Model(nn.Module):
                 self.cross_modal_adapter = None
         else:
             self.video_encoder = None
+            self.visual_kv_proj = None
+            self.lead_time_embed = None
             self.latent_summarizer = None
             self.cross_modal_adapter = None
 
@@ -590,6 +618,27 @@ class VisionChronos2Model(nn.Module):
             numeric_active,
         )
 
+    def _build_visual_kv(self, video_tokens: torch.Tensor) -> torch.Tensor:
+        """V-JEPA latents ``[B, T_lat, P, D_v]`` -> visual KV ``[B, T_lat*g*g, d]``.
+
+        Spatial layout is RETAINED, only coarsened: the patch grid is block-pooled to
+        g x g and every temporal slice is kept as its own set of key/value entries.
+        Keeping all T_lat slices is what makes motion inferable at all -- a single
+        instant cannot express displacement.
+        """
+        B, T_lat, Pn, D_v = video_tokens.shape
+        g0 = int(round(Pn**0.5))
+        if g0 * g0 != Pn:
+            raise ValueError(
+                f'V-JEPA patch count {Pn} is not a square grid; cannot retain spatial '
+                'layout for future_query fusion.'
+            )
+        g = min(int(self.vcfg.visual_grid), g0)
+        b = g0 // g
+        z = video_tokens.reshape(B, T_lat, g0, g0, D_v)[:, :, : g * b, : g * b, :]
+        z = z.reshape(B, T_lat, g, b, g, b, D_v).mean(dim=(3, 5))
+        return self.visual_kv_proj(z.reshape(B, T_lat * g * g, D_v))
+
     # ------------------------------------------------------------------
     # Forward
     # ------------------------------------------------------------------
@@ -761,6 +810,50 @@ class VisionChronos2Model(nn.Module):
                     )
                 )
                 cov_group_rows.append(group_ids)
+
+        visual_kv = None
+        visual_query_mask = None
+        if self.vcfg.fusion_mode == "future_query" and self.lead_time_embed is not None:
+            # The lead-time embedding is part of how the forecast positions are
+            # PARAMETERISED, not part of the visual pathway, so it is applied
+            # whether or not this batch carries vision. Gating it on `use_video`
+            # would make a vision-free batch a different model, and the
+            # marginal-gain counterfactual would then be measuring tau as well as
+            # vision.
+            T_fut_q = future_embeds.shape[1]
+            future_embeds = future_embeds + self.lead_time_embed[:T_fut_q].unsqueeze(0)
+
+        if use_video and self.vcfg.fusion_mode == "future_query":
+            # --- s2c: forecast positions cross-attend a retained spatial field ---
+            # The token sequence is the plain [context, future] one; the visual field
+            # never enters it. Vision reaches the model only through cross-attention
+            # at the future positions, inside the last k encoder blocks.
+            if video_latents is not None:
+                video_tokens = video_latents
+            else:
+                video_tokens = self.video_encoder(video)
+            video_tokens = torch.nan_to_num(
+                video_tokens, nan=0.0, posinf=0.0, neginf=0.0
+            )
+            visual_kv = self._build_visual_kv(video_tokens)
+
+            # Forced vision-off (marginal-gain pass) and per-sample modality dropout
+            # both act by withholding the QUERY, not by zeroing the field: with the
+            # mask off, every future position keeps its self-attention result and the
+            # forward is numerically identical to the vision-free path.
+            vis_on = torch.ones(B, device=device, dtype=torch.bool)
+            if force_vision_off:
+                vis_on = torch.zeros_like(vis_on)
+            elif self.training and self.vcfg.visual_dropout_prob > 0:
+                vis_on = (
+                    torch.rand(B, device=device) >= self.vcfg.visual_dropout_prob
+                )
+            if visual_mask is not None:
+                vis_on = vis_on & (visual_mask.sum(dim=1) > 0)
+            self._last_visual_active = vis_on
+            # Reported out so the marginal-gain pass and the modality-dropout logging
+            # see s2c the same way they see every other arm.
+            visual_active = vis_on
 
         if use_video and self.vcfg.fusion_mode == "interleaved":
             # --- Interleaved fusion path ---
@@ -1042,7 +1135,7 @@ class VisionChronos2Model(nn.Module):
                 numeric_active=numeric_active,
             )
 
-        elif use_video:
+        elif use_video and self.vcfg.fusion_mode == "late":
             # Modality-type (numeric=0), segment (context=0, future=1),
             # token-type (target=0, covariate=1), entity embeddings
             input_embeds_mm = self.multimodal_embed.add_modality(
@@ -1189,6 +1282,23 @@ class VisionChronos2Model(nn.Module):
                 all_group_ids = group_ids
 
         # ---- Encoder ----------------------------------------------------
+        if visual_kv is not None:
+            # Query mask over the FULL batch: true only at the future positions of the
+            # target rows. Covariate rows appended along the batch axis stay false, so
+            # they never attend the visual field.
+            n_rows, seq_len_full = all_embeds.shape[0], all_embeds.shape[1]
+            T_fut_q = future_embeds.shape[1]
+            visual_query_mask = torch.zeros(
+                n_rows, seq_len_full, dtype=torch.bool, device=all_embeds.device
+            )
+            visual_query_mask[:B, seq_len_full - T_fut_q :] = (
+                self._last_visual_active.view(B, 1)
+            )
+            if n_rows > B:
+                visual_kv = visual_kv.repeat(
+                    (n_rows + B - 1) // B, 1, 1
+                )[:n_rows]
+
         all_embeds = torch.nan_to_num(all_embeds, nan=0.0, posinf=0.0, neginf=0.0)
         # Backward hook: the encoder backward runs under Lightning's bf16 autocast
         # (loss.backward() fires outside our autocast(enabled=False) context).
@@ -1205,6 +1315,8 @@ class VisionChronos2Model(nn.Module):
             group_ids=all_group_ids,
             attention_mask=all_mask,
             output_attentions=output_attentions,
+            visual_kv=visual_kv,
+            visual_query_mask=visual_query_mask,
         )
         hidden_states: torch.Tensor = (
             encoder_out.last_hidden_state

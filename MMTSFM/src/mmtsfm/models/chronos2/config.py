@@ -76,6 +76,7 @@ class Chronos2CoreConfig(PretrainedConfig):
         pad_token_id: int = 0,
         rope_theta: float = 10000.0,
         attn_implementation: Literal["eager", "sdpa"] | None = None,
+        visual_cross_attn_blocks: int = 0,
         grassmann_reduced_dim: int = 32,
         grassmann_window_offsets: Optional[List[int]] = None,
         grassmann_plucker_eps: float = 1e-8,
@@ -96,6 +97,10 @@ class Chronos2CoreConfig(PretrainedConfig):
         self.initializer_factor = initializer_factor
         self.feed_forward_proj = feed_forward_proj
         self.rope_theta = rope_theta
+        # s2c: number of TRAILING encoder blocks that carry visual cross-attention.
+        # 0 (default) builds no cross-attention module at all, so every arm that
+        # predates s2c keeps its exact parameter set and its exact forward.
+        self.visual_cross_attn_blocks = int(visual_cross_attn_blocks)
         self.grassmann_reduced_dim = grassmann_reduced_dim
         self.grassmann_window_offsets = grassmann_window_offsets or [1, 2, 4, 8, 12, 16]
         self.grassmann_plucker_eps = grassmann_plucker_eps

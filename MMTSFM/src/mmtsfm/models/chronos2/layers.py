@@ -322,6 +322,22 @@ class MHA(nn.Module):
                 d=self.kv_proj_dim,
             )
 
+        def shape_kv(states: torch.Tensor) -> torch.Tensor:
+            """Same split, but the KV length is inferred rather than pinned.
+
+            `shape` pins ``s`` to the QUERY length. That is fine for
+            self-attention, where they are equal by construction, but it makes
+            cross-attention impossible whenever the encoder states are a
+            different length -- which is the normal case, and precisely what
+            s2c does (64 visual KV tokens against 3 forecast queries).
+            """
+            return rearrange(
+                states,
+                "b s (h d) -> b h s d",
+                h=self.n_heads,
+                d=self.kv_proj_dim,
+            )
+
         def unshape(states: torch.Tensor) -> torch.Tensor:
             return rearrange(
                 states,
@@ -362,8 +378,8 @@ class MHA(nn.Module):
                 )
             )
 
-        key_states = shape(k_out)
-        value_states = shape(v_out)
+        key_states = shape_kv(k_out)
+        value_states = shape_kv(v_out)
 
         if not is_cross_attention and self.use_rope:
             cos, sin = self.rope_embed(value_states, position_ids)

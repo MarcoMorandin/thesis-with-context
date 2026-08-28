@@ -103,6 +103,28 @@ parallel width is a queue question, not a node question.
   [Build the s2c arm](issues/14-build-the-s2c-arm.md); gate pre-registered in
   [Call the pre-registered s2c gate](issues/17-call-the-s2c-gate.md).
 
+- [Build the s2c arm](issues/14-build-the-s2c-arm.md): built and merged (`d5de785`), 24 new
+  tests, full suite 312 passed. The visual residual is asserted — not inspected — to reach
+  future positions and not context positions, and `output_patch_size=4` is asserted to yield
+  exactly 3 positions over 12 scored steps. Two silent bugs fell out: `MHA` pinned the KV
+  length to the query length (cross-attention was structurally impossible, undetected because
+  `TimeCrossAttention` was dead code), and `visual_cross_attn_blocks` was dropped by
+  `from_pretrained`, which would have trained s2c as an s2b-shaped model with no
+  cross-attention while every log line said s2c. Unblocks
+  [horizon-attention diagnostics](issues/15-horizon-attention-diagnostics.md) and
+  [three seeds](issues/16-run-s2c-three-seeds.md).
+
+- [Prove the horizon queries actually behave differently](issues/15-horizon-attention-diagnostics.md):
+  `results/*.json` now carries `horizon_attention` whenever an arm has cross-attention blocks.
+  The deciding statistic is **self-calibrating**: the same L1 measured between the three tau
+  attention distributions is also measured *within* one tau across two seeded half-splits of
+  its own rows, and their ratio needs no magic constant — 1.0 is noise. A second pre-registered
+  gate (`MIN_BETWEEN_L1 = 0.05`) stops a large epoch from promoting a fraction-of-a-token shift
+  to "horizon-specific". This is what lets `degenerate_queries_collapsed` be told apart from a
+  genuine null: a flat ramp metric only falsifies the hypothesis if the queries *did* differ.
+  Arms without cross-attention emit no key at all, so s1/s2a/s2b JSONs stay byte-identical.
+  16 tests, full suite 328 passed.
+
 - [Widen the visual bottleneck](issues/13-widen-the-visual-bottleneck.md): the cause of the
   ramp/aggregate split is **pooling**, measured model-free. Three rivals falsified first: the
   ramp subset is ~90 % cloud-driven (metric is right), 30-min ramps have R² ≤ 0.015 against
