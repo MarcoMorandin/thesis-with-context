@@ -77,3 +77,27 @@ from the user's own login-node session.
 - [ ] ramp NMAE, ramp NRMSE, NMAE, SS, and the vision marginal recorded per seed
 - [ ] attention divergence and tau distances (ticket 15) present in each JSON
 - [ ] per-seed values reported individually, plus mean +/- sd — not only the mean
+
+## Launch log
+
+Two submissions died before a single step ran. Both were s2c-only, both caused by
+`output_patch_size: 16 -> 4`, and neither was reachable by any test that existed when
+ticket 14 closed — the sixteen s2c tests all build a `Chronos2EncoderBlock` or a
+`SimpleNamespace`, never a `Chronos2Model`, and none of them loads a checkpoint.
+
+- **54833985** — `AssertionError: input_patch_size and output_patch_size sizes must be
+  equal, but found 16 and 4`, at construction. `encode` embeds context patches and future
+  patches with the same `input_patch_embedding`, and a future patch is
+  `[time_enc, covariates, mask]` each *output*_patch_size wide. Fixed in `e94d234`: the
+  future path gets its own `ResidualBlock`, built only when the sizes differ, so every
+  other arm's parameter set and checkpoint keys stay byte-identical.
+- **54837551** — `size mismatch for model.chronos.output_patch_embedding.output_layer.weight:
+  ... torch.Size([144, 3072]) from checkpoint, ... [36, 3072]`, at the s1 warm start. The
+  HF backbone load had already succeeded. `load_state_dict(strict=False)` skips ABSENT
+  keys but raises on keys present at the wrong shape, and `output_patch_embedding` is
+  `num_quantiles * output_patch_size` wide: 9*16=144 in the donor, 9*4=36 here. Fixed in
+  `cfebe08`: `drop_reshaped_tensors` filters exactly those four tensors, logs each with
+  both shapes, and refuses a donor that mismatches on more than max(8, 5%) — a wrong
+  `INIT_CKPT` must not become a from-scratch run that logs as a chained stage.
+
+Suite 337 passed; `main` at `423d7e6`. Third submission still pending.
