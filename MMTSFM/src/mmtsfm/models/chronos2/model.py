@@ -747,6 +747,29 @@ class Chronos2Model(PreTrainedModel):
 
         return patched_future, patched_future_covariates_mask
 
+    def embed_future(self, patched_future: torch.Tensor) -> torch.Tensor:
+        """Embed the future patches, whichever patch embedding is shaped for them.
+
+        A future patch is [time_enc, covariates, mask] each *output*_patch_size
+        wide, so it fits `input_patch_embedding` only when the two patch sizes
+        agree; when they do not, the dedicated `future_patch_embedding` built in
+        __init__ is the one shaped for it.
+
+        This is a method rather than two lines at each call site because there are
+        two call sites: `encode` here, and `VisionChronos2Model.forward`, which
+        overrides the whole encode path and inlines its own copy. Fixing only this
+        file left the vision arm — the one arm that actually sets
+        output_patch_size != input_patch_size — still calling the context
+        embedding, and it died on `mat1 and mat2 shapes cannot be multiplied
+        (12x12 and 48x3072)` in the sanity check.
+        """
+        embedding = (
+            self.future_patch_embedding
+            if self.future_patch_embedding is not None
+            else self.input_patch_embedding
+        )
+        return embedding(patched_future)
+
     def _compute_loss(
         self,
         quantile_preds: torch.Tensor,
@@ -877,15 +900,7 @@ class Chronos2Model(PreTrainedModel):
         )
 
         # get future embeddings of shape (batch, num_output_patches, d_model)
-        # `patched_future` is [time_enc, covariates, mask] each output_patch_size
-        # wide, so it fits `input_patch_embedding` only when the two patch sizes
-        # agree. When they do not, the dedicated future embedding built in
-        # __init__ is the one shaped for it.
-        future_embeds: torch.Tensor = (
-            self.future_patch_embedding
-            if self.future_patch_embedding is not None
-            else self.input_patch_embedding
-        )(patched_future)
+        future_embeds: torch.Tensor = self.embed_future(patched_future)
 
         # concatenate context and future embeddings and masks
         input_embeds = torch.cat([input_embeds, future_embeds], dim=-2)
