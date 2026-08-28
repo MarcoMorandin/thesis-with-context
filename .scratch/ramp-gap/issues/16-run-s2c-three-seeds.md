@@ -29,11 +29,10 @@ submission per seed:
 ```bash
 export MAIL_USER="marco.morandin@studenti.unitn.it"
 export DATA_DIR=/leonardo_scratch/fast/IscrC_MTSFM/data
-CKPT=/leonardo_scratch/fast/IscrC_MTSFM/checkpoints/curriculum_tsa
+CKPT=/leonardo_scratch/fast/IscrC_MTSFM/checkpoints/curriculum
 for S in 42 43 44; do
   START_STAGE=s2c END_STAGE=s2c SEED=$S \
     MODEL_CFG=vision_chronos2_s2c \
-    CKPT_DIR=$CKPT \
     INIT_CKPT=$CKPT/uk_pv_s1_selfattn_s$S/best.ckpt \
     MARGINAL_GAIN=1 \
     bash scripts/slurm_curriculum.sh
@@ -51,8 +50,13 @@ Checked against the runner source, not assumed:
 - Tags come out `mmtsfm_s2c_ukpv_s2c_s{42,43,44}`, checkpoint dirs `uk_pv_s2c_s2c_s$S`.
   Redundant-looking but distinct per seed, and consistent with the s2b control's
   `mmtsfm_s2b_ukpv_selfattn_s44`.
-- `CKPT_DIR` must be the **selfattn** tree (`curriculum_tsa`), since s2c warm-starts from
-  `uk_pv_s1_selfattn_sNN` and s2b's control lives there too.
+- **No `CKPT_DIR` override.** The runner already defaults to
+  `${TEAM_SCRATCH}/checkpoints/curriculum` (`:30`), and that is where the s1 warm-start
+  checkpoints actually live — confirmed on the cluster 2026-08-28. runbook.md:116 shows a
+  `curriculum_tsa` tree for the timeselfattn variant; that separate-directory recipe is
+  not what the wave-1 runs did. The `_selfattn` arm suffix is what separates the variants
+  inside the one `curriculum/` tree, so s2c's `uk_pv_s2c_s2c_s$S` cannot collide with the
+  s2b control sitting beside it.
 
 One bug fixed on the way: the runner's own usage comment told you to pass
 `ARM_SUFFIX=_s2c`, but `ARM_SUFFIX` is unconditionally recomputed at `:132-135` from
@@ -61,9 +65,11 @@ derived suffix is the correct one — but the documented value carries no seed, 
 variable been honoured a 3-seed wave would have written all three runs into one tag and
 one checkpoint dir. Comment corrected.
 
-**Not verified**: anything requiring the cluster — that `uk_pv_s1_selfattn_s{42,43,44}/best.ckpt`
-all exist, queue state, and whether the killed s2b s42/s43 are resumable. `ssh` is blocked
-by the local shell allowlist.
+**Not verified**: `uk_pv_s1_selfattn_s44/best.ckpt` was confirmed present by the user
+(2026-08-28); s42 and s43 have not been checked, and a missing one is a hard FATAL at
+submit time. Queue state and whether the killed s2b s42/s43 are resumable also remain
+unchecked — `ssh` is blocked by the local shell allowlist, so all cluster-side steps run
+from the user's own login-node session.
 
 ## Done when
 
