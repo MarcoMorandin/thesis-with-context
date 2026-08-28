@@ -90,8 +90,14 @@ declare -A ST_ACCUM=( [s1]="${S1_ACCUM:-2}" [s2a]="${S2A_ACCUM:-4}" [s2b]="${S2B
 # ordering leaves every existing full-chain run byte-identical while still making
 # s2c reachable. It is not a link in the chain: it warm-starts from an s1
 # checkpoint and is always run on its own, e.g.
-#   START_STAGE=s2c END_STAGE=s2c INIT_CKPT=<..._s1_selfattn_sNN/best.ckpt> \
-#     MODEL_CFG=vision_chronos2_s2c ARM_SUFFIX=_s2c bash scripts/slurm_curriculum.sh
+#   START_STAGE=s2c END_STAGE=s2c SEED=42 MODEL_CFG=vision_chronos2_s2c \
+#     INIT_CKPT=${CKPT_DIR}/uk_pv_s1_selfattn_s42/best.ckpt MARGINAL_GAIN=1 \
+#     bash scripts/slurm_curriculum.sh
+# Do NOT pass ARM_SUFFIX: it is derived below from MODEL_CFG and SEED, and any
+# value in the environment is discarded. That is the safe behaviour here — a
+# hand-set suffix carries no seed, so a 3-seed wave would write all three runs to
+# one tag and one checkpoint dir and silently overwrite itself. Derived, seed 42
+# gets tag mmtsfm_s2c_ukpv_s2c_s42 and dir uk_pv_s2c_s2c_s42.
 STAGES=(s1 s2a s2b s3 s2c)
 
 # START_STAGE: resume the curriculum from a later stage (e.g. after S1 is done).
