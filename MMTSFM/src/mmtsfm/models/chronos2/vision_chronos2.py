@@ -737,8 +737,10 @@ class VisionChronos2Model(nn.Module):
 
         T_ctx = input_embeds.shape[1]  # context + optional reg token
 
-        # Future patch embeddings [B, num_output_patches, d_model]
-        future_embeds: torch.Tensor = self.chronos.input_patch_embedding(patched_future)
+        # Future patch embeddings [B, num_output_patches, d_model]. NOT
+        # `input_patch_embedding`: a future patch is output_patch_size wide, and
+        # this arm is the only one that makes the two sizes differ.
+        future_embeds: torch.Tensor = self.chronos.embed_future(patched_future)
         future_attn_mask = torch.ones(B, num_output_patches, device=device, dtype=dtype)
 
         # ---- Visual stream (optional) ------------------------------------
@@ -780,7 +782,7 @@ class VisionChronos2Model(nn.Module):
                 patched_cov = torch.nan_to_num(
                     patched_cov, nan=0.0, posinf=0.0, neginf=0.0
                 )
-                cov_embeds = self.chronos.input_patch_embedding(patched_cov)
+                cov_embeds = self.chronos.embed_future(patched_cov)
                 cov_ctx = torch.zeros(
                     B, T_ctx, self.chronos.model_dim, device=device, dtype=dtype
                 )

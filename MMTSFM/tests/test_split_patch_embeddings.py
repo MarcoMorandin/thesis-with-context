@@ -20,6 +20,7 @@ import torch
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from mmtsfm.models.chronos2.config import Chronos2CoreConfig  # noqa: E402
 from mmtsfm.models.chronos2.model import Chronos2Model  # noqa: E402
@@ -175,4 +176,76 @@ def test_a_mismatched_donor_is_refused_not_silently_discarded():
     wrong = {k: torch.zeros(3, 3) for k in model.state_dict()}
     with pytest.raises(RuntimeError, match="mismatched donor"):
         drop_reshaped_tensors(wrong, model.state_dict(), "wrong_arm.ckpt")
+
+
+# --- the arm that actually runs --------------------------------------------
+# Everything above builds a bare Chronos2Model, and the third cluster failure
+# went straight past all of it: VisionChronos2Model overrides `forward` and
+# inlines its own copy of the encode path, so fixing `Chronos2Model.encode` left
+# the vision arm — the ONLY arm that sets output_patch_size != input_patch_size —
+# still embedding future patches with the context embedding. It died in the
+# sanity check on `mat1 and mat2 shapes cannot be multiplied (12x12 and
+# 48x3072)`: 12 = output_patch_size * 3, 48 = input_patch_size * 3.
+
+
+def _vision_model(video_encoder=None):
+    from test_vision_chronos2 import _make_fake_video_encoder
+
+    from mmtsfm.models.chronos2 import VisionChronos2Config, VisionChronos2Model
+
+    return VisionChronos2Model(
+        chronos_model=Chronos2Model(_core(_shipped_chronos_config())),
+        vision_config=VisionChronos2Config(
+            n_visual_context_steps=4, visual_dropout_prob=0.0, dropout=0.0
+        ),
+        video_encoder=video_encoder or _make_fake_video_encoder(d_v=4),
+    ).eval()
+
+
+@pytest.mark.parametrize("with_video", [False, True])
+@pytest.mark.parametrize("with_cov", [False, True])
+def test_the_vision_arm_forwards_at_the_shipped_patch_sizes(with_video, with_cov):
+    """The forward that ran on the cluster. Three axes matter: the future
+    embedding sits BEFORE the visual stream, so vision-off rows hit it too and
+    `force_vision_off` makes the validation loop take that branch on purpose; and
+    the covariate rows call `_prepare_patched_future` a SECOND time, so they are
+    output_patch_size wide as well. uk_pv passes weather covariates, so the arm
+    would have died there next."""
+    model = _vision_model()
+    b, horizon = 2, 12
+    torch.manual_seed(0)
+    with torch.no_grad():
+        out = model.forward(
+            context=torch.randn(b, 672),
+            future_target=torch.randn(b, horizon),
+            future_target_mask=torch.ones(b, horizon),
+            group_ids=torch.arange(b),
+            covariate_channels=[torch.rand(b, horizon)] if with_cov else None,
+            video=torch.rand(b, 3, 8, 32, 32) if with_video else None,
+            num_output_patches=3,
+        )
+    assert out.quantile_preds.shape[-1] == horizon
+    assert torch.isfinite(out.quantile_preds).all()
+
+
+def test_the_vision_arm_uses_the_future_embedding_not_the_context_one():
+    """Guards the specific line that was wrong. Zeroing future_patch_embedding
+    must move the forecast; zeroing it while the vision path still called
+    input_patch_embedding would leave the output untouched."""
+    model = _vision_model()
+    kw = dict(
+        context=torch.randn(2, 672),
+        future_target=torch.randn(2, 12),
+        future_target_mask=torch.ones(2, 12),
+        group_ids=torch.arange(2),
+        covariate_channels=[torch.rand(2, 12)],
+        num_output_patches=3,
+    )
+    torch.manual_seed(0)
+    with torch.no_grad():
+        before = model.forward(**kw).quantile_preds.clone()
+        for p in model.chronos.future_patch_embedding.parameters():
+            p.zero_()
+        after = model.forward(**kw).quantile_preds
+    assert not torch.allclose(before, after)
 
