@@ -340,12 +340,17 @@ class Chronos2Model(PreTrainedModel):
         )
         self.chronos_config = Chronos2ForecastingConfig(**config.chronos_config)
 
-        assert (
-            self.chronos_config.input_patch_size
-            == self.chronos_config.output_patch_size
-        ), (
-            "input_patch_size and output_patch_size sizes must be equal, "
-            f"but found {self.chronos_config.input_patch_size} and {self.chronos_config.output_patch_size}"
+        # Upstream Chronos-2 asserted input_patch_size == output_patch_size here.
+        # That assert was load-bearing, not stylistic: `encode` embeds the context
+        # patches AND the future patches with the same `input_patch_embedding`, and
+        # a future patch is [time_enc, covariates, mask] each output_patch_size wide,
+        # so unequal sizes hit a shape mismatch at the first future token. Rather
+        # than forbid the configuration, give the future path its own embedding when
+        # the sizes differ — s2c needs output_patch_size < input_patch_size to get
+        # more than one future position out of a 12-step horizon.
+        self._split_patch_embeddings = (
+            self.chronos_config.output_patch_size
+            != self.chronos_config.input_patch_size
         )
 
         # Only [PAD] token (and [REG] token)
@@ -389,6 +394,23 @@ class Chronos2Model(PreTrainedModel):
             out_dim=self.num_quantiles * self.chronos_config.output_patch_size,
             act_fn_name=config.dense_act_fn,
             dropout_p=config.dropout_rate,
+        )
+
+        # Built ONLY when the two patch sizes differ. Every arm with the usual
+        # input == output builds nothing here, so its parameter set and its
+        # checkpoint keys are unchanged — the same discipline
+        # `visual_cross_attn_blocks: 0` follows for the cross-attention module.
+        self.future_patch_embedding = (
+            ResidualBlock(
+                # x3 for [future_time_encoding, covariates, covariate_mask]
+                in_dim=self.chronos_config.output_patch_size * 3,
+                h_dim=config.d_ff,
+                out_dim=config.d_model,
+                act_fn_name=config.dense_act_fn,
+                dropout_p=config.dropout_rate,
+            )
+            if self._split_patch_embeddings
+            else None
         )
 
         # Initialize weights and apply final processing
@@ -855,7 +877,15 @@ class Chronos2Model(PreTrainedModel):
         )
 
         # get future embeddings of shape (batch, num_output_patches, d_model)
-        future_embeds: torch.Tensor = self.input_patch_embedding(patched_future)
+        # `patched_future` is [time_enc, covariates, mask] each output_patch_size
+        # wide, so it fits `input_patch_embedding` only when the two patch sizes
+        # agree. When they do not, the dedicated future embedding built in
+        # __init__ is the one shaped for it.
+        future_embeds: torch.Tensor = (
+            self.future_patch_embedding
+            if self.future_patch_embedding is not None
+            else self.input_patch_embedding
+        )(patched_future)
 
         # concatenate context and future embeddings and masks
         input_embeds = torch.cat([input_embeds, future_embeds], dim=-2)

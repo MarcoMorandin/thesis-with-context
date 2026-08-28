@@ -197,6 +197,11 @@ class VisionChronos2LightningModule(LightningModule):
                 # Re-initialised due to checkpoint size mismatch — must learn.
                 "input_patch_embedding",
                 "output_patch_embedding",
+                # s2c only: built exactly when output_patch_size != input_patch_size,
+                # because the future patch no longer fits `input_patch_embedding`.
+                # Fresh weights with no pretrained or warm-started counterpart, so it
+                # must learn; the substring above does not match this name.
+                "future_patch_embedding",
                 "shared",
                 # s2c: the visual cross-attention sits inside `chronos.encoder.block`,
                 # so the blanket freeze above catches it. It is a NEW module with no
@@ -850,6 +855,10 @@ class VisionChronos2LightningModule(LightningModule):
         ("multimodal_embed", "model.multimodal_embed"),
         ("output_patch_embedding", "model.chronos.output_patch_embedding"),
         ("input_patch_embedding", "model.chronos.input_patch_embedding"),
+        # Resolves to None on every arm that does not build it, which the prefix
+        # walk below skips. Worth logging separately: it is the only fresh module on
+        # s2c's future path besides the cross-attention itself.
+        ("future_patch_embedding", "model.chronos.future_patch_embedding"),
         ("shared", "model.chronos.shared"),
     )
 
