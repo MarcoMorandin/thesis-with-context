@@ -1,7 +1,7 @@
 # 13 — Widen the visual bottleneck (`n_soft_tokens` 1 → N)
 
 Type: task
-Status: ready-for-human
+Status: closed — intervention ran, ramp unmoved; cause re-attributed
 
 ## Question
 
@@ -103,7 +103,9 @@ The late-path flatten bug is fixed with a `permute(0, 2, 1, 3)` before the resha
 Cost: `n_vis · (N−1)` extra encoder positions. At the uk_pv geometry (`n_vis=1`, ~44-token
 sequence) N=16 adds 15 tokens, ~34 %. Cheap; the visual branch is not the throughput limit.
 
-**Not yet run.** `configs/model/vision_chronos2_wide.yaml` is `timeselfattn` plus
+**Ran 2026-08-27/28. See Outcome below — ramp did not move.**
+
+`configs/model/vision_chronos2_wide.yaml` is `timeselfattn` plus
 `n_soft_tokens: 16` and nothing else, so the pair reads as a clean A/B. Wave 2 should carry
 N ∈ {1, 16} at three seeds, on the self-attention mixer — grassmann trails it by 0.014 SS on
 every seed (ticket A03), so pairing the widening with the losing mixer would confound.
@@ -112,3 +114,52 @@ Magnitude expectation, stated before the run so it can be wrong: the probe's lin
 recovers ~1 % error of the 4 % ramp gap to iTransformer. It bounds the *mechanism*, not the
 architecture — a learned N-token adapter over V-JEPA patches has more to work with than
 ridge over 16×16 block means — but nothing here promises the gap closes.
+
+
+## Outcome (2026-08-28) — negative on ramp, and the cause is re-attributed
+
+Three seeds, s1 (borrowed from selfattn) → s2a → s2b. s2a hit the 24 h wall at
+epoch ~14/20 (late fusion concatenates visual tokens along the BATCH axis, so
+N=16 makes the encoder see `B + B·16 = 68` rows instead of 8 — a measured 6.3×
+slowdown); s2b ran from the best surviving s2a checkpoint and completed.
+
+| | ramp NMAE | ramp NRMSE | NMAE | SS |
+|---|---|---|---|---|
+| wide N=16, 3 seeds | **0.1484 ± 0.0010** | 0.1822 | 0.0721 | 0.5352 ± 0.0026 |
+| narrow N=1 | 0.1487 | 0.1832 | 0.0726 | 0.5322 |
+| iTransformer, 3 seeds | 0.1429 ± 0.0006 | 0.1769 | 0.0698 | 0.5525 |
+
+Δramp = −0.0003 (−0.19 %) against a seed floor of 0.0011 → **does not clear**.
+ΔSS = +0.0030 against a floor of 0.0038 → also does not clear. Gap to
+iTransformer 4.04 % → 3.84 %. Wide wins on 8/14 plants, a coin flip.
+
+The aggregate/ramp split got *sharper*, not resolved: aggregate vision marginal
+rose ~57 % (0.0014 → 0.0022) while the ramp marginal fell (0.00058 → 0.00022)
+and went seed-incoherent (4/14, 7/14, 10/14 plants positive).
+
+**Why the null.** `LatentSummarizer.latent_queries` is `[1, n_vis_steps, d_model]`
+— ONE learned query per visual step, cross-attending ~800 V-JEPA patches into a
+single 768-d vector. `CrossModalAdapter` then maps that one vector linearly to N
+tokens, so all N span a subspace fixed by it. Widening `n_soft_tokens` adds
+expressive capacity but no information, which is precisely what the numbers show:
+more room to inject the level, none of the structure. The 800:1 compression is
+upstream of the knob this ticket turned. The probe's finding is unaffected; the
+architectural attribution in the section above was wrong.
+
+Supporting detail: the three plants where pooling most *hurt* ramps in wave 1 are
+the three largest wide improvements (27020 −0.0038, 26854 −0.0029, 26933 −0.0016).
+Extra tokens let the model stop being misled by the single pooled summary on
+easy-ramp plants; no new signal arrived for hard-ramp ones. Capacity, not
+information.
+
+**Not wasted:** `n_soft_tokens` is now correctly plumbed through interleaved
+fusion (N=1 bit-identical), a dormant late-path flatten bug is fixed, and
+`INIT_CKPT` exists. All reusable.
+
+**Successor.** Move the widening into the summarizer — N queries *per visual
+step* in `latent_queries`, so each token attends the patch grid independently and
+can specialise spatially; `n_soft_tokens` returns to 1. Gate it on re-running
+`scripts/probes/pooling_bottleneck.py` against the cached V-JEPA latents instead
+of raw pixels: the probe showed 16×16 raw brightness carries ramp signal, but
+whether V-JEPA's patch tokens expose it linearly is untested, and if they do not
+the ceiling is V-JEPA rather than the summarizer.
