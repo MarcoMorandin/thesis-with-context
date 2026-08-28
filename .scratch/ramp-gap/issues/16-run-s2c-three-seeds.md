@@ -121,3 +121,14 @@ shipped YAML across video on/off x covariates on/off, and were verified adversar
 reverting only `vision_chronos2.py` fails 5 of them.
 
 Suite 342 passed; `main` at `9ea5dc5`. Third relaunch pending.
+
+- **54839915** — runs. Warm start exactly as pre-registered: `reshaped=4`, four WARNINGs
+  naming only `output_patch_embedding.*`, `missing=350, unexpected=0`. ~28 min/epoch;
+  val/loss 2.437 / 2.371 / 2.327 / **2.299** / 2.307, best at epoch 3, patience 7.
+
+  The override list carries `model.vision_cfg.n_visual_context_steps=1`, which reads like
+  a one-timestep visual field and is not one. It comes from the s2c YAML, not the runner,
+  and `future_query` never consults it — it is used only by the `interleaved` branch.
+  `_build_visual_kv` sizes the field as `T_lat * visual_grid^2` off the V-JEPA cache
+  shape, so the KV set is the intended 4x4x4 = 64. `n_soft_tokens: 1` is inert here for
+  the same reason: s2c retains the field instead of pooling it.
