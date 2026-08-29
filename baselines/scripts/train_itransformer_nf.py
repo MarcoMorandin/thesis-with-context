@@ -72,6 +72,13 @@ def parse_args() -> argparse.Namespace:
         choices=["all", "history"],
         help="'all' = future weather in the covariate variates (MMTSFM parity)",
     )
+    p.add_argument(
+        "--loss",
+        default="mse",
+        choices=["mae", "mse"],
+        help="library-native point loss; mse matches the paper's own "
+        "training script (thuml/iTransformer nn.MSELoss())",
+    )
     # recipe — defaults mirror MMTSFM/configs/{trainer,model}
     p.add_argument("--batch-size", type=int, default=16)
     p.add_argument(
@@ -172,6 +179,7 @@ def main() -> None:
         horizon=horizon,
         n_cov=len(config.COV_COLS),
         future_cov=args.future_cov,
+        loss_fn=args.loss,
         lr=args.lr,
         weight_decay=args.weight_decay,
         warmup_steps=args.warmup_steps,
@@ -209,13 +217,19 @@ def main() -> None:
         limit_train_batches=args.limit_train_batches or 1.0,
         callbacks=[
             ckpt,
-            EarlyStopping(monitor="val/loss", mode="min", patience=args.patience,
-                          min_delta=args.early_stop_min_delta),
+            EarlyStopping(
+                monitor="val/loss",
+                mode="min",
+                patience=args.patience,
+                min_delta=args.early_stop_min_delta,
+            ),
             LearningRateMonitor(logging_interval="step"),
         ],
     )
     trainer.fit(module, train_dataloaders=train_loader, val_dataloaders=val_loader)
-    trainer.test(module, dataloaders=test_loader, ckpt_path=ckpt.best_model_path or None)
+    trainer.test(
+        module, dataloaders=test_loader, ckpt_path=ckpt.best_model_path or None
+    )
 
 
 if __name__ == "__main__":

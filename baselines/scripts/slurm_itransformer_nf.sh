@@ -9,6 +9,9 @@
 #SBATCH --time=12:00:00
 #SBATCH --output=logs/slurm/%j_%x.out
 #SBATCH --error=logs/slurm/%j_%x.err
+# Mail notifications: pass `sbatch --mail-type=... --mail-user=...` at submit
+# time (CINECA-recommended). Never run `watch -n N squeue` against the
+# controller.
 # =============================================================================
 # Tier-2 iTransformer (neuralforecast) — TRAIN + TEST on MMTSFM's protocol.
 # =============================================================================
@@ -25,7 +28,7 @@
 # schema, so scripts/aggregate_all.py picks it up next to the other tiers.
 #
 # Knobs (all optional): DATA_DIR RESULTS_DIR CKPT_DIR SP_REF DS SEED
-#                       EPOCHS BATCH_SIZE ACCUM TRAIN_STRIDE FUTURE_COV
+#                       EPOCHS BATCH_SIZE ACCUM TRAIN_STRIDE FUTURE_COV LOSS
 #                       NUM_WORKERS TAG EXTRA_ARGS
 # =============================================================================
 set -uo pipefail
@@ -60,6 +63,7 @@ BATCH_SIZE="${BATCH_SIZE:-16}"    # effective batch 16, as MMTSFM (4 x accum 4)
 ACCUM="${ACCUM:-1}"
 TRAIN_STRIDE="${TRAIN_STRIDE:-12}"
 FUTURE_COV="${FUTURE_COV:-all}"   # future weather known, as PVRecordDataset(future_cov="all")
+LOSS="${LOSS:-mse}"               # matches thuml/iTransformer's own nn.MSELoss(); mae also valid
 NUM_WORKERS="${NUM_WORKERS:-8}"
 
 dcfg() { case "$1" in uk_pv) echo ukpv;; goes_pvdaq) echo goespvdaq;; *) echo "$1";; esac; }
@@ -74,7 +78,7 @@ SP_REF="${SP_REF:-${RESULTS_DIR}/smart_persistence_s2_$(dcfg "$DS").json}"
 declare -a CMD=(
   python scripts/train_itransformer_nf.py
   --data-dir "$DATA_DIR" --dataset "$DS" --seed "$SEED"
-  --train-stride "$TRAIN_STRIDE" --future-cov "$FUTURE_COV"
+  --train-stride "$TRAIN_STRIDE" --future-cov "$FUTURE_COV" --loss "$LOSS"
   --batch-size "$BATCH_SIZE" --accumulate "$ACCUM" --max-epochs "$EPOCHS"
   --num-workers "$NUM_WORKERS"
   --out "$RESULTS_DIR" --tag "$TAG" --ckpt-dir "$CKPT_DIR"
@@ -82,7 +86,7 @@ declare -a CMD=(
 [[ -f "$SP_REF" ]] && CMD+=(--sp-reference "$SP_REF")
 [[ -n "${EXTRA_ARGS:-}" ]] && CMD+=(${EXTRA_ARGS})
 
-echo ">>> [$TAG] ds=$DS seed=$SEED stride=$TRAIN_STRIDE epochs=$EPOCHS"
+echo ">>> [$TAG] ds=$DS seed=$SEED stride=$TRAIN_STRIDE epochs=$EPOCHS loss=$LOSS"
 echo "    uv run --group nf ${CMD[*]}"
 [[ "${DRY_RUN:-0}" == "1" ]] && exit 0
 exec uv run --group nf "${CMD[@]}"
