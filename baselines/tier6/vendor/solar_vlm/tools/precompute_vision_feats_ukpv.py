@@ -72,6 +72,19 @@ def _check_source_manifest(out_dir: str, data_path: str, h5_path: str) -> None:
             json.dump(current, f, indent=2)
 
 
+def _decode_frame(raw, is_png: bool) -> np.ndarray:
+    """One stored H5 frame -> uint8 ndarray. v2 images_all.h5 stores PNG-encoded
+    bytes (h5.attrs["format"] == "png"); v1 stored decoded arrays directly.
+    Mirrors MMTSFM/src/mmtsfm/data/pv_record.py:_decode_frame."""
+    if not is_png:
+        return np.asarray(raw)
+    import io
+
+    from PIL import Image
+
+    return np.asarray(Image.open(io.BytesIO(np.asarray(raw, dtype=np.uint8).tobytes())))
+
+
 def _frame_to_rgb(arr: np.ndarray):
     """uk_pv frame (H,W) uint8 grayscale or (H,W,3) → PIL RGB."""
     from PIL import Image
@@ -125,6 +138,7 @@ def main():
 
     flags = ["train", "val", "test"] if args.flag == "all" else [args.flag]
     h5 = h5py.File(args.h5, "r")
+    is_png = h5.attrs.get("format") == "png"
     for flag in flags:
         df = load_split_frame_df(args.data, flag, args.dataset, list(cfg.COV_COLS))
         if df.empty:
@@ -152,7 +166,9 @@ def main():
                     if fi is None:
                         imgs.append(_frame_to_rgb(np.zeros((128, 128), np.uint8)))
                     else:
-                        imgs.append(_frame_to_rgb(grp["images"][fi]))
+                        imgs.append(
+                            _frame_to_rgb(_decode_frame(grp["images"][fi], is_png))
+                        )
                 try:
                     feats = _encode(
                         embedder, imgs, args.batch_images, bool(args.normalize)
