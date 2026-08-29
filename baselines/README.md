@@ -58,7 +58,24 @@ done
 
 The parity list (windows, optimizer, schedule, precision, early stopping, loss
 mask, Skill-Score reference) is in the script docstring and asserted by
-`tests/test_itransformer_nf.py`.
+`tests/test_itransformer_nf.py`. Trained with the library's own point loss
+(default `MSE`, matching `thuml/iTransformer`'s own
+`experiments/exp_long_term_forecasting.py::nn.MSELoss()`; `--loss mae` is also
+available) rather than a quantile loss — NF's multivariate projector layout
+and `MQLoss.domain_map` disagree for N > 1, so a point loss is the
+library-native way to get iTransformer's covariates-as-tokens design without a
+hand-decoded reshape. NMAE/NRMSE/Skill-Score are reported; CRPS, coverage and
+ECE are N/A for this arm.
+
+Fidelity vs. the paper (checked against `thuml/iTransformer` source directly):
+encoder-only inverted embedding, per-variate RevIN normalization, full
+self-attention over variate tokens, and supervising only the target variate
+(the paper's own `features=="MS"` mode does the same) all match. One
+deliberate extension: the paper's non-target input channels are always
+historical-only at the target's own window (`layers/Embed.py`), while
+`--future-cov all` shifts our covariate tokens to include real future
+(known-NWP) weather — needed for PV's deployable-forecast setting, and should
+be named as an adaptation rather than vanilla iTransformer usage when cited.
 
 Tier 3 needs `uv sync --group tier3` (transformers/einops for Chronos-2 via
 `MMTSFM/src`, timesfm, tirex, granite-tsfm). Tier 4 wraps any registered

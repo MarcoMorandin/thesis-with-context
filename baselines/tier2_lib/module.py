@@ -4,9 +4,10 @@ Everything outside the model is copied from
 ``mmtsfm.models.chronos2.lightning_module`` so a difference in the results can
 only come from the model:
 
-* loss    — masked pinball over the 9 protocol quantiles, mask = ``mask_future``
-            (MMTSFM's Chronos-2 loss masks the same way; daylight is applied at
-            SCORING time, not in the loss)
+* loss    — the library's own point loss (``MAE``/``MSE``), called through its
+            public masked signature ``loss(y, y_hat, mask=...)``; mask is
+            ``mask_future`` alone (MMTSFM's Chronos-2 loss masks the same way;
+            daylight is applied at SCORING time, not in the loss)
 * optim   — AdamW, no weight decay on biases/norms, lr 1e-4 / wd 1e-2
 * sched   — linear warmup (500 steps) then cosine to ``min_lr_ratio`` * lr,
             stepped per optimizer step
@@ -25,7 +26,7 @@ from torch import Tensor
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import LambdaLR
 
-from .nf_itransformer import QUANTILES, NFITransformer, pinball_loss
+from .nf_itransformer import NFITransformer
 
 _NO_DECAY_KWS = ("bias", "norm", "layernorm", "embedding")
 
@@ -37,6 +38,7 @@ class ITransformerNFModule(pl.LightningModule):
         horizon: int,
         n_cov: int,
         future_cov: str = "all",
+        loss_fn: str = "mse",
         lr: float = 1e-4,
         weight_decay: float = 1e-2,
         warmup_steps: int = 500,
@@ -55,6 +57,7 @@ class ITransformerNFModule(pl.LightningModule):
             horizon=horizon,
             n_cov=n_cov,
             future_cov=future_cov,
+            loss_fn=loss_fn,
             seed=seed,
             **model_kwargs,
         )
@@ -76,7 +79,7 @@ class ITransformerNFModule(pl.LightningModule):
     def _step(self, batch: dict, stage: str) -> Tensor:
         b = self._unpack(batch)
         pred = self.model(b["y_hist"], b["cov"], b["mask_hist"])
-        loss = pinball_loss(pred, b["y_future"], b["mask_future"])
+        loss = self.model.nf.loss(b["y_future"], pred, mask=b["mask_future"])
         self.log(f"{stage}/loss", loss, on_epoch=True, prog_bar=True, sync_dist=True)
         return loss
 
@@ -99,12 +102,12 @@ class ITransformerNFModule(pl.LightningModule):
     def test_step(self, batch, batch_idx):
         b = self._unpack(batch)
         pred = self.model(b["y_hist"], b["cov"], b["mask_hist"]).detach().float()
-        loss = pinball_loss(pred, b["y_future"], b["mask_future"])
+        loss = self.model.nf.loss(b["y_future"], pred, mask=b["mask_future"])
         self.log("test/loss", loss, on_epoch=True, sync_dist=True)
 
         y, mask = b["y_future"].float(), b["mask_future"].float()
         daylight = b["daylight_future"].float()
-        median = pred[..., len(QUANTILES) // 2]
+        median = pred
         site_ids = batch["site_id"]
         site_ids = [
             str(s)
@@ -120,7 +123,7 @@ class ITransformerNFModule(pl.LightningModule):
             y_true=y.cpu().numpy(),
             median=median.cpu().numpy(),
             mask=(mask * daylight).cpu().numpy(),
-            quantiles=pred.cpu().numpy(),
+            quantiles=None,
             delta=(y - prev).abs().cpu().numpy(),
             delta_valid=(mask * daylight * prev_mask).cpu().numpy(),
         )
@@ -137,7 +140,7 @@ class ITransformerNFModule(pl.LightningModule):
             "model": "itransformer_nf",
             "library": "neuralforecast",
             "future_cov": self.hparams.future_cov,
-            "quantile_levels": list(QUANTILES),
+            "loss": self.hparams.loss_fn,
         }
         write_kwargs = {}
         if self.hparams.data_path:

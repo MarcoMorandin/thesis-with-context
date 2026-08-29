@@ -4,22 +4,43 @@ The library model is used unmodified: ``neuralforecast.models.iTransformer`` is
 instantiated as a plain ``nn.Module`` and called with its own ``windows_batch``
 contract. Only the plumbing around it lives here.
 
-Two adaptations are needed and both are documented at their site:
+One adaptation is needed, and it is safe precisely because we never call
+``NeuralForecast.fit()``/``.predict()``:
 
-1. **Covariates.** NF's iTransformer declares ``EXOGENOUS_HIST/FUTR = False``,
-   so its exogenous API drops the 14 protocol covariates entirely. The paper's
-   architecture, however, is *variates-as-tokens*: the reference implementation
-   feeds covariates as extra tokens through ``DataEmbedding_inverted``. We do
-   exactly that by handing NF an ``n_series`` of ``1 + C`` and stacking the
-   covariates next to the target, which keeps the covariate modality identical
-   to MMTSFM's instead of crippling the baseline.
-2. **Quantile de-interleaving.** With a Q-quantile loss, NF sizes the projector
-   at ``h * Q`` and the model returns ``[B, h*Q, N] -> reshape(B, h, Q*N)``,
-   i.e. the flat axis is quantile-major (``j = q*N + n``). ``MQLoss.domain_map``
-   reads it as variate-major (``j = n*Q + q``) — the two agree only at N == 1,
-   which is the univariate case NF tests. We therefore never route the loss
-   through ``domain_map``: the projector layout is read straight off the model
-   source (see ``_target_quantiles``) and supervised by our own pinball loss.
+**Covariates.** NF's iTransformer declares ``EXOGENOUS_HIST/FUTR = False``, but
+that gate lives in ``NeuralForecast.fit()``'s own exogenous-check/dataset
+plumbing, not in the model's ``forward()``. The paper's architecture is
+*variates-as-tokens*: ``DataEmbedding_inverted`` and the projector are applied
+per-token and don't depend on variate count or identity. So handing the raw
+model an ``n_series`` of ``1 + C`` and stacking covariates next to the target
+is a legitimate use of the public ``forward()`` contract — it keeps the
+covariate modality identical to MMTSFM's without touching anything private.
+
+We also train with a point loss (default ``MSE``, matching
+``experiments/exp_long_term_forecasting.py``'s ``nn.MSELoss()`` in the paper's
+own ``thuml/iTransformer`` code; ``mae`` is offered too). With
+``outputsize_multiplier == 1`` the projector is exactly ``nn.Linear(d_model,
+pred_len)`` — the paper's own projector shape — and ``domain_map`` is the
+identity, so the model's output is used as-is. A multivariate + quantile
+combination (``MQLoss``) would not have this property: the model's own
+flatten order and ``MQLoss.domain_map``'s assumed order disagree for N > 1.
+
+Fidelity, checked directly against ``thuml/iTransformer`` source (not from
+memory): the encoder-only inverted-embedding architecture, per-variate RevIN
+normalization, and full self-attention over variate tokens all match exactly.
+Supervising only the target variate (discarding the covariate tokens' own
+"forecasts") is not an invention — the paper's own code has a built-in
+``features == "MS"`` mode (``exp_long_term_forecasting.py``, ``f_dim = -1``)
+that does the same thing, used in several of the paper's own benchmark rows.
+
+One deliberate deviation remains, and should be named as such in anything
+citing this as "the iTransformer model": the paper's non-target input
+channels (plain multivariate, or ``MS``) are always **historical-only, same
+window as the target** (see ``layers/Embed.py:DataEmbedding_inverted``, which
+concatenates ``x_mark`` at the same length as ``x``). Our ``future_cov="all"``
+instead shifts the covariate tokens to end at the horizon's end, injecting
+real future (known-NWP) weather — needed for PV's deployable-forecast setting,
+but not something the paper's multivariate/MS inputs ever do.
 """
 
 from __future__ import annotations
@@ -29,26 +50,14 @@ from torch import Tensor, nn
 
 from common import config
 
-QUANTILES: tuple[float, ...] = config.QUANTILE_LEVELS
-
-
-def pinball_loss(pred: Tensor, target: Tensor, mask: Tensor) -> Tensor:
-    """Masked multi-quantile loss. pred [B, H, Q], target/mask [B, H].
-
-    Mask is ``mask_future`` alone — MMTSFM's Chronos-2 loss masks the same way,
-    and daylight is applied at SCORING time, not in the loss.
-    """
-    q = torch.tensor(QUANTILES, device=pred.device, dtype=pred.dtype)
-    err = target.unsqueeze(-1) - pred
-    loss = torch.where(err >= 0, q * err, (q - 1.0) * err)
-    denom = mask.sum().clamp(min=1.0) * len(QUANTILES)
-    return (loss * mask.unsqueeze(-1)).sum() / denom
+_LOSSES = {"mae": "MAE", "mse": "MSE"}
 
 
 def build_nf_itransformer(
     history: int,
     horizon: int,
     n_variates: int,
+    loss_fn: str = "mse",
     hidden_size: int = 128,
     n_heads: int = 8,
     e_layers: int = 2,
@@ -58,8 +67,12 @@ def build_nf_itransformer(
     seed: int = config.SEED,
 ):
     """The library model, sized for our window. Never fitted by NF itself."""
-    from neuralforecast.losses.pytorch import MQLoss
+    from neuralforecast import losses as nf_losses
     from neuralforecast.models import iTransformer
+
+    if loss_fn not in _LOSSES:
+        raise ValueError(f"unknown loss_fn: {loss_fn!r}; choose one of {list(_LOSSES)}")
+    loss = getattr(nf_losses.pytorch, _LOSSES[loss_fn])()
 
     return iTransformer(
         h=horizon,
@@ -71,16 +84,16 @@ def build_nf_itransformer(
         d_ff=d_ff,
         dropout=dropout,
         use_norm=use_norm,
-        # Sizes the projector to h*Q. NF's own training loop is never entered
-        # (no .fit()), so max_steps/batch_size here are inert bookkeeping.
-        loss=MQLoss(quantiles=list(QUANTILES)),
+        loss=loss,
+        # NF's own training loop is never entered (no .fit()), so max_steps
+        # here is inert bookkeeping required only by the constructor.
         random_seed=seed,
         max_steps=1,
     )
 
 
 class NFITransformer(nn.Module):
-    """``forward(y_hist, cov, mask_hist) -> [B, H, Q]`` over the target variate.
+    """``forward(y_hist, cov, mask_hist) -> [B, H]`` point forecast of the target.
 
     ``future_cov`` selects which slice of the (T+H) covariate window becomes the
     covariate variates:
@@ -99,6 +112,7 @@ class NFITransformer(nn.Module):
         horizon: int,
         n_cov: int,
         future_cov: str = "all",
+        loss_fn: str = "mse",
         **model_kwargs,
     ):
         super().__init__()
@@ -107,11 +121,11 @@ class NFITransformer(nn.Module):
         self.T, self.H, self.n_cov = int(history), int(horizon), int(n_cov)
         self.future_cov = future_cov
         self.n_variates = 1 + self.n_cov
-        self.n_quantiles = len(QUANTILES)
         self.nf = build_nf_itransformer(
             history=self.T,
             horizon=self.H,
             n_variates=self.n_variates,
+            loss_fn=loss_fn,
             **model_kwargs,
         )
 
@@ -122,19 +136,9 @@ class NFITransformer(nn.Module):
         )
         return torch.cat([y_hist.unsqueeze(-1), cov_slice], dim=-1)
 
-    def _target_quantiles(self, y_pred: Tensor, batch: int) -> Tensor:
-        """NF output [B, H, Q*N] -> [B, H, Q] for variate 0 (the target).
-
-        Layout per the model source: the projector's ``[B, H*Q, N]`` output is
-        reshaped to ``[B, H, -1]``, so the flat axis runs (quantile, variate).
-        """
-        q = y_pred.view(batch, self.H, self.n_quantiles, self.n_variates)[..., 0]
-        # Monotone quantiles (same guard the in-repo TFT port applies).
-        return torch.sort(q, dim=-1).values
-
     def forward(self, y_hist: Tensor, cov: Tensor, mask_hist: Tensor) -> Tensor:
         # mask_hist is unused by the library model: PVRecordDataset already
         # writes NaN history steps as 0, which is the imputation NF assumes.
         x = self.variates(y_hist, cov)
-        y_pred = self.nf({"insample_y": x})
-        return self._target_quantiles(y_pred, x.shape[0])
+        y_pred = self.nf({"insample_y": x})  # [B, H, n_variates], mult=1
+        return y_pred[..., 0]  # target variate
