@@ -21,13 +21,13 @@ from torch.utils.data import DataLoader
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-sys.path.insert(0, str(HERE.parents[2]))          # baselines/
+sys.path.insert(0, str(HERE.parents[2]))  # baselines/
 
-from common import config as cfg                                  # noqa: E402
-from data_provider.data_loader_ukpv import Dataset_UKPV           # noqa: E402
-from exp.experiment import Experiment                             # noqa: E402
+from common import config as cfg  # noqa: E402
+from data_provider.data_loader_ukpv import Dataset_UKPV  # noqa: E402
+from exp.experiment import Experiment  # noqa: E402
 
-F_DIM = len(cfg.COV_COLS) + 1                      # covariates + norm_power
+F_DIM = len(cfg.COV_COLS) + 1  # covariates + norm_power
 
 
 def build_args() -> argparse.Namespace:
@@ -55,26 +55,74 @@ def build_args() -> argparse.Namespace:
     p.add_argument("--disable_text", type=int, default=0)
     p.add_argument("--disable_gnn", type=int, default=0)
     p.add_argument("--disable_cross_site_attn", type=int, default=0)
+    p.add_argument(
+        "--eval_only",
+        action="store_true",
+        help="skip exp.train() and load checkpoints/<setting>/checkpoint.pth "
+        "from a prior run instead, then only dump_per_site",
+    )
     a = p.parse_args()
 
     # Fill the full arg surface the unchanged Experiment/model expect.
     defaults = dict(
-        is_training=1,   # exp_basic.py branches on args.is_training
-        task_name="long_term_forecast", model="SolarVLM", model_id="ukpv",
-        features="MS", target="power", freq="t", embed="timeF",
-        enc_in=F_DIM, dec_in=F_DIM, c_out=a.num_stations,
-        d_model=128, n_heads=16, e_layers=3, d_layers=1, d_ff=2048,
-        dropout=0.2, activation="gelu", patch_len=10, stride=8, padding=8,
-        periodicity=48, norm_const=0.4, top_k=5, memory_bank_size=20,
-        patch_memory_size=100, vlm_type="qwen3vl", image_size=224, roi_size=64,
-        use_gnn=True, gnn_layers=3, use_offline_vision=True,
-        vision_temporal_layers=2, modal_dropout_rate=0.0, multimodal_lr_ratio=0.2,
-        multimodal_loss_weight=0.1, memory_loss_weight=0.05, modal_temp=0.7,
-        min_modal_weight=0.0, multimodal_scale=0.0, nonnegative=False,
-        grad_clip_norm=1.0, lr_warmup_steps=500, lradj="type1", use_amp=False,
-        loss_type="mse", huber_beta=1.0, patience=5, num_workers=4, itr=1,
-        percent=1.0, use_dtw=False, inverse=False, scale=False, seasonal_patterns="",
-        use_mem_gate=True, learnable_image=False, save_images=False,
+        is_training=1,  # exp_basic.py branches on args.is_training
+        task_name="long_term_forecast",
+        model="SolarVLM",
+        model_id="ukpv",
+        features="MS",
+        target="power",
+        freq="t",
+        embed="timeF",
+        enc_in=F_DIM,
+        dec_in=F_DIM,
+        c_out=a.num_stations,
+        d_model=128,
+        n_heads=16,
+        e_layers=3,
+        d_layers=1,
+        d_ff=2048,
+        dropout=0.2,
+        activation="gelu",
+        patch_len=10,
+        stride=8,
+        padding=8,
+        periodicity=48,
+        norm_const=0.4,
+        top_k=5,
+        memory_bank_size=20,
+        patch_memory_size=100,
+        vlm_type="qwen3vl",
+        image_size=224,
+        roi_size=64,
+        use_gnn=True,
+        gnn_layers=3,
+        use_offline_vision=True,
+        vision_temporal_layers=2,
+        modal_dropout_rate=0.0,
+        multimodal_lr_ratio=0.2,
+        multimodal_loss_weight=0.1,
+        memory_loss_weight=0.05,
+        modal_temp=0.7,
+        min_modal_weight=0.0,
+        multimodal_scale=0.0,
+        nonnegative=False,
+        grad_clip_norm=1.0,
+        lr_warmup_steps=500,
+        lradj="type1",
+        use_amp=False,
+        loss_type="mse",
+        huber_beta=1.0,
+        patience=5,
+        num_workers=4,
+        itr=1,
+        percent=1.0,
+        use_dtw=False,
+        inverse=False,
+        scale=False,
+        seasonal_patterns="",
+        use_mem_gate=True,
+        learnable_image=False,
+        save_images=False,
         content="uk_pv multi-station PV power forecasting",
         checkpoints=os.path.join(a.out, "checkpoints"),
         results_dir=os.path.join(a.out, "results"),
@@ -83,11 +131,15 @@ def build_args() -> argparse.Namespace:
         # empty. It is only a reference epoch; our loader emits real ts_keys for the
         # vision lookup, so the exact value does not affect the uk_pv windows.
         root_path=a.data_path,
-        start_time="2018-01-01 00:00", end_time="2020-01-01 00:00",
+        start_time="2018-01-01 00:00",
+        end_time="2020-01-01 00:00",
         # fixed-size station set: only the COUNT matters to the model
         station_list=[f"plant{i}" for i in range(a.num_stations)],
-        use_gpu=torch.cuda.is_available(), use_multi_gpu=False, gpu=0,
-        device_ids=[0], devices="0",
+        use_gpu=torch.cuda.is_available(),
+        use_multi_gpu=False,
+        gpu=0,
+        device_ids=[0],
+        devices="0",
     )
     for k, v in defaults.items():
         setattr(a, k, v)
@@ -100,9 +152,13 @@ def build_args() -> argparse.Namespace:
 @torch.no_grad()
 def dump_per_site(exp, args, setting):
     """Predict on test-split groups; write solar_vlm_<site>_pred.npz per plant."""
-    ds = Dataset_UKPV(root_path="", flag="test",
-                      size=[args.seq_len, args.label_len, args.pred_len],
-                      num_stations=args.num_stations, data_path=args.data_path)
+    ds = Dataset_UKPV(
+        root_path="",
+        flag="test",
+        size=[args.seq_len, args.label_len, args.pred_len],
+        num_stations=args.num_stations,
+        data_path=args.data_path,
+    )
     loader = DataLoader(ds, batch_size=args.batch_size, shuffle=False, num_workers=0)
     model = exp.model.eval()
     dev = exp.device
@@ -111,16 +167,21 @@ def dump_per_site(exp, args, setting):
     for bx, by, bxm, bym, tsk in loader:
         bx, by = bx.float().to(dev), by.float().to(dev)
         bxm, bym = bxm.float().to(dev), bym.float().to(dev)
-        dec = torch.cat([by[:, :args.label_len, :],
-                         torch.zeros(by.size(0), H, by.size(2), device=dev)], dim=1)
+        dec = torch.cat(
+            [
+                by[:, : args.label_len, :],
+                torch.zeros(by.size(0), H, by.size(2), device=dev),
+            ],
+            dim=1,
+        )
         out, _, _ = model(bx, bxm, dec, bym, ts_keys=list(tsk))
-        final = out[:, -H:, :].cpu().numpy()       # [B,H,S]
-        true = by[:, -H:, :].cpu().numpy()         # [B,H,S]
+        final = out[:, -H:, :].cpu().numpy()  # [B,H,S]
+        true = by[:, -H:, :].cpu().numpy()  # [B,H,S]
         for b in range(final.shape[0]):
             gi = int(str(tsk[b]).split("__")[0])
             seen = set()
             for si, site in enumerate(ds._ggroups[gi]):
-                if site in seen:                    # drop padded duplicates
+                if site in seen:  # drop padded duplicates
                     continue
                 seen.add(site)
                 pred_by[site].append(final[b, :, si])
@@ -128,8 +189,11 @@ def dump_per_site(exp, args, setting):
     out_dir = os.path.join(args.out, "preds")
     os.makedirs(out_dir, exist_ok=True)
     for site in sorted(pred_by):
-        np.savez(os.path.join(out_dir, f"solar_vlm_{site}_pred.npz"),
-                 pred=np.stack(pred_by[site]), true=np.stack(true_by[site]))
+        np.savez(
+            os.path.join(out_dir, f"solar_vlm_{site}_pred.npz"),
+            pred=np.stack(pred_by[site]),
+            true=np.stack(true_by[site]),
+        )
     print(f"✓ dumped {len(pred_by)} plants → {out_dir}/solar_vlm_<site>_pred.npz")
 
 
@@ -139,8 +203,20 @@ def main():
     np.random.seed(args.seed)
     setting = f"ukpv_SolarVLM_S{args.num_stations}_sl{args.seq_len}_pl{args.pred_len}"
     exp = Experiment(args)
-    print(f">>> TRAIN Solar-VLM (uk_pv train-split groups): {setting}")
-    exp.train(setting)
+    if args.eval_only:
+        ckpt_path = os.path.join(args.checkpoints, setting, "checkpoint.pth")
+        if not os.path.exists(ckpt_path):
+            raise SystemExit(
+                f"[run_ukpv] --eval_only but no checkpoint at {ckpt_path!r} "
+                f"(setting={setting!r}, --out={args.out!r}). Run without "
+                "--eval_only first, or check --out/--num_stations/--seq_len/"
+                "--pred_len match the training run that produced it."
+            )
+        print(f">>> EVAL-ONLY: loading checkpoint {ckpt_path}")
+        exp.model.load_state_dict(torch.load(ckpt_path, map_location=exp.device))
+    else:
+        print(f">>> TRAIN Solar-VLM (uk_pv train-split groups): {setting}")
+        exp.train(setting)
     print(">>> EVAL Solar-VLM (uk_pv test-split groups, cross-plant)")
     dump_per_site(exp, args, setting)
     torch.cuda.empty_cache()
