@@ -27,7 +27,12 @@
 #
 # Required: VENV_NAME (Solar-VLM uv env), QWEN_PATH (Qwen3-VL weights dir),
 #           IMAGES_H5 (uk_pv frames). Optional: DATA NUM_STATIONS(8) PRED_LEN(12)
-#           EPOCHS(50) VFEAT_DIR OUT.
+#           EPOCHS(50) VFEAT_DIR OUT EVAL_ONLY(0).
+#
+# EVAL_ONLY=1 skips exp.train() and loads checkpoints/<setting>/checkpoint.pth
+# from a prior run of this same NUM_STATIONS/SEQ_LEN/PRED_LEN/OUT instead —
+# use it to rerun eval alone (e.g. after fixing a downstream bug) without
+# retraining. Requires that checkpoint to already exist under $OUT.
 #
 # VFEAT_DIR (vision cache, tens of thousands of .npy) and OUT (checkpoints +
 # preds) default onto $TEAM_SCRATCH, NOT the repo checkout — $BASELINES_DIR
@@ -58,6 +63,7 @@ NUM_STATIONS="${NUM_STATIONS:-8}"; PRED_LEN="${PRED_LEN:-12}"; EPOCHS="${EPOCHS:
 SEQ_LEN="${SEQ_LEN:-672}"   # 14-day TS context (vision stays --num_frames=8, decoupled)
 VFEAT_DIR="${VFEAT_DIR:-${TEAM_SCRATCH}/solar_vlm_cache/vision_feats_ukpv}"
 OUT="${OUT:-${TEAM_SCRATCH}/solar_vlm_cache/results_ukpv}"
+EVAL_ONLY="${EVAL_ONLY:-0}"
 [[ -f "$DATA" && -f "$IMAGES_H5" ]] || { echo "ERROR: DATA/IMAGES_H5 not found"; exit 1; }
 
 source "$UV_ENVS_DIR/$VENV_NAME/bin/activate"
@@ -71,11 +77,14 @@ python tools/precompute_vision_feats_ukpv.py \
 
 # ---- 2. TRAIN (train-split groups) + EVAL (unseen test-split groups) --------
 echo ">>> TRAIN+EVAL Solar-VLM (uk_pv multimodal, cross-plant)"
+extra_args=()
+[[ "$EVAL_ONLY" == "1" ]] && extra_args+=(--eval_only)
 python run_ukpv.py \
   --data_path "$DATA" --vision_feat_dir "$VFEAT_DIR" \
   --qwen3_vl_model_path "$QWEN_PATH" --num_stations "$NUM_STATIONS" \
   --seq_len "$SEQ_LEN" \
-  --pred_len "$PRED_LEN" --train_epochs "$EPOCHS" --out "$OUT"
+  --pred_len "$PRED_LEN" --train_epochs "$EPOCHS" --out "$OUT" \
+  "${extra_args[@]}"
 
 # ---- 3. contract-check + import → our NMAE/NRMSE/SS results JSON ------------
 cd "$BASELINES_DIR"
