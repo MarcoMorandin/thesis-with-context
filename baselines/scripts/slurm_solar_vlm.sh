@@ -27,7 +27,15 @@
 #
 # Required: VENV_NAME (Solar-VLM uv env), QWEN_PATH (Qwen3-VL weights dir),
 #           IMAGES_H5 (uk_pv frames). Optional: DATA NUM_STATIONS(8) PRED_LEN(12)
-#           EPOCHS(50) VFEAT_DIR.
+#           EPOCHS(50) VFEAT_DIR OUT.
+#
+# VFEAT_DIR (vision cache, tens of thousands of .npy) and OUT (checkpoints +
+# preds) default onto $TEAM_SCRATCH, NOT the repo checkout — $BASELINES_DIR
+# sits under $HOME on Leonardo, whose quota is far smaller than project
+# scratch and gets blown by this cache (2026-08-30 incident: eval crashed
+# mid-run with "Disk quota exceeded" writing predictions). If you override
+# either var, pass an absolute path on scratch — a repo-relative path here
+# writes straight back into $HOME.
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")/..}"
 [[ -f .env ]] && source .env
@@ -48,26 +56,26 @@ DATA="${DATA:-${TEAM_SCRATCH}/data/dataset_all.parquet}"
 IMAGES_H5="${IMAGES_H5:-${TEAM_SCRATCH}/data/images_all.h5}"
 NUM_STATIONS="${NUM_STATIONS:-8}"; PRED_LEN="${PRED_LEN:-12}"; EPOCHS="${EPOCHS:-50}"
 SEQ_LEN="${SEQ_LEN:-672}"   # 14-day TS context (vision stays --num_frames=8, decoupled)
-VFEAT_DIR="${VFEAT_DIR:-tier6/vendor/solar_vlm/vision_feats_ukpv}"
-OUT="${OUT:-tier6/vendor/solar_vlm/results_ukpv}"
+VFEAT_DIR="${VFEAT_DIR:-${TEAM_SCRATCH}/solar_vlm_cache/vision_feats_ukpv}"
+OUT="${OUT:-${TEAM_SCRATCH}/solar_vlm_cache/results_ukpv}"
 [[ -f "$DATA" && -f "$IMAGES_H5" ]] || { echo "ERROR: DATA/IMAGES_H5 not found"; exit 1; }
 
 source "$UV_ENVS_DIR/$VENV_NAME/bin/activate"
 cd tier6/vendor/solar_vlm
 
 # ---- 1. offline Qwen3-VL vision features (all splits, group-scoped) ---------
-echo ">>> precompute Qwen3-VL vision features → $BASELINES_DIR/$VFEAT_DIR"
+echo ">>> precompute Qwen3-VL vision features → $VFEAT_DIR"
 python tools/precompute_vision_feats_ukpv.py \
-  --data "$DATA" --h5 "$IMAGES_H5" --out_dir "$BASELINES_DIR/$VFEAT_DIR" \
+  --data "$DATA" --h5 "$IMAGES_H5" --out_dir "$VFEAT_DIR" \
   --qwen_path "$QWEN_PATH" --num_stations "$NUM_STATIONS" --flag all
 
 # ---- 2. TRAIN (train-split groups) + EVAL (unseen test-split groups) --------
 echo ">>> TRAIN+EVAL Solar-VLM (uk_pv multimodal, cross-plant)"
 python run_ukpv.py \
-  --data_path "$DATA" --vision_feat_dir "$BASELINES_DIR/$VFEAT_DIR" \
+  --data_path "$DATA" --vision_feat_dir "$VFEAT_DIR" \
   --qwen3_vl_model_path "$QWEN_PATH" --num_stations "$NUM_STATIONS" \
   --seq_len "$SEQ_LEN" \
-  --pred_len "$PRED_LEN" --train_epochs "$EPOCHS" --out "$BASELINES_DIR/$OUT"
+  --pred_len "$PRED_LEN" --train_epochs "$EPOCHS" --out "$OUT"
 
 # ---- 3. contract-check + import → our NMAE/NRMSE/SS results JSON ------------
 cd "$BASELINES_DIR"
