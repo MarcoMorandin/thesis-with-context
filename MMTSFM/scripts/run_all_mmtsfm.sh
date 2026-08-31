@@ -75,7 +75,7 @@ TEAM_SCRATCH="${TEAM_SCRATCH:-/leonardo_scratch/fast/IscrC_MTSFM}"
 export UV_CACHE_DIR="${UV_CACHE_DIR:-${TEAM_SCRATCH}/uv_cache}"
 export HF_HOME="${HF_HOME:-${TEAM_SCRATCH}/hf_cache}"
 export TORCH_HOME="${TORCH_HOME:-${TEAM_SCRATCH}/torch_cache}"
-DATA_DIR="${DATA_DIR:-${TEAM_SCRATCH}/data}"
+DATA_DIR="${DATA_DIR:-${TEAM_SCRATCH}/data_v2}"
 DATA="${DATA:-${DATA_DIR}/dataset_all.parquet}"
 CKPT_DIR="${CKPT_DIR:-${TEAM_SCRATCH}/checkpoints}"
 # MMTSFM results land beside the baselines so aggregate_all.py picks them up.

@@ -49,7 +49,7 @@ TEAM_SCRATCH="${TEAM_SCRATCH:-/leonardo_scratch/fast/IscrC_MTSFM}"
 export UV_CACHE_DIR="${UV_CACHE_DIR:-${TEAM_SCRATCH}/uv_cache}"
 # Dataset of record, the same copy MMTSFM/scripts/slurm_curriculum.sh reads
 # (DATA_DIR -> <dir>/dataset_all.parquet, resolved inside PVRecordDataset).
-DATA_DIR="${DATA_DIR:-${TEAM_SCRATCH}/data}"
+DATA_DIR="${DATA_DIR:-${TEAM_SCRATCH}/data_v2}"
 RESULTS_DIR="${RESULTS_DIR:-$PWD/results}"
 CKPT_DIR="${CKPT_DIR:-${TEAM_SCRATCH}/checkpoints/itransformer_nf}"
 

@@ -83,7 +83,7 @@ SEEDS="${SEEDS:-42}"
 MAX_CONTEXT_ROWS="${MAX_CONTEXT_ROWS:-10000}"
 N_ESTIMATORS="${N_ESTIMATORS:-32}"
 BATCH_SIZE="${BATCH_SIZE:-256}"
-DATA="${DATA:-${TEAM_SCRATCH}/data/dataset_all.parquet}"
+DATA="${DATA:-${TEAM_SCRATCH}/data_v2/dataset_all.parquet}"
 DATASETS="${DATASETS:-uk_pv}"   # cadence must be uniform — see scenario_flags()
 # NOTE: do NOT name this GROUPS — that is a bash special variable holding the
 # caller's numeric group IDs, and assignments to it are silently ignored, so the

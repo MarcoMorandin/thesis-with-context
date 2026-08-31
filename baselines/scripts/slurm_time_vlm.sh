@@ -45,8 +45,8 @@ export HF_HOME="${HF_HOME:-${TEAM_SCRATCH}/hf_cache}"
 
 : "${VENV_NAME:=timevlm}"
 EVAL_ONLY="${EVAL_ONLY:-0}"
-DATA="${DATA:-${TEAM_SCRATCH}/data/dataset_all.parquet}"
-UKPV_DIR="${UKPV_DIR:-${TEAM_SCRATCH}/data/ukpv_rag}"
+DATA="${DATA:-${TEAM_SCRATCH}/data_v2/dataset_all.parquet}"
+UKPV_DIR="${UKPV_DIR:-${TEAM_SCRATCH}/data_v2/ukpv_rag}"
 SEQ_LEN="${SEQ_LEN:-672}"; PRED_LEN="${PRED_LEN:-12}"   # 14-day context / 6h horizon (uk_pv 30-min)
 VLM_TYPE="${VLM_TYPE:-CLIP}"; EPOCHS="${EPOCHS:-10}"; MODEL_ID="${MODEL_ID:-ukpv_tvlm}"
 export VISION_MODEL_PATH="${VISION_MODEL_PATH:-${TEAM_SCRATCH}/weights/clip-vit-base-patch32}"

@@ -16,7 +16,7 @@ run happen later in the upstream env on the cluster (see
 baselines/README.md and scripts/login_node_prep.sh).
 
     uv run python tier4/vendor/export_ukpv.py \
-        --data /leonardo_scratch/fast/IscrC_MTSFM/data/dataset_all.parquet --out /tmp/ukpv_rag
+        --data /leonardo_scratch/fast/IscrC_MTSFM/data_v2/dataset_all.parquet --out /tmp/ukpv_rag
 """
 
 from __future__ import annotations

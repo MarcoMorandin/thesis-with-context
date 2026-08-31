@@ -15,7 +15,7 @@ Default is a dry run that just reports counts/sizes. CPU/IO-bound → login node
 
 Usage:
     uv run python scripts/prune_recompress_vjepa_cache.py \
-        --dataset uk_pv --data-dir /leonardo_scratch/fast/IscrC_MTSFM/data \
+        --dataset uk_pv --data-dir /leonardo_scratch/fast/IscrC_MTSFM/data_v2 \
         --cache-dir <data-dir>/vjepa_cache/uk_pv/vit_large_f8_s224 \
         --train-stride 12 --workers 16 [--apply]
 """

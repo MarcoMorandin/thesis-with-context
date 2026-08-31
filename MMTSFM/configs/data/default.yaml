@@ -1,5 +1,5 @@
 _target_: mmtsfm.data.datamodule.MMTSFMDataModule
-data_dir: /leonardo_scratch/fast/IscrC_MTSFM/data
+data_dir: /leonardo_scratch/fast/IscrC_MTSFM/data_v2
 h5_path: null
 dataset_name: uk_pv
 batch_size: 16

@@ -3,7 +3,7 @@ _target_: mmtsfm.data.datamodule.MMTSFMDataModule
 # Dataset of record, goes_pvdaq track (15-min cadence, 256px RGB frames). Must
 # additionally be evaluated leave-one-plant-out (§4.1) — its fixed test share is
 # only 1 plant. See knowledge/protocol.md and reconcile bad_site_flag sites first.
-data_dir: /leonardo_scratch/fast/IscrC_MTSFM/data
+data_dir: /leonardo_scratch/fast/IscrC_MTSFM/data_v2
 h5_path: null
 dataset_name: goes_pvdaq
 batch_size: 16

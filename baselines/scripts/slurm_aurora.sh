@@ -38,9 +38,9 @@ export HF_HOME="${HF_HOME:-${TEAM_SCRATCH}/hf_cache}"
 : "${VENV_NAME:?set VENV_NAME to the Aurora uv env}"
 : "${AURORA_CKPT:?set AURORA_CKPT to the DecisionIntelligence/Aurora checkpoint dir}"
 [[ -d "$AURORA_CKPT" ]] || { echo "ERROR: AURORA_CKPT not a dir: $AURORA_CKPT"; exit 1; }
-DATA="${DATA:-${TEAM_SCRATCH}/data/dataset_all.parquet}"
+DATA="${DATA:-${TEAM_SCRATCH}/data_v2/dataset_all.parquet}"
 CTX="${CTX:-672}"; PRED_LEN="${PRED_LEN:-12}"   # 14-day context / 6h horizon (uk_pv 30-min)
-UKPV_DIR="${UKPV_DIR:-${TEAM_SCRATCH}/data/ukpv_rag_aurora}"
+UKPV_DIR="${UKPV_DIR:-${TEAM_SCRATCH}/data_v2/ukpv_rag_aurora}"
 OUT="${OUT:-tier5/vendor/aurora/results_ukpv}"
 [[ -f "$DATA" ]] || { echo "ERROR: DATA parquet not found: $DATA"; exit 1; }
 

@@ -39,8 +39,8 @@ export HF_HOME="${HF_HOME:-${TEAM_SCRATCH}/hf_cache}"
 : "${VENV_NAME:?set VENV_NAME to the VisionTS++ uv env (TIER5_INTEGRATION.md §1)}"
 : "${MAE_CKPT:?set MAE_CKPT to the VisionTS++ MAE checkpoint}"
 [[ -f "$MAE_CKPT" ]] || { echo "ERROR: MAE_CKPT not found: $MAE_CKPT"; exit 1; }
-DATA="${DATA:-${TEAM_SCRATCH}/data/dataset_all.parquet}"
-UKPV_DIR="${UKPV_DIR:-${TEAM_SCRATCH}/data/ukpv_rag}"
+DATA="${DATA:-${TEAM_SCRATCH}/data_v2/dataset_all.parquet}"
+UKPV_DIR="${UKPV_DIR:-${TEAM_SCRATCH}/data_v2/ukpv_rag}"
 SEQ_LEN="${SEQ_LEN:-672}"; PRED_LEN="${PRED_LEN:-12}"; PERIODICITY="${PERIODICITY:-48}"   # 14-day ctx (14 periods) / 6h horizon
 
 # ---- 1. export uk_pv → CSVs (reuse the tier-4 bridge) ----------------------

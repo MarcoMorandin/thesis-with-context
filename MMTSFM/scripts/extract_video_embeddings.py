@@ -8,7 +8,7 @@ cached per plant/window so training can pass ``data.vjepa_cache_dir``.
 Usage:
     uv run python scripts/extract_video_embeddings.py \
         --dataset uk_pv --split train \
-        --data-dir /leonardo_scratch/fast/IscrC_MTSFM/data \
+        --data-dir /leonardo_scratch/fast/IscrC_MTSFM/data_v2 \
         --batch-size 8 --imagenet-norm
 """
 

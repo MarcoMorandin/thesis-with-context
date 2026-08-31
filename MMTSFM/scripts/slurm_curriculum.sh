@@ -26,7 +26,7 @@ mkdir -p logs/slurm
 
 # ---- config (override via env) ---------------------------------------------
 TEAM_SCRATCH="${TEAM_SCRATCH:-/leonardo_scratch/fast/IscrC_MTSFM}"
-DATA_DIR="${DATA_DIR:-${TEAM_SCRATCH}/data}"
+DATA_DIR="${DATA_DIR:-${TEAM_SCRATCH}/data_v2}"
 CKPT_DIR="${CKPT_DIR:-${TEAM_SCRATCH}/checkpoints/curriculum}"
 RESULTS_DIR="${RESULTS_DIR:-${REPO_ROOT}/baselines/results}"
 VJEPA_CACHE_ROOT="${VJEPA_CACHE_ROOT:-/leonardo_work/IscrC_MTSFM/vjepa_cache}"

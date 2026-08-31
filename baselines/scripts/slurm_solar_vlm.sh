@@ -57,8 +57,8 @@ export HF_HOME="${HF_HOME:-${TEAM_SCRATCH}/hf_cache}"
 : "${VENV_NAME:?set VENV_NAME to the Solar-VLM uv env (precache_login.sh)}"
 : "${QWEN_PATH:?set QWEN_PATH to the Qwen3-VL-Embedding-2B weights dir}"
 [[ -d "$QWEN_PATH" ]] || { echo "ERROR: QWEN_PATH not a dir: $QWEN_PATH"; exit 1; }
-DATA="${DATA:-${TEAM_SCRATCH}/data/dataset_all.parquet}"
-IMAGES_H5="${IMAGES_H5:-${TEAM_SCRATCH}/data/images_all.h5}"
+DATA="${DATA:-${TEAM_SCRATCH}/data_v2/dataset_all.parquet}"
+IMAGES_H5="${IMAGES_H5:-${TEAM_SCRATCH}/data_v2/images_all.h5}"
 NUM_STATIONS="${NUM_STATIONS:-8}"; PRED_LEN="${PRED_LEN:-12}"; EPOCHS="${EPOCHS:-50}"
 SEQ_LEN="${SEQ_LEN:-672}"   # 14-day TS context (vision stays --num_frames=8, decoupled)
 VFEAT_DIR="${VFEAT_DIR:-${TEAM_SCRATCH}/solar_vlm_cache/vision_feats_ukpv}"

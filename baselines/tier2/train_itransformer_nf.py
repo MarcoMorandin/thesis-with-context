@@ -22,7 +22,7 @@ Differences that remain, and are the point of the run: the model, and the fact
 that iTransformer has no visual stream (it is the numerical control).
 
     uv run --group nf python tier2/train_itransformer_nf.py \
-        --data-dir /leonardo_scratch/fast/IscrC_MTSFM/data --seed 42
+        --data-dir /leonardo_scratch/fast/IscrC_MTSFM/data_v2 --seed 42
 """
 
 from __future__ import annotations

@@ -5,7 +5,7 @@ _target_: mmtsfm.data.datamodule.MMTSFMDataModule
 # of record; the cluster orchestrator (scripts/run_all_mmtsfm.sh) overrides it
 # with DATA_DIR. PVRecordDataset resolves dataset_all.parquet +
 # images_all.h5 inside it (an explicit *.parquet path is also accepted).
-data_dir: /leonardo_scratch/fast/IscrC_MTSFM/data
+data_dir: /leonardo_scratch/fast/IscrC_MTSFM/data_v2
 h5_path: null                # null → <data_dir>/images_all.h5
 dataset_name: uk_pv
 batch_size: 16

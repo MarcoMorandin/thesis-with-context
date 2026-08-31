@@ -103,7 +103,7 @@ fi
 # So each method gets its own dir, freshly exported (export_ukpv.py also clears any
 # stale CSVs/pkls), keeping retrieval self-consistent.
 export UV_OFFLINE="${UV_OFFLINE:-1}" UV_NO_SYNC="${UV_NO_SYNC:-1}"
-DATA="${DATA:-${TEAM_SCRATCH}/data/dataset_all.parquet}"
+DATA="${DATA:-${TEAM_SCRATCH}/data_v2/dataset_all.parquet}"
 echo ">>> export uk_pv → $UKPV_CSV_DIR"
 uv run python tier4/vendor/export_ukpv.py --data "$DATA" --out "$UKPV_CSV_DIR"
 

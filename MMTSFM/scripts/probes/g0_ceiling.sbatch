@@ -40,7 +40,7 @@ mkdir -p "$OUT"
 # editing the file per run, which is how two arms end up overwriting one
 # report and the surviving numbers get attributed to the wrong cache.
 CACHE_DIR="${CACHE_DIR:-/leonardo_work/IscrC_MTSFM/vjepa_cache/uk_pv/vit_large_f8_s224}"
-PARQUET="${PARQUET:-/leonardo_scratch/fast/IscrC_MTSFM/data/dataset_all.parquet}"
+PARQUET="${PARQUET:-/leonardo_scratch/fast/IscrC_MTSFM/data_v2/dataset_all.parquet}"
 TAG="${TAG:-ukpv}"
 REPORT="$OUT/g0_ceiling_${TAG}.json"
 
