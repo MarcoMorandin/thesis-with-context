@@ -136,7 +136,7 @@ def _load_registry() -> None:
     """Import all tier packages so REGISTRY is fully populated."""
     import importlib
 
-    for pkg in ("tier0", "tier1", "tslib", "tier3", "tier4"):
+    for pkg in ("tier0", "tier1", "tier2", "tslib", "tier3", "tier4"):
         try:
             importlib.import_module(pkg)
         except ImportError:
