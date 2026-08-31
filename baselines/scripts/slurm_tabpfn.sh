@@ -36,6 +36,7 @@
 #   MAX_CONTEXT_ROWS  in-context rows after subsample  (default: 100000)
 #   DATA              path to dataset_all.parquet
 #   BATCH_SIZE        run_eval eval batch size         (default: 256)
+#   DATASETS          dataset filter for s1/s2/s4      (default: uk_pv)
 
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")/..}"
@@ -70,6 +71,7 @@ SEEDS="${SEEDS:-42}"
 MAX_CONTEXT_ROWS="${MAX_CONTEXT_ROWS:-100000}"
 BATCH_SIZE="${BATCH_SIZE:-256}"
 DATA="${DATA:-${TEAM_SCRATCH}/data/dataset_all.parquet}"
+DATASETS="${DATASETS:-uk_pv}"   # cadence must be uniform — see scenario_flags()
 # NOTE: do NOT name this GROUPS — that is a bash special variable holding the
 # caller's numeric group IDs, and assignments to it are silently ignored, so the
 # expansion becomes the user's GIDs and `uv` tries to exec them.
@@ -81,6 +83,7 @@ echo "============================================================"
 echo " Job ID     : ${SLURM_JOB_ID:-local}"
 echo " Stage      : $STAGE        Scenario: $SCENARIO"
 echo " Data       : $DATA"
+echo " Datasets   : $DATASETS"
 echo " Context    : $MAX_CONTEXT_ROWS rows      Seeds: $SEEDS"
 echo " TabPFN cache: $TABPFN_MODEL_CACHE_DIR"
 echo "============================================================"
@@ -102,14 +105,20 @@ fi
 # Ensure the plant split exists (idempotent; committed in configs/splits.json).
 uv run "${GROUP_FLAGS[@]}" python -m common.splits --data "$DATA" || true
 
-# scenario id -> extra run_eval flags (same mapping as the other tier scripts)
+# scenario id -> extra run_eval flags.
+# The dataset filter is NOT optional: run_eval defaults to physical-time windows
+# (history_days=14, horizon_hours=6), and WindowDataset refuses a mixed cadence
+# (uk_pv 48 steps/day vs goes_pvdaq 96). Every run_eval result in results/ is
+# uk_pv-only, including lightgbm_s2 — the tier-1 row tabpfn is compared against —
+# so s1/s2/s4 pin $DATASETS on both sides. s3 is cross-dataset by definition and
+# is uniform on each side already.
 scenario_flags() {
     case "$1" in
-        s1) echo "--in-domain" ;;
-        s2) echo "" ;;                                   # default cross-plant
+        s1) echo "--in-domain --train-datasets $DATASETS --eval-datasets $DATASETS" ;;
+        s2) echo "--train-datasets $DATASETS --eval-datasets $DATASETS" ;;
         s3) echo "--train-datasets uk_pv --eval-datasets goes_pvdaq" ;;
-        s4) echo "--horizon 48 --eval-stride 48" ;;
-        *)  echo "" ;;
+        s4) echo "--horizon 48 --eval-stride 48 --train-datasets $DATASETS --eval-datasets $DATASETS" ;;
+        *)  echo "--train-datasets $DATASETS --eval-datasets $DATASETS" ;;
     esac
 }
 
@@ -135,7 +144,7 @@ case "$STAGE" in
             --lopo-dataset goes_pvdaq \
             --batch-size "$BATCH_SIZE" \
             --model-kwargs "$MODEL_KWARGS" \
-            --tag "$SCENARIO" --seeds $SEEDS
+            --tag "${TAG:-lopo}" --seeds $SEEDS
         ;;
     *)
         echo "unknown STAGE: $STAGE"; exit 1 ;;
