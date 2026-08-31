@@ -99,5 +99,6 @@ done
 # ---- 5. import predictions → our NMAE/NRMSE/SS results JSON -----------------
 uv run python scripts/import_predictions.py --model time_vlm --tag s2_ukpv \
     --glob 'tier5/vendor/time_vlm/results/*/uk_pv_test_*_pred.npz' \
-    --reference results/smart_persistence_s2_ukpv.json
+    --reference results/smart_persistence_s2_ukpv.json \
+    --ukpv_dir "$UKPV_DIR" --data "$DATA"
 echo "✓ Time-VLM done → results/time_vlm_s2_ukpv.json"

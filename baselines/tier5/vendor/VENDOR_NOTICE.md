@@ -70,6 +70,21 @@ edits — diff against the pinned upstream SHA to see them:
 
 Aurora's own source is unedited.
 
+## Scoring mask (why the CSV bridge is not enough on its own)
+
+`export_ukpv.py` writes a dense `date,OT` grid with missing steps filled `0.0`, which
+destroys the two masks Tiers 0-3 score on: the clear-sky daylight mask
+(`clearsky_ghi > 0`) and target validity (`norm_power` NaN). Scoring the dumped npz on
+the proxy `true > 0` therefore counts outages as night and drops genuinely-overcast
+daytime steps. `scripts/import_predictions.py --ukpv_dir <export dir> --data <parquet>`
+rebuilds the exact mask: it re-derives each window's rows in the exported per-plant CSV
+(`len(csv) = n_windows + seq_len + horizon − 1`), **verifies** that inference against the
+dumped `true`, and reindexes the parquet's `norm_power`/`clearsky_ghi` onto those rows.
+On a failed check it warns and falls back to the proxy rather than scoring a misaligned
+mask. Every SLURM script that goes through the CSV bridge (`time_vlm`, `visionts_pp`,
+`aurora`, `rag`) passes the flag; the mask actually used is recorded in the result
+manifest under `config.daylight_mask`.
+
 ## Off-repo artifacts (NOT in git — see `.gitignore`)
 
 Pretrained weights (VLM/CLIP backbones for Time-VLM, the VisionTS++ MAE checkpoint,

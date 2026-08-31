@@ -62,5 +62,6 @@ for npz in "$OUT"/aurora_*_pred.npz; do
 done
 uv run python scripts/import_predictions.py --model aurora --tag s2_ukpv \
     --glob "$OUT/aurora_*_pred.npz" \
-    --reference results/smart_persistence_s2_ukpv.json
+    --reference results/smart_persistence_s2_ukpv.json \
+    --ukpv_dir "$UKPV_DIR" --data "$DATA"
 echo "✓ Aurora done → results/aurora_s2_ukpv.json"

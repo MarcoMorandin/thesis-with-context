@@ -10,9 +10,12 @@ NMAE/NRMSE/SS/CRPS) in the same schema as run_eval.py writes.
         --glob 'tier5/vendor/time_vlm/results/*/uk_pv_test_*_pred.npz'
 
 Caveats (written into the result manifest):
-- Daylight mask = `true > 0` (night norm_power is exactly 0), a proxy for the
-  exact clear-sky daylight mask used by Tiers 0-4 — daytime near-zero overcast
-  steps may be dropped. Pass `--data <parquet>` is reserved for an exact mask.
+- Daylight mask: pass `--ukpv_dir <export dir>` (and `--data <parquet>`) to score
+  against the EXACT clear-sky daylight + validity mask Tiers 0-3 use, recovered
+  by re-aligning each dumped window onto the exported per-plant CSV. Without it
+  the mask falls back to the proxy `true > 0` (night norm_power is exactly 0),
+  which drops daytime near-zero overcast steps and, because the CSV export fills
+  gaps with 0.0, silently scores outages as night.
 - These run on each harness's NATIVE eval windows, not bit-aligned with Tiers 0-4,
   so there is no per-window loss sidecar (DM/bootstrap vs Smart Persistence needs
   aligned windows). Compare via SS / rank, not pooled raw metrics (§4.4).
@@ -44,12 +47,78 @@ def site_of(path: Path) -> str:
     return path.name[: -len("_pred.npz")].split("_")[-1]
 
 
-def ramp_mask_from_true(true: np.ndarray, quantile: float = 0.9) -> np.ndarray:
+def exact_mask_source(data_path: str, sites: list[str]) -> dict:
+    """Per-plant clear-sky + target validity from the parquet, indexed by time.
+
+    The CSV bridge the vendored harnesses consume carries only ``date``/``OT``
+    on a dense grid with gaps filled 0.0, so both the clear-sky daylight mask
+    and the missing-data mask are destroyed by the export. Recover both from the
+    dataset of record so Tiers 4-6 are scored on the SAME mask as Tiers 0-3.
+    """
+    import pandas as pd
+
+    cols = [config.DATASET_COL, config.SITE_COL, config.TIME_COL,
+            config.TARGET_COL, config.CLEARSKY_COL]
+    df = pd.read_parquet(data_path, columns=cols)
+    df = df[(df[config.DATASET_COL] == "uk_pv")
+            & (df[config.SITE_COL].astype(str).isin(set(sites)))]
+    df[config.TIME_COL] = pd.to_datetime(df[config.TIME_COL], utc=True)
+    out = {}
+    for site, g in df.groupby(config.SITE_COL):
+        g = g.sort_values(config.TIME_COL)
+        g = g[~g[config.TIME_COL].duplicated(keep="first")]
+        out[str(site)] = g.set_index(config.TIME_COL)[
+            [config.TARGET_COL, config.CLEARSKY_COL]]
+    return out
+
+
+def exact_mask(true: np.ndarray, site: str, ukpv_dir: Path, source: dict):
+    """Exact ``valid & daylight`` mask for the windows in ``true``, or None.
+
+    The npz carries no timestamps, so re-derive them: the vendored loaders slide
+    a stride-1 window over the whole per-plant CSV, hence
+    ``len(csv) == n_windows + seq_len + horizon - 1`` fixes ``seq_len`` and
+    window ``i`` forecasts CSV rows ``[i+seq_len, i+seq_len+H)``. That is an
+    inference, so it is VERIFIED against the dumped ``true`` before use; on any
+    mismatch return None and let the caller fall back to the proxy mask.
+    """
+    import pandas as pd
+
+    csv_path = ukpv_dir / f"uk_pv_test_{site}.csv"
+    if not csv_path.exists() or site not in source:
+        print(f"WARN: {site}: no {csv_path.name} / not in parquet — proxy mask")
+        return None
+
+    csv = pd.read_csv(csv_path)
+    ot = csv["OT"].to_numpy(dtype=np.float64)
+    n, h = true.shape
+    seq_len = len(ot) - n - h + 1
+    if seq_len < 1:
+        print(f"WARN: {site}: {n} windows do not fit {len(ot)} CSV rows "
+              f"— proxy mask")
+        return None
+
+    idx = np.arange(n)[:, None] + seq_len + np.arange(h)[None, :]
+    if not np.allclose(ot[idx], true, atol=1e-3):
+        print(f"WARN: {site}: dumped 'true' does not match the CSV at the "
+              f"derived offsets (seq_len={seq_len}) — proxy mask")
+        return None
+
+    ref = source[site].reindex(pd.to_datetime(csv["date"], utc=True))
+    valid = ref[config.TARGET_COL].notna().to_numpy()
+    daylight = np.nan_to_num(
+        ref[config.CLEARSKY_COL].to_numpy(dtype=np.float64)) > 0
+    return (valid & daylight)[idx].astype(np.float64)
+
+
+def ramp_mask_from_true(true: np.ndarray, quantile: float = 0.9,
+                        mask: np.ndarray | None = None) -> np.ndarray:
     """Model-independent S6 ramp subset from a site's own targets (§4.2).
 
     Mirrors ``common.runner._ramp_mask`` but reconstructs the ramp subset from
     the dumped ``true`` alone (the externals' npz carry no history/mask):
-    - daylight/validity proxy = ``true > 0`` (same proxy as the point mask);
+    - daylight/validity from ``mask`` when the exact one was recovered, else the
+      proxy ``true > 0``;
     - per-step |Δtrue| vs the previous in-window step, top-decile threshold per
       site (thresholds are a property of the data, not the model);
     - step 0 has no in-window predecessor (history is not dumped) so it is
@@ -59,9 +128,10 @@ def ramp_mask_from_true(true: np.ndarray, quantile: float = 0.9) -> np.ndarray:
     """
     if true.shape[1] < 2:
         return np.zeros_like(true)
+    ok = (true > 0) if mask is None else (mask > 0)
     prev, cur = true[:, :-1], true[:, 1:]
     delta = np.abs(cur - prev)
-    valid = (cur > 0) & (prev > 0)
+    valid = ok[:, 1:] & ok[:, :-1]
     if valid.sum() == 0:
         return np.zeros_like(true)
     thr = float(np.quantile(delta[valid], quantile))
@@ -79,11 +149,23 @@ def main() -> None:
     ap.add_argument("--reference", default=None,
                     help="Smart Persistence result json for SS "
                          "(default: <out>/smart_persistence_<tag>.json)")
+    ap.add_argument("--ukpv_dir", default=None,
+                    help="export dir holding uk_pv_test_<site>.csv; enables the "
+                         "EXACT clear-sky+validity mask (else proxy true>0)")
+    ap.add_argument("--data", default=config.DEFAULT_DATA_PATH,
+                    help="parquet of record, for --ukpv_dir mask recovery")
     args = ap.parse_args()
 
     files = sorted(Path(p) for p in glob.glob(args.glob))
     if not files:
         raise SystemExit(f"no npz matched: {args.glob}")
+
+    mask_source, ukpv_dir = None, None
+    if args.ukpv_dir:
+        ukpv_dir = Path(args.ukpv_dir)
+        mask_source = exact_mask_source(args.data,
+                                        [site_of(f) for f in files])
+    n_exact = 0
 
     acc = PerPlantAccumulator()
     # Centralize every model's raw pred/true under results/predictions/ (same
@@ -103,12 +185,19 @@ def main() -> None:
         np.savez(pred_dir / f"{args.model}_{site}_pred.npz",
                  pred=pred.astype(np.float32), true=true.astype(np.float32))
 
-        mask = (true > 0).astype(np.float64)            # daylight proxy
+        mask = None
+        if mask_source is not None:
+            mask = exact_mask(true, site, ukpv_dir, mask_source)
+        if mask is None:
+            mask = (true > 0).astype(np.float64)        # daylight proxy
+        else:
+            n_exact += 1
+
         q = _2d(data["quantiles"]) if "quantiles" in data else None
         acc.update(plants=np.array([site] * len(pred)),
                    y_true=true, y_pred=np.clip(pred, 0.0, 1.0),
                    mask=mask, quantile_preds=q,
-                   ramp_mask=ramp_mask_from_true(true))
+                   ramp_mask=ramp_mask_from_true(true, mask=mask))
 
     results = {"overall": acc.macro(), "per_plant": acc.per_plant()}
 
@@ -133,7 +222,12 @@ def main() -> None:
     run_config = {
         "model": args.model, "tag": args.tag, "source": "vendored harness",
         "glob": args.glob, "n_plants": len(acc.per_plant()),
-        "daylight_mask": "proxy true>0 (not exact clear-sky mask)",
+        "daylight_mask": (
+            f"exact clear-sky+validity from {args.data} via {args.ukpv_dir} "
+            f"({n_exact}/{len(files)} plants; rest fell back to proxy true>0)"
+            if mask_source is not None else
+            "proxy true>0 (not exact clear-sky mask)"),
+
         "ramp_subset": "proxy top-decile |Δtrue| per site on native windows, "
                        "step 0 excluded (no dumped history); not bit-aligned "
                        "with tiers 0-3",

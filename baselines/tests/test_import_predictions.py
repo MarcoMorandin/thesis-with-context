@@ -50,3 +50,38 @@ def test_import_writes_results_json(tmp_path, monkeypatch):
     cfg = out["manifest"]["config"]
     assert "proxy true>0" in cfg["daylight_mask"]
     assert "not aligned" in cfg["eval_windows"]
+
+
+def test_exact_mask_recovers_clearsky_and_nan_gaps(tmp_path):
+    """The CSV bridge fills gaps with 0.0 and drops clear-sky, so the `true>0`
+    proxy scores outages as night and hides overcast daytime steps. The exact
+    mask must come back from the parquet, and must refuse to guess."""
+    import pandas as pd
+
+    from common import config
+
+    m = _load()
+    n_rows, seq_len, h = 200, 48, 12
+    dates = pd.date_range("2021-06-01", periods=n_rows, freq="30min", tz="UTC")
+    power = np.abs(np.sin(np.arange(n_rows) / 10.0)).round(4)
+    power[[50, 51, 120]] = np.nan                      # real data gaps
+    clearsky = np.where((np.arange(n_rows) % 48) < 20, 0.0, 500.0)
+    ot = np.nan_to_num(power)                          # what the exporter writes
+    pd.DataFrame({"date": dates, "OT": ot}).to_csv(
+        tmp_path / "uk_pv_test_S1.csv", index=False)
+
+    n = n_rows - seq_len - h + 1
+    idx = np.arange(n)[:, None] + seq_len + np.arange(h)[None, :]
+    true = ot[idx]
+    source = {"S1": pd.DataFrame(
+        {config.TARGET_COL: power, config.CLEARSKY_COL: clearsky}, index=dates)}
+
+    mask = m.exact_mask(true, "S1", tmp_path, source)
+    expected = ((~np.isnan(power)) & (clearsky > 0))[idx].astype(np.float64)
+    assert mask is not None and np.array_equal(mask, expected)
+    assert not np.array_equal(mask, (true > 0).astype(np.float64))
+
+    # window geometry is INFERRED, so a failed self-check must return None
+    # (caller falls back to the proxy) rather than a silently misaligned mask
+    assert m.exact_mask(true + 0.5, "S1", tmp_path, source) is None
+    assert m.exact_mask(true, "absent_site", tmp_path, source) is None

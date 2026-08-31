@@ -215,7 +215,8 @@ if (( ${#preds[@]} )); then
     echo ">>> importing predictions to results"
     python scripts/import_predictions.py --model "${METHOD}_${REGIME}" --tag s2_ukpv \
         --glob "$VENDOR_DIR/results/forecast_evaluation/*_pred.npz" \
-        --reference results/smart_persistence_s2_ukpv.json
+        --reference results/smart_persistence_s2_ukpv.json \
+        --ukpv_dir "$UKPV_CSV_DIR" --data "$DATA"
 else
     echo "NOTE: no *_pred.npz found."
 fi

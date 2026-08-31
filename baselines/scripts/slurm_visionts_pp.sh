@@ -65,5 +65,6 @@ done
 # ---- 4. import predictions → our NMAE/NRMSE/SS results JSON -----------------
 uv run python scripts/import_predictions.py --model visionts_pp --tag s2_ukpv \
     --glob "$OUT/visionts_pp_*_pred.npz" \
-    --reference results/smart_persistence_s2_ukpv.json
+    --reference results/smart_persistence_s2_ukpv.json \
+    --ukpv_dir "$UKPV_DIR" --data "$DATA"
 echo "✓ VisionTS++ done → results/visionts_pp_s2_ukpv.json"
