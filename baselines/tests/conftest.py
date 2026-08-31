@@ -20,6 +20,8 @@ STEPS_PER_DAY = 24 * 60 // CADENCE_MIN
 # (imported as ``chronos``).
 OPTIONAL_BASELINE_DEPS: dict[str, tuple[str, ...]] = {
     "tabpfn": ("tabpfn",),
+    "tabfm": ("tabfm",),
+    "tabfm_ens": ("tabfm",),
     "chronos2_zs": ("chronos",),
     "chronos2_ft": ("chronos",),
     "chronos2_oracle": ("chronos",),

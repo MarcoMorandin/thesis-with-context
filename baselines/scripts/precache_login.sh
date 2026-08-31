@@ -45,6 +45,8 @@ PY_VER="${PY_VER:-3.10}"
 # TabPFN (tier1) pulls its model checkpoint from HF on first .fit; pin a stable
 # cache dir so this warm-up and the offline compute run resolve the same files.
 export TABPFN_MODEL_CACHE_DIR="${TABPFN_MODEL_CACHE_DIR:-${WEIGHTS_DIR}/tabpfn}"
+# Match slurm_tabpfn.sh: no posthog telemetry from tabpfn-common-utils.
+export TABPFN_DISABLE_TELEMETRY="${TABPFN_DISABLE_TELEMETRY:-1}"
 
 mkdir -p "$HF_HOME" "$TORCH_HOME" "$DATA_DIR" "$UKPV_CSV_DIR" "$CKPT_DIR" \
          "$WEIGHTS_DIR" "$TABPFN_MODEL_CACHE_DIR" logs/slurm
@@ -192,26 +194,35 @@ PY
     hf_pull "$QWEN_REPO" "${WEIGHTS_DIR}/qwen3-vl-embedding-2b" \
         || warn "Qwen3-VL pull failed ($QWEN_REPO) — set QWEN_REPO/QWEN_PATH; solar_vlm will skip"
 
-    # --- TabPFN (Tier-1 tabular FM, optional `tabpfn` group) ------------------
-    # TabPFN lives in the MAIN project env (not a vendored uv env). Sync the
-    # optional `tabpfn` group into the project env LAST so the offline compute
-    # node (UV_NO_SYNC) has base + tier3 + tabpfn, then warm its model checkpoint
-    # (pulled from HF on first .fit) into TABPFN_MODEL_CACHE_DIR while the login
-    # node has internet. Skip with TABPFN=0.
+    # --- Tabular FMs: TabPFN-3 (tier 1) + TabFM v1.0.0 (tier 2) --------------
+    # Both live in the MAIN project env (not vendored uv envs), so the offline
+    # compute node (UV_NO_SYNC) ends up with base + tier3 + tabpfn + tabfm.
+    # `uv sync` REPLACES the env with exactly the groups it is given, so the
+    # optional groups must be requested in ONE call — a later
+    # `uv sync --group tabfm` would uninstall tabpfn. Every `uv run` below
+    # reuses the same flag list for the same reason. Skip either arm with
+    # TABPFN=0 / TABFM=0.
+    TAB_GROUPS=(--group tier3)
+    [[ "${TABPFN:-1}" == "1" ]] && TAB_GROUPS+=(--group tabpfn)
+    [[ "${TABFM:-1}"  == "1" ]] && TAB_GROUPS+=(--group tabfm)
+    info ">>> tabular FM env: uv sync ${TAB_GROUPS[*]}"
+    # tabfm is a GIT dependency (it is not published to PyPI), so this login
+    # node is the only place that can resolve and build it.
+    uv sync "${TAB_GROUPS[@]}" || warn "uv sync (${TAB_GROUPS[*]}) failed"
+
     if [[ "${TABPFN:-1}" == "1" ]]; then
-        info ">>> TabPFN-3 (tier1 tabular FM) → group sync + V3 weight download"
+        info ">>> TabPFN-3 (tier1 tabular FM) → V3 weight download"
         # TabPFN-3 (ModelVersion.V3) gates its local-inference weights behind a
         # one-time license keyed by TABPFN_TOKEN (https://ux.priorlabs.ai). Put
         # TABPFN_TOKEN=<key> in baselines/.env (sourced at top); the offline
         # compute run reuses it via each slurm_*.sh's own .env source.
         [[ -n "${TABPFN_TOKEN:-}" ]] \
             || warn "TABPFN_TOKEN not set (baselines/.env) — V3 weight download will hit the license gate"
-        uv sync --group tier3 --group tabpfn || warn "uv sync (tier3+tabpfn) failed"
         # DOWNLOAD-ONLY: the login node has no GPU and cgroup-kills the heavy CPU
         # forward pass, so we DON'T require fit() to finish — the download (the
         # only thing we need cached) completes first. The real fit runs on the
         # GPU compute node. Success = the V3 ckpt landing in the shared cache.
-        OMP_NUM_THREADS=1 uv run --group tier3 --group tabpfn python - <<'PY' || true
+        OMP_NUM_THREADS=1 uv run "${TAB_GROUPS[@]}" python - <<'PY' || true
 import numpy as np
 from tabpfn import TabPFNRegressor
 from tabpfn.constants import ModelVersion   # NOT re-exported from `tabpfn`
@@ -228,6 +239,43 @@ PY
             info "TabPFN-3 ckpt cached → $TABPFN_MODEL_CACHE_DIR (offline GPU fit will load it)"
         else
             warn "TabPFN-3 ckpt NOT under $TABPFN_MODEL_CACHE_DIR — tabpfn will skip offline (set TABPFN_TOKEN, accept license at https://ux.priorlabs.ai)"
+        fi
+    fi
+
+    # --- TabFM v1.0.0 (Tier-2 tabular FM, optional `tabfm` group) ------------
+    # Weights are UNGATED (no TABPFN_TOKEN analogue) but licensed
+    # tabfm-non-commercial-v1.0: research use only, no commercial or production
+    # use. They land in the normal HF cache under $HF_HOME, which is what
+    # slurm_tabfm.sh fail-fast checks. Skip with TABFM=0.
+    if [[ "${TABFM:-1}" == "1" ]]; then
+        info ">>> TabFM v1.0.0 (tier2 tabular FM) → regression weight download"
+        # Pull the snapshot explicitly rather than relying on a fit() to trigger
+        # it: the login node has no GPU and cgroup-kills heavy CPU forwards, and
+        # the download is the only thing the offline node actually needs cached.
+        uv run "${TAB_GROUPS[@]}" python - <<'PY' || warn "TabFM snapshot download failed — tabfm will skip offline"
+from huggingface_hub import snapshot_download
+p = snapshot_download("google/tabfm-1.0.0-pytorch")
+print("tabfm weights ->", p)
+PY
+        # Cheap CPU smoke: proves the estimator imports and the checkpoint
+        # actually deserialises here, so a load error surfaces now rather than
+        # 12 h into an offline job. Tiny table, 1 member — seconds, not minutes.
+        OMP_NUM_THREADS=1 uv run "${TAB_GROUPS[@]}" python - <<'PY' || true
+import numpy as np, torch
+from tabfm import TabFMRegressor, tabfm_v1_0_0_pytorch as tabfm_v1_0_0
+try:
+    model = tabfm_v1_0_0.load(model_type="regression", device="cpu",
+                              dtype=torch.bfloat16)
+    reg = TabFMRegressor(model=model, n_estimators=1, random_state=0)
+    reg.fit(np.random.rand(32, 3), np.random.rand(32))
+    print("tabfm predict OK on login node:", reg.predict(np.random.rand(4, 3)).shape)
+except Exception as e:  # no GPU / cgroup kill — snapshot already cached
+    print("note: login-node TabFM smoke did not finish:", type(e).__name__, e)
+PY
+        if [[ -d "${HF_HOME}/hub/models--google--tabfm-1.0.0-pytorch" ]]; then
+            info "TabFM snapshot cached → ${HF_HOME}/hub/models--google--tabfm-1.0.0-pytorch"
+        else
+            warn "TabFM snapshot NOT under ${HF_HOME}/hub — tabfm/tabfm_ens will skip offline"
         fi
     fi
 fi

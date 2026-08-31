@@ -14,6 +14,7 @@ import pytest
 import tier0  # noqa: F401
 import tier1  # noqa: F401
 import tslib  # noqa: F401
+import tier2  # noqa: F401
 import tier3  # noqa: F401
 import tier4  # noqa: F401
 from common.base import REGISTRY, build
@@ -30,6 +31,11 @@ SMALL_KWARGS: dict[str, dict] = {
     "patchtst": dict(trainer=SMALL_TRAINER, d_model=32, n_heads=2, n_layers=1),
     "itransformer": dict(trainer=SMALL_TRAINER, d_model=32, n_heads=2, n_layers=1),
     "tft": dict(trainer=SMALL_TRAINER, d_model=32, n_heads=2),
+    # TabFM: tiny context + 2 ensemble members keeps the CPU contract run short.
+    "tabfm": dict(max_context_rows=200, n_estimators=2, ens_batch_size=2,
+                  device="cpu"),
+    "tabfm_ens": dict(max_context_rows=200, n_estimators=2, ens_batch_size=2,
+                      device="cpu"),
     "chronos2_zs": dict(model_id="dummy"),
     "chronos2_oracle": dict(model_id="dummy"),
     "chronos2_ft": dict(model_id="dummy", num_steps=2, batch_size=16),

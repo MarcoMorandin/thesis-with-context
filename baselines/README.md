@@ -30,6 +30,8 @@ grids, capacity-normalized `norm_power` target. Both datasets fully present
 | 2 | `itransformer` | iTransformer (variates as tokens) | — |
 | 2 | `itransformer_nf` | iTransformer from **neuralforecast**, trained on MMTSFM's protocol (not `run_eval.py`) — `tier2/train_itransformer_nf.py` | ✅ |
 | 2 | `tft` | TFT-lite (quantile-native) | ✅ |
+| 2 | `tabfm` | Google **TabFM v1.0.0** zero-shot tabular FM (optional dep: `uv sync --group tabfm`). *Filed in tier 2; not a supervised deep-TS model — it is the sibling of tier-1 `tabpfn`* | — |
+| 2 | `tabfm_ens` | Same, `TabFMRegressor.ensemble()` (feature crosses + SVD feats + NNLS blend) | — |
 | 3 | `chronos2_zs` / `chronos2_ft` | Chronos-2 zero-shot / fine-tuned (MMTSFM source) | ✅ |
 | 3 | `timesfm_zs` | TimesFM 2.5 zero-shot | ✅ |
 | 3 | `tirex_zs` | TiRex (xLSTM) zero-shot | ✅ |
@@ -168,6 +170,43 @@ sbatch --export=ALL,MAX_CONTEXT_ROWS=50000 scripts/slurm_tabpfn.sh   # smaller c
 The job fails fast if the V3 ckpt is missing from `TABPFN_MODEL_CACHE_DIR`
 (default `$TEAM_SCRATCH/weights/tabpfn`) — compute nodes cannot reach the
 license gate, so a cold cache is fatal, not slow.
+
+**TabFM (filed in tier 2) is the second tabular FM**, on the same flattened
+`(Y, X_cov)` table as `lightgbm` and `tabpfn`. Running both makes the claim a
+class-level one — *tabular FMs* close (or fail to close) the gap on PV — instead
+of a statement about TabPFN alone. Same GPU-bound reasoning as TabPFN, so it too
+gets its own job:
+
+```bash
+# login node, once: syncs the `tabfm` group (a GIT dep — TabFM is not on PyPI)
+# and downloads google/tabfm-1.0.0-pytorch into $HF_HOME. No token needed.
+STAGE=weights bash scripts/precache_login.sh
+
+# compute node:
+sbatch scripts/slurm_tabfm.sh                                    # tabfm,     S2
+sbatch --export=ALL,CONFIG=ens scripts/slurm_tabfm.sh            # tabfm_ens, S2
+sbatch --export=ALL,SCENARIO=s1 scripts/slurm_tabfm.sh           # in-domain
+sbatch --export=ALL,STAGE=lopo scripts/slurm_tabfm.sh            # goes_pvdaq LOPO
+sbatch --export=ALL,MAX_CONTEXT_ROWS=5000 scripts/slurm_tabfm.sh # smaller context
+```
+
+Three things differ from TabPFN and all three belong in any table that reports
+the row:
+
+* **Point predictions only.** Upstream has no regression quantile head, so
+  `supports_quantiles = False`: NMAE / NRMSE / Skill-Score are reported, CRPS,
+  coverage and ECE are **N/A** — same as `itransformer_nf` and `ttm_zs`. There is
+  deliberately no zero-width-interval fallback, which would silently flatter the
+  pinball loss.
+* **Context default is 10 000 rows, not TabPFN's 100 000.** TabFM reads the
+  context through `n_estimators` (32) separately-transformed views. Both
+  `max_context_rows` and `n_estimators` are `--model-kwargs` knobs and are
+  *reported protocol parameters* — quote them beside the number rather than
+  retuning them to fit a wall clock.
+* **Weights are ungated but non-commercial.** No `TABPFN_TOKEN` analogue; the
+  code is Apache-2.0 while the checkpoint is `tabfm-non-commercial-v1.0`
+  (research use only, no production or commercial use). The job fails fast if
+  `$HF_HOME/hub/models--google--tabfm-1.0.0-pytorch` is missing.
 
 The *original* vendored TS-RAG / Cross-RAG (separate numpy-1.25 conda env, not
 `run_eval`) have their own offline-guarded runner — `scripts/slurm_rag.sh`:

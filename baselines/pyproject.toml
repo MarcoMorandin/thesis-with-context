@@ -43,6 +43,16 @@ dev = [
 tabpfn = [
     "tabpfn>=8.0",   # TabPFN-3 (ModelVersion.V3 is the default in >=8.0)
 ]
+tabfm = [
+    # Google TabFM v1.0.0 — second zero-shot tabular FM (tier2/tabfm_model.py).
+    # Not published to PyPI, so this is a VCS dependency; it resolves on the
+    # login node only (compute nodes run UV_NO_SYNC=1). The [pytorch] extra
+    # leaves `torch` unpinned, so the [tool.uv.sources] cu121 pin above still
+    # governs it on linux. Code is Apache-2.0; the *weights*
+    # (google/tabfm-1.0.0-pytorch) are tabfm-non-commercial-v1.0 — research use
+    # only, no production or commercial use.
+    "tabfm[pytorch] @ git+https://github.com/google-research/tabfm.git",
+]
 nf = [
     # Pre-built iTransformer (and its Lightning stack) for the tier-2 library
     # arm trained on MMTSFM's protocol — tier2/train_itransformer_nf.py.
