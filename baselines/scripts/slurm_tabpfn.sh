@@ -70,7 +70,10 @@ SEEDS="${SEEDS:-42}"
 MAX_CONTEXT_ROWS="${MAX_CONTEXT_ROWS:-100000}"
 BATCH_SIZE="${BATCH_SIZE:-256}"
 DATA="${DATA:-${TEAM_SCRATCH}/data/dataset_all.parquet}"
-GROUPS=(--group tier3 --group tabpfn)
+# NOTE: do NOT name this GROUPS — that is a bash special variable holding the
+# caller's numeric group IDs, and assignments to it are silently ignored, so the
+# expansion becomes the user's GIDs and `uv` tries to exec them.
+GROUP_FLAGS=(--group tier3 --group tabpfn)
 
 mkdir -p logs/slurm results
 
@@ -97,7 +100,7 @@ if ! find "$TABPFN_MODEL_CACHE_DIR" -iname '*tabpfn-v3*regressor*.ckpt' 2>/dev/n
 fi
 
 # Ensure the plant split exists (idempotent; committed in configs/splits.json).
-uv run "${GROUPS[@]}" python -m common.splits --data "$DATA" || true
+uv run "${GROUP_FLAGS[@]}" python -m common.splits --data "$DATA" || true
 
 # scenario id -> extra run_eval flags (same mapping as the other tier scripts)
 scenario_flags() {
@@ -115,7 +118,7 @@ MODEL_KWARGS="{\"max_context_rows\": ${MAX_CONTEXT_ROWS}}"
 case "$STAGE" in
     main)
         echo ""; echo ">>> run_eval [tabpfn / $SCENARIO]"
-        uv run "${GROUPS[@]}" python run_eval.py \
+        uv run "${GROUP_FLAGS[@]}" python run_eval.py \
             --model tabpfn \
             --data "$DATA" \
             $(scenario_flags "$SCENARIO") \
@@ -126,7 +129,7 @@ case "$STAGE" in
     lopo)
         # goes_pvdaq leave-one-plant-out (mandatory, §4.1)
         echo ""; echo ">>> run_eval [tabpfn / goes_pvdaq LOPO]"
-        uv run "${GROUPS[@]}" python run_eval.py \
+        uv run "${GROUP_FLAGS[@]}" python run_eval.py \
             --model tabpfn \
             --data "$DATA" \
             --lopo-dataset goes_pvdaq \
