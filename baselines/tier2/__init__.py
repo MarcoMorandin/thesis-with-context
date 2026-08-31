@@ -4,5 +4,5 @@
 (stride-1 windows, batch 256, lr 1e-3). This package instead wraps an upstream
 library implementation and drives it through the *MMTSFM* data + training +
 evaluation path, so the only difference between the two arms is the model —
-not the protocol, not the budget. See scripts/train_itransformer_nf.py.
+not the protocol, not the budget. See tier2/train_itransformer_nf.py.
 """

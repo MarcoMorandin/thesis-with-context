@@ -19,11 +19,10 @@ import yaml
 _BL = Path(__file__).resolve().parents[1]
 if str(_BL) not in sys.path:
     sys.path.insert(0, str(_BL))
-sys.path.insert(0, str(_BL / "scripts"))
 
 from common import config  # noqa: E402
 
-from tier2_lib.nf_itransformer import NFITransformer  # noqa: E402
+from tier2.nf_itransformer import NFITransformer  # noqa: E402
 
 # The library itself is only needed to BUILD a model; the comparability guards
 # below read configs and run without it (`uv sync --group nf` installs it).
@@ -93,7 +92,7 @@ def test_future_cov_mode_selects_the_forecast_window_rows():
 
 
 def _script_defaults() -> argparse.Namespace:
-    import train_itransformer_nf as script
+    from tier2 import train_itransformer_nf as script
 
     old, sys.argv = sys.argv, ["train_itransformer_nf.py"]
     try:
@@ -112,7 +111,7 @@ def test_windows_match_the_mmtsfm_data_config():
     args, cfg = _script_defaults(), _ukpv_cfg()
     assert args.history_days == cfg["history_days"]
     assert args.horizon_hours == cfg["horizon_hours"]
-    import train_itransformer_nf as script
+    from tier2 import train_itransformer_nf as script
 
     assert script.window_steps(args) == (672, cfg["horizon"])
 
@@ -148,7 +147,7 @@ def test_recipe_matches_the_mmtsfm_trainer_and_model_configs():
 
 @needs_nf
 def test_module_uses_the_configured_point_loss():
-    from tier2_lib.module import ITransformerNFModule
+    from tier2.module import ITransformerNFModule
 
     module = ITransformerNFModule(history=T, horizon=H, n_cov=C, loss_fn="mse", **SMALL)
     assert module.model.nf.loss.__class__.__name__ == "MSE"
@@ -157,7 +156,7 @@ def test_module_uses_the_configured_point_loss():
 @needs_nf
 def test_default_loss_matches_the_papers_own_training_script():
     """thuml/iTransformer's exp_long_term_forecasting.py trains with nn.MSELoss()."""
-    from tier2_lib.module import ITransformerNFModule
+    from tier2.module import ITransformerNFModule
 
     module = ITransformerNFModule(history=T, horizon=H, n_cov=C, **SMALL)
     assert module.model.nf.loss.__class__.__name__ == "MSE"

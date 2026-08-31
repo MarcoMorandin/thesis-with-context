@@ -21,7 +21,7 @@ Identical to the MMTSFM curriculum by construction (all reused, not re-coded):
 Differences that remain, and are the point of the run: the model, and the fact
 that iTransformer has no visual stream (it is the numerical control).
 
-    uv run --group nf python scripts/train_itransformer_nf.py \
+    uv run --group nf python tier2/train_itransformer_nf.py \
         --data-dir /leonardo_scratch/fast/IscrC_MTSFM/data --seed 42
 """
 
@@ -47,8 +47,8 @@ from pytorch_lightning.callbacks import (  # noqa: E402
 from pytorch_lightning.loggers import CSVLogger  # noqa: E402
 
 from common import config  # noqa: E402
-from tier2_lib.data import build_dataset, build_loader  # noqa: E402
-from tier2_lib.module import ITransformerNFModule  # noqa: E402
+from tier2.data import build_dataset, build_loader  # noqa: E402
+from tier2.module import ITransformerNFModule  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
