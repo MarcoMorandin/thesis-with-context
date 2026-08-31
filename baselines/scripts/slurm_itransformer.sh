@@ -16,16 +16,16 @@
 # Tier-2 iTransformer (neuralforecast) — TRAIN + TEST on MMTSFM's protocol.
 # =============================================================================
 # The control arm for the MMTSFM curriculum: same windows, same recipe, same
-# scorer (scripts/train_itransformer_nf.py documents the parity list). Submit
+# scorer (tier2/train_itransformer_nf.py documents the parity list). Submit
 # from baselines/, one job per seed:
 #
 #   for s in 42 43 44; do
-#     sbatch --export=ALL,SEED=$s scripts/slurm_itransformer_nf.sh
+#     sbatch --export=ALL,SEED=$s scripts/slurm_itransformer.sh
 #   done
 #
 # Prereq (login node, has internet):  uv sync --group nf
 # Writes results/itransformer_nf_s2_ukpv_seed<SEED>.json in the baselines
-# schema, so scripts/aggregate_all.py picks it up next to the other tiers.
+# schema, matching the other tiers.
 #
 # Knobs (all optional): DATA_DIR RESULTS_DIR CKPT_DIR SP_REF DS SEED
 #                       EPOCHS BATCH_SIZE ACCUM TRAIN_STRIDE FUTURE_COV LOSS
@@ -76,7 +76,7 @@ SP_REF="${SP_REF:-${RESULTS_DIR}/smart_persistence_s2_$(dcfg "$DS").json}"
   echo "FATAL: no dataset_all.parquet under ${DATA_DIR} — stage the dataset of record first"; exit 1; }
 
 declare -a CMD=(
-  python scripts/train_itransformer_nf.py
+  python tier2/train_itransformer_nf.py
   --data-dir "$DATA_DIR" --dataset "$DS" --seed "$SEED"
   --train-stride "$TRAIN_STRIDE" --future-cov "$FUTURE_COV" --loss "$LOSS"
   --batch-size "$BATCH_SIZE" --accumulate "$ACCUM" --max-epochs "$EPOCHS"

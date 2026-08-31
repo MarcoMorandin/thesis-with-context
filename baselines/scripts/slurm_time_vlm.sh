@@ -19,8 +19,14 @@
 #   sbatch --export=ALL,VENV_NAME=timevlm,DATA=/path/dataset_all.parquet,\
 #          VLM_CKPT_OK=1 scripts/slurm_time_vlm.sh
 #
-# Required: VENV_NAME (Time-VLM env, TIER5_INTEGRATION.md §1).
-# Optional: DATA, SEQ_LEN(24) PRED_LEN(12) VLM_TYPE(CLIP) EPOCHS(10) MODEL_ID(ukpv_tvlm)
+# EVAL_ONLY=1 skips the training step and evaluates the checkpoint already saved
+# under model_id (setting is built from model_id, not data_path). Pair it with a
+# shorter walltime/qos, e.g.
+#   sbatch --qos=boost_qos_lprod --time=01:00:00 \
+#          --export=ALL,EVAL_ONLY=1 scripts/slurm_time_vlm.sh
+#
+# Optional: DATA, SEQ_LEN(24) PRED_LEN(12) VLM_TYPE(CLIP) EPOCHS(10)
+#           MODEL_ID(ukpv_tvlm) VENV_NAME(timevlm) EVAL_ONLY(0)
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")/..}"
 [[ -f .env ]] && source .env
@@ -35,9 +41,10 @@ export CONDA_ENVS_DIRS="${CONDA_ENVS_DIRS:-${TEAM_SCRATCH}/conda_envs}"
 export PIP_CACHE_DIR="${PIP_CACHE_DIR:-${TEAM_SCRATCH}/pip_cache}"
 export UV_ENVS_DIR="${UV_ENVS_DIR:-${TEAM_SCRATCH}/uv_envs}"
 export HF_HOME="${HF_HOME:-${TEAM_SCRATCH}/hf_cache}"
-[[ -d "$HF_HOME" ]] || { echo "ERROR: HF_HOME missing ($HF_HOME) — run login_node_prep.sh"; exit 1; }
+[[ -d "$HF_HOME" ]] || { echo "ERROR: HF_HOME missing ($HF_HOME) — run precache_login.sh"; exit 1; }
 
-: "${VENV_NAME:?set VENV_NAME to the Time-VLM uv env (TIER5_INTEGRATION.md §1)}"
+: "${VENV_NAME:=timevlm}"
+EVAL_ONLY="${EVAL_ONLY:-0}"
 DATA="${DATA:-${TEAM_SCRATCH}/data/dataset_all.parquet}"
 UKPV_DIR="${UKPV_DIR:-${TEAM_SCRATCH}/data/ukpv_rag}"
 SEQ_LEN="${SEQ_LEN:-672}"; PRED_LEN="${PRED_LEN:-12}"   # 14-day context / 6h horizon (uk_pv 30-min)
@@ -58,9 +65,13 @@ common_args=(--task_name long_term_forecast --model TimeVLM --vlm_type "$VLM_TYP
   --model_id "$MODEL_ID" --des Exp --itr 1 --gpu 0)
 
 # ---- 2. TRAIN on the stacked train-plant series ----------------------------
-echo ">>> TRAIN Time-VLM on uk_pv_train_stacked.csv"
-python run.py --is_training 1 --data_path uk_pv_train_stacked.csv \
-  --train_epochs "$EPOCHS" "${common_args[@]}"
+if [[ "$EVAL_ONLY" == "1" ]]; then
+    echo ">>> EVAL_ONLY=1 — skipping training, reusing checkpoint for model_id=$MODEL_ID"
+else
+    echo ">>> TRAIN Time-VLM on uk_pv_train_stacked.csv"
+    python run.py --is_training 1 --data_path uk_pv_train_stacked.csv \
+      --train_epochs "$EPOCHS" "${common_args[@]}"
+fi
 
 # ---- 3. EVAL each disjoint test plant (reuses the trained checkpoint) -------
 # setting is built from model_id (constant) not data_path, so is_training=0 loads
@@ -81,4 +92,4 @@ done
 uv run python scripts/import_predictions.py --model time_vlm --tag s2_ukpv \
     --glob 'tier5/vendor/time_vlm/results/*/uk_pv_test_*_pred.npz' \
     --reference results/smart_persistence_s2_ukpv.json
-echo "✓ Time-VLM done → results/time_vlm_s2_ukpv.json (make_tables / summarize_ukpv pick it up)."
+echo "✓ Time-VLM done → results/time_vlm_s2_ukpv.json"

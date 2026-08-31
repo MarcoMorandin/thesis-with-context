@@ -101,6 +101,7 @@
     "academic-research-skills@academic-research-skills": true,
     "caveman@caveman": true,
     "superpowers@claude-plugins-official": true,
-    "last30days@last30days-skill": true
+    "last30days@last30days-skill": true,
+    "mattpocock-skills@claude-plugins-official": true
   }
 }

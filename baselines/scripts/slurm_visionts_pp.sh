@@ -34,7 +34,7 @@ export CONDA_ENVS_DIRS="${CONDA_ENVS_DIRS:-${TEAM_SCRATCH}/conda_envs}"
 export PIP_CACHE_DIR="${PIP_CACHE_DIR:-${TEAM_SCRATCH}/pip_cache}"
 export UV_ENVS_DIR="${UV_ENVS_DIR:-${TEAM_SCRATCH}/uv_envs}"
 export HF_HOME="${HF_HOME:-${TEAM_SCRATCH}/hf_cache}"
-[[ -d "$HF_HOME" ]] || { echo "ERROR: HF_HOME missing ($HF_HOME) — run login_node_prep.sh"; exit 1; }
+[[ -d "$HF_HOME" ]] || { echo "ERROR: HF_HOME missing ($HF_HOME) — run precache_login.sh"; exit 1; }
 
 : "${VENV_NAME:?set VENV_NAME to the VisionTS++ uv env (TIER5_INTEGRATION.md §1)}"
 : "${MAE_CKPT:?set MAE_CKPT to the VisionTS++ MAE checkpoint}"
@@ -66,4 +66,4 @@ done
 uv run python scripts/import_predictions.py --model visionts_pp --tag s2_ukpv \
     --glob "$OUT/visionts_pp_*_pred.npz" \
     --reference results/smart_persistence_s2_ukpv.json
-echo "✓ VisionTS++ done → results/visionts_pp_s2_ukpv.json (make_tables / summarize_ukpv pick it up)."
+echo "✓ VisionTS++ done → results/visionts_pp_s2_ukpv.json"

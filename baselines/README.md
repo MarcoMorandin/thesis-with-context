@@ -28,7 +28,7 @@ grids, capacity-normalized `norm_power` target. Both datasets fully present
 | 2 | `dlinear` | DLinear (Y only) | — |
 | 2 | `patchtst` | PatchTST (channel-independent, RevIN) | — |
 | 2 | `itransformer` | iTransformer (variates as tokens) | — |
-| 2 | `itransformer_nf` | iTransformer from **neuralforecast**, trained on MMTSFM's protocol (not `run_eval.py`) — `scripts/train_itransformer_nf.py` | ✅ |
+| 2 | `itransformer_nf` | iTransformer from **neuralforecast**, trained on MMTSFM's protocol (not `run_eval.py`) — `tier2/train_itransformer_nf.py` | ✅ |
 | 2 | `tft` | TFT-lite (quantile-native) | ✅ |
 | 3 | `chronos2_zs` / `chronos2_ft` | Chronos-2 zero-shot / fine-tuned (MMTSFM source) | ✅ |
 | 3 | `timesfm_zs` | TimesFM 2.5 zero-shot | ✅ |
@@ -52,7 +52,7 @@ through `run_eval.py`:
 ```bash
 uv sync --group nf                                   # login node (internet)
 for s in 42 43 44; do
-  sbatch --export=ALL,SEED=$s scripts/slurm_itransformer_nf.sh
+  sbatch --export=ALL,SEED=$s scripts/slurm_itransformer.sh
 done
 ```
 
@@ -107,23 +107,17 @@ encoder-decoder attention, and the 9-quantile pinball objective.
 
 ## Protocol toolkit
 
-- `common/stats.py` — Diebold–Mariano (HLN-corrected), paired block
-  bootstrap (block = day), Holm–Bonferroni (§4.5). No scipy needed.
-- `common/aggregate.py` — win rate, geometric-mean skill, average rank
-  (§4.4, fev-bench conventions; never raw cross-dataset averaging).
 - `common/controls.py` — §5 eval-time controls: `zero_cov`,
   `low_history_{4,8,12}` (mask-based, shape-preserving), plus the aligned
   `shuffle_along_axis` primitive for the A09/A10 frame controls.
 - `common/runner.py` — ramp-subset (S6) thresholds + metrics, per-horizon
   NMAE(h) curves (§4.2), per-window loss sidecars (`*_losses.npz`) for
   significance testing, reproducibility manifest (§6.7).
-- `scripts/run_suite.py` — S1–S5 + controls as run_eval commands
-  (dry-run by default; `--execute` to run).
-- `scripts/significance.py` — DM + bootstrap + Holm over saved runs; only
-  bold a result when `bold_ok` is true.
-- `scripts/make_tables.py` — renders §7.1 headline + §4.4 aggregation
-  tables from `results/`.
-- `scripts/efficiency.py` — §4.6 params / latency / VRAM table.
+
+Results aggregation, table rendering, significance testing and plotting are
+**out of scope for this repo**. `run_eval.py` and `scripts/import_predictions.py`
+write per-model JSONs (plus `*_losses.npz` per-window sidecars) into `results/`;
+consume them with your own tooling.
 
 ## Usage
 
@@ -144,25 +138,44 @@ Results land in `results/<model>.json` with a reproducibility manifest
 Tiers 0-2 run on a laptop; Tiers 3-4 are GPU-bound. Submit from `baselines/`:
 
 ```bash
-sbatch scripts/slurm_baselines.sh                          # T3 ZS + T4 trained, S2
-sbatch --export=ALL,STAGE=zs scripts/slurm_baselines.sh    # zero-shot only
-sbatch --export=ALL,STAGE=lopo scripts/slurm_baselines.sh  # goes_pvdaq LOPO (§4.1)
+uv run python run_eval.py --model <models…>                             # T3 ZS + T4 trained, S2
+uv run python run_eval.py --model <models…> --lopo-dataset goes_pvdaq   # goes_pvdaq LOPO (§4.1)
 ```
 
 Compute nodes are offline — run the prep on the **login node** first so all HF
 weights are cached and the uk_pv CSVs exported:
 
 ```bash
-bash scripts/login_node_prep.sh            # caches HF models + exports + input contract check
+bash scripts/precache_login.sh             # caches HF models + exports + input contract check
 ```
 
+**TabPFN (tier 1) is the exception to "tiers 0-2 run on a laptop."** It is an
+optional dep group, its TabPFN-3 weights are license-gated, and it re-encodes the
+whole in-context table on every `predict()`, so it needs a GPU and its own job:
+
+```bash
+# login node, once: syncs the `tabpfn` group + downloads the gated V3 ckpt.
+# Needs TABPFN_TOKEN in baselines/.env (https://ux.priorlabs.ai).
+STAGE=weights bash scripts/precache_login.sh
+
+# compute node:
+sbatch scripts/slurm_tabpfn.sh                                       # S2 cross-plant
+sbatch --export=ALL,SCENARIO=s1 scripts/slurm_tabpfn.sh              # in-domain
+sbatch --export=ALL,STAGE=lopo scripts/slurm_tabpfn.sh               # goes_pvdaq LOPO
+sbatch --export=ALL,MAX_CONTEXT_ROWS=50000 scripts/slurm_tabpfn.sh   # smaller context
+```
+
+The job fails fast if the V3 ckpt is missing from `TABPFN_MODEL_CACHE_DIR`
+(default `$TEAM_SCRATCH/weights/tabpfn`) — compute nodes cannot reach the
+license gate, so a cold cache is fatal, not slow.
+
 The *original* vendored TS-RAG / Cross-RAG (separate numpy-1.25 conda env, not
-`run_eval`) have their own offline-guarded runner — `scripts/slurm_rag_original.sh`:
+`run_eval`) have their own offline-guarded runner — `scripts/slurm_rag.sh`:
 
 ```bash
 # baseline-contract gate only (offline, no model):
 sbatch --export=ALL,METHOD=ts_rag,REGIME=orig,CONTRACT_CHECK=1,CONDA_ENV=tsrag,\
-UKPV_CSV_DIR=…,BASE_CKPT=…,MIXER_CKPT=… scripts/slurm_rag_original.sh
+UKPV_CSV_DIR=…,BASE_CKPT=…,MIXER_CKPT=… scripts/slurm_rag.sh
 # full run: drop CONTRACT_CHECK=1
 ```
 
@@ -176,8 +189,8 @@ Each vendored RAG baseline runs in two regimes, and both are reported:
 | `ts_rag_proto` / `cross_rag_proto` | 24 / 12 (protocol-aligned) | ✅ | The comparable number; this is the one that enters the leaderboard |
 
 Select with `REGIME=orig|proto`. Only `*_proto` rows may be compared against
-other tiers; `*_orig` rows are a port-sanity control and are labelled as such in
-`scripts/summarize_ukpv.py`. Vendored-source provenance:
+other tiers; `*_orig` rows are a port-sanity control and must be labelled as such
+wherever they are reported. Vendored-source provenance:
 [`tier4/vendor/VENDOR_NOTICE.md`](tier4/vendor/VENDOR_NOTICE.md).
 
 ### Leonardo (ISCRA-C) readiness checklist
@@ -190,7 +203,7 @@ Before `sbatch`, on the **login node** (internet), in order:
    `TEAM_SCRATCH=/leonardo_scratch/fast/IscrC_MTSFM`; override the env if your
    ISCRA-C project scratch differs).
 3. `uv sync --group tier3` (resolves the lock for linux; needs network).
-4. `bash scripts/login_node_prep.sh` — caches HF weights (chronos-2, timesfm,
+4. `bash scripts/precache_login.sh` — caches HF weights (chronos-2, timesfm,
    tirex, ttm; chronos-t5-base + chronos-bolt for RAG) and exports the uk_pv CSVs.
 5. Confirm the SLURM account: scripts default to `--account=IscrC_MTSFM`; if your
    ISCRA-C grant differs, submit with `sbatch --account=<your_account> …`.
@@ -198,8 +211,8 @@ Before `sbatch`, on the **login node** (internet), in order:
 Then on compute nodes (offline):
 
 ```bash
-sbatch scripts/slurm_baselines.sh                          # T3 ZS + T4 (cora) trained, S2
-sbatch --export=ALL,STAGE=lopo scripts/slurm_baselines.sh  # goes_pvdaq LOPO
+uv run python run_eval.py --model <models…>                             # T3 ZS + T4 (cora) trained, S2
+uv run python run_eval.py --model <models…> --lopo-dataset goes_pvdaq   # goes_pvdaq LOPO
 ```
 
 QOS: scripts use `normal` (≤24 h). `boost_qos_dbg` (30 min cap) only for a smoke
@@ -213,8 +226,8 @@ cross-attn checkpoints (Google Drive / HF). Everything else above is ready.
 
 Tiers 5–6 run the authors' **original** code, vendored under `tier5/vendor/` and
 `tier6/vendor/` (own conda env per model; heavy stacks conflict with this venv).
-Not in-process registry baselines — `make_tables.py` ingests their results by file
-stem via `scripts/import_predictions.py`.
+Not in-process registry baselines — `scripts/import_predictions.py` folds their
+`*_pred.npz` dumps into `results/` JSONs by file stem.
 
 - **Tier 5** (generic multimodal TS): Time-VLM, VisionTS++ (numerical track, runnable),
   UniCast, Aurora (multimodal track, gated). See `tier5/vendor/VENDOR_NOTICE.md`,

@@ -63,4 +63,4 @@ done
 uv run python scripts/import_predictions.py --model aurora --tag s2_ukpv \
     --glob "$OUT/aurora_*_pred.npz" \
     --reference results/smart_persistence_s2_ukpv.json
-echo "✓ Aurora done → results/aurora_s2_ukpv.json (make_tables / summarize_ukpv pick it up)."
+echo "✓ Aurora done → results/aurora_s2_ukpv.json"

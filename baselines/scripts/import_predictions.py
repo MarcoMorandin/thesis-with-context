@@ -4,7 +4,7 @@ Each `<...>_<site>_pred.npz` carries `pred` (N,H[,1]) and `true` (N,H[,1]) — t
 per-window forecasts the vendored harnesses dump (Time-VLM, VisionTS++/run_ukpv,
 and the RAG originals once patched). This reduces them to the SAME result JSON
 the in-repo baselines write (`PerPlantAccumulator` → overall + per-plant
-NMAE/NRMSE/SS/CRPS), so `make_tables.py` / `summarize_ukpv.py` pick up the row.
+NMAE/NRMSE/SS/CRPS) in the same schema as run_eval.py writes.
 
     uv run python scripts/import_predictions.py --model time_vlm --tag s2_ukpv \
         --glob 'tier5/vendor/time_vlm/results/*/uk_pv_test_*_pred.npz'

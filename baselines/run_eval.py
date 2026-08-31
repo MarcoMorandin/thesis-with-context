@@ -1,6 +1,6 @@
 """Run baselines on the disjoint cross-plant protocol (knowledge/baselines.md §4).
 
-Scenario flags compose (presets live in scripts/run_suite.py):
+Scenario flags compose:
 
     S1 in-domain        --in-domain            (train plants, last 20 % of time)
     S2 cross-plant      (default)              --split test

@@ -67,4 +67,4 @@ done
 uv run python scripts/import_predictions.py --model sunset --tag s2_ukpv_mm \
     --glob "$OUT/sunset_*_pred.npz" \
     --reference results/smart_persistence_s2_ukpv.json
-echo "✓ SUNSET done → results/sunset_s2_ukpv_mm.json (make_tables / summarize_ukpv pick it up)."
+echo "✓ SUNSET done → results/sunset_s2_ukpv_mm.json"

@@ -25,8 +25,8 @@
 #   REGIME=proto → T=24/H=12, mixer re-pretrained on uk_pv (input-parity)
 #
 # Usage (submit from baselines/):
-#   sbatch --export=ALL,METHOD=ts_rag,REGIME=orig  scripts/slurm_rag_original.sh
-#   sbatch --export=ALL,METHOD=cross_rag,REGIME=proto scripts/slurm_rag_original.sh
+#   sbatch --export=ALL,METHOD=ts_rag,REGIME=orig  scripts/slurm_rag.sh
+#   sbatch --export=ALL,METHOD=cross_rag,REGIME=proto scripts/slurm_rag.sh
 #
 # Required overrides (no defaults — these are off-repo artifacts, see the doc):
 #   VENV_NAME     uv env name with the upstream requirements (e.g. tsrag/crossrag)
@@ -78,7 +78,7 @@ if [[ "$REGIME" == "orig" && "$METHOD" != "cross_rag" ]]; then
 fi
 
 # ---- fully offline (compute node has no internet; prep on the login node) --
-# Everything below reads local caches only — run scripts/login_node_prep.sh first.
+# Everything below reads local caches only — run scripts/precache_login.sh first.
 export TRANSFORMERS_OFFLINE=1 HF_HUB_OFFLINE=1 HF_DATASETS_OFFLINE=1
 export TOKENIZERS_PARALLELISM=false WANDB_MODE=offline
 TEAM_SCRATCH="${TEAM_SCRATCH:-/leonardo_scratch/fast/IscrC_MTSFM}"
@@ -88,11 +88,11 @@ export CONDA_ENVS_DIRS="${CONDA_ENVS_DIRS:-${TEAM_SCRATCH}/conda_envs}"
 export PIP_CACHE_DIR="${PIP_CACHE_DIR:-${TEAM_SCRATCH}/pip_cache}"
 export UV_ENVS_DIR="${UV_ENVS_DIR:-${TEAM_SCRATCH}/uv_envs}"
 export HF_HOME="${HF_HOME:-${TEAM_SCRATCH}/hf_cache}"
-[[ -d "$HF_HOME" ]] || { echo "ERROR: HF_HOME not found: $HF_HOME — run login_node_prep.sh"; exit 1; }
+[[ -d "$HF_HOME" ]] || { echo "ERROR: HF_HOME not found: $HF_HOME — run precache_login.sh"; exit 1; }
 # zeroshot.py hardcodes amazon/chronos-t5-base for retrieval embeddings: must be cached.
 if ! find "$HF_HOME" -path '*chronos-t5-base*' -name '*.safetensors' -o -path '*chronos-t5-base*' -name '*.bin' 2>/dev/null | grep -q .; then
     echo "ERROR: amazon/chronos-t5-base not in HF_HOME cache ($HF_HOME)."
-    echo "       compute node is offline — cache it on the login node (login_node_prep.sh STAGE=rag)."
+    echo "       compute node is offline — cache it on the login node (precache_login.sh STAGE=weights)."
     exit 1
 fi
 

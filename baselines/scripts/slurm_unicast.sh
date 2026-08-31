@@ -94,4 +94,4 @@ done
 uv run python scripts/import_predictions.py --model unicast --tag s2_ukpv_mm \
     --glob "$RES/unicast_*_pred.npz" \
     --reference results/smart_persistence_s2_ukpv.json
-echo "✓ UniCast done → results/unicast_s2_ukpv_mm.json (make_tables / summarize_ukpv pick it up)."
+echo "✓ UniCast done → results/unicast_s2_ukpv_mm.json"

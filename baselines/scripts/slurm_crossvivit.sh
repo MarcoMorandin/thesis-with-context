@@ -69,4 +69,4 @@ done
 uv run python scripts/import_predictions.py --model crossvivit --tag s2_ukpv_mm \
     --glob "$OUT/crossvivit_*_pred.npz" \
     --reference results/smart_persistence_s2_ukpv.json
-echo "✓ CrossViViT done → results/crossvivit_s2_ukpv_mm.json (make_tables / summarize_ukpv pick it up)."
+echo "✓ CrossViViT done → results/crossvivit_s2_ukpv_mm.json"

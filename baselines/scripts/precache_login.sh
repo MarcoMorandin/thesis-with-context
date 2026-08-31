@@ -3,7 +3,7 @@
 # MASTER LOGIN-NODE PRECACHE  —  run ONCE on the Leonardo login node (internet).
 # =============================================================================
 # Prepares every off-repo artifact the offline GPU orchestrator
-# (scripts/run_all_baselines.sh) needs, so compute nodes run FULLY OFFLINE:
+# (the scripts/slurm_*.sh compute jobs) needs, so they run FULLY OFFLINE:
 #   1. uv env (+ tier3 group) and all Tier-3/4 HF weights
 #   2. RAG Chronos backbones + uk_pv CSV export
 #   3. Tier-5/6 backbone weights (CLIP / VisionTS++ MAE / Chronos-Bolt / Aurora)
@@ -15,14 +15,14 @@
 #   MAKE_ENVS=0 bash scripts/precache_login.sh           # skip uv env creation
 #   STAGE=weights bash scripts/precache_login.sh         # only HF/torch weights
 #
-# After it finishes, allocate a GPU node and run scripts/run_all_baselines.sh.
+# After it finishes, submit the per-model jobs: sbatch scripts/slurm_<model>.sh.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 BASELINES_DIR="$PWD"
 
 # Local secrets / overrides (e.g. TABPFN_TOKEN for TabPFN's one-time license +
 # weight download). `set -a` auto-exports everything sourced, so `uv run`
-# subprocesses (the TabPFN warm-up below) inherit it. Mirrors run_all_baselines.sh.
+# subprocesses (the TabPFN warm-up below) inherit it.
 if [[ -f .env ]]; then set -a; source .env; set +a; fi
 
 STAGE="${STAGE:-all}"          # all | weights | envs | data
@@ -85,23 +85,35 @@ echo " HF_HOME=$HF_HOME"
 echo " weights=$WEIGHTS_DIR   data=$DATA_DIR"
 echo "=============================================================="
 
-# --- 1/6 + 2/6: Tier-3/4 HF weights + RAG export (reuse login_node_prep) ----
+# --- 1/6 + 2/6: Tier-3/4 HF weights + RAG export ----------------------------
 if [[ "$STAGE" == "all" || "$STAGE" == "weights" ]]; then
     info "uv sync (base + tier3 + nf)"
     # `nf` = neuralforecast, the pre-built iTransformer of the tier-2 control
-    # arm (scripts/slurm_itransformer_nf.sh). Compute nodes are offline, so it
+    # arm (scripts/slurm_itransformer.sh). Compute nodes are offline, so it
     # has to be resolved here like every other dependency.
     uv sync --group tier3 --group nf || warn "uv sync failed"
     # Standalone Chronos-2 baselines (chronos2_zs / chronos2_ft / chronos2_oracle)
     # use the official chronos-forecasting package — a CORE dep, so the uv sync
     # above installs it — plus the amazon/chronos-2 snapshot cached by
-    # login_node_prep.sh below. Verify the import now, while the login node has
+    # hf_pull just below. Verify the import now, while the login node has
     # internet, so a broken install fails loud here instead of silently offline.
     uv run python -c "from chronos import Chronos2Pipeline" \
         && info "chronos-forecasting OK → chronos2_zs/ft/oracle ready" \
         || warn "official 'chronos' import failed — chronos2 baselines will not run (check chronos-forecasting in baselines/pyproject.toml)"
-    info ">>> Tier-3/4 + RAG via login_node_prep.sh"
-    DATA="$DATA" UKPV_CSV_DIR="$UKPV_CSV_DIR" bash scripts/login_node_prep.sh || warn "login_node_prep had warnings"
+    info ">>> Tier-3 TSFM weights (run_eval models)"
+    hf_pull "amazon/chronos-2"
+    hf_pull "google/timesfm-2.5-200m-pytorch"
+    hf_pull "NX-AI/TiRex"
+    hf_pull "ibm-research/ttm-r3"
+    # TS-RAG's zeroshot.py hardcodes amazon/chronos-t5-base for retrieval
+    # embeddings; chronos-bolt-base (the mixer backbone) is pulled in 3/6 below.
+    hf_pull "amazon/chronos-t5-base"
+
+    info ">>> uk_pv → upstream CSV export + input-contract preflight"
+    uv run python tier4/vendor/export_ukpv.py --data "$DATA" --out "$UKPV_CSV_DIR" \
+        || warn "uk_pv export failed"
+    uv run python tier4/vendor/contract_check.py --inputs "$UKPV_CSV_DIR" \
+        || warn "uk_pv input-contract check failed"
 
     # --- TS-RAG / Cross-RAG released mixer checkpoint (Google Drive) -------
     # Release folder holds checkpoints/{base, chronos-bolt/best.pth} (+ datasets/
@@ -157,7 +169,7 @@ PY
     hf_pull "amazon/chronos-bolt-base"     "${WEIGHTS_DIR}/chronos-bolt-base"       # UniCast backbone + RAG BASE_CKPT
     hf_pull "DecisionIntelligence/Aurora"  "${WEIGHTS_DIR}/aurora-tsfm"             # Aurora zero-shot TS FM ckpt
 
-    # Resolve the VisionTS++ checkpoint to a stable path run_all_baselines.sh
+    # Resolve the VisionTS++ checkpoint to a stable path slurm_visionts_pp.sh
     # globs for (the repo ships the MAE weights under several file names).
     # -type f skips the visiontspp.ckpt symlink we create below, so a re-run
     # cannot resolve to (and then re-link) the symlink onto itself. Prefer the
@@ -191,7 +203,7 @@ PY
         # TabPFN-3 (ModelVersion.V3) gates its local-inference weights behind a
         # one-time license keyed by TABPFN_TOKEN (https://ux.priorlabs.ai). Put
         # TABPFN_TOKEN=<key> in baselines/.env (sourced at top); the offline
-        # compute run reuses it via run_all_baselines.sh's own .env source.
+        # compute run reuses it via each slurm_*.sh's own .env source.
         [[ -n "${TABPFN_TOKEN:-}" ]] \
             || warn "TABPFN_TOKEN not set (baselines/.env) — V3 weight download will hit the license gate"
         uv sync --group tier3 --group tabpfn || warn "uv sync (tier3+tabpfn) failed"
@@ -201,8 +213,11 @@ PY
         # GPU compute node. Success = the V3 ckpt landing in the shared cache.
         OMP_NUM_THREADS=1 uv run --group tier3 --group tabpfn python - <<'PY' || true
 import numpy as np
-from tabpfn import TabPFNRegressor, ModelVersion
-m = TabPFNRegressor.create_default_for_version(ModelVersion.V3)
+from tabpfn import TabPFNRegressor
+from tabpfn.constants import ModelVersion   # NOT re-exported from `tabpfn`
+m = TabPFNRegressor.create_default_for_version(
+    ModelVersion.V3, ignore_pretraining_limits=True
+)
 try:
     m.fit(np.random.rand(16, 3), np.random.rand(16))  # triggers the V3 download
     print("tabpfn-3 fit OK on login node")
@@ -278,7 +293,7 @@ fi
 
 echo ""
 echo "=============================================================="
-echo " PRECACHE DONE. run_all_baselines.sh auto-resolves these defaults:"
+echo " PRECACHE DONE. The slurm_*.sh jobs auto-resolve these defaults:"
 echo "   DATA            = $DATA"
 echo "   IMAGES_H5       = $IMAGES_H5"
 echo "   UKPV_CSV_DIR    = $UKPV_CSV_DIR"
@@ -289,5 +304,5 @@ echo "   AURORA_CKPT     = ${WEIGHTS_DIR}/aurora-tsfm  (DecisionIntelligence/Aur
 echo "   QWEN_PATH       = ${WEIGHTS_DIR}/qwen3-vl-embedding-2b  (Solar-VLM vision)"
 echo "   RAG_MIXER_CKPT  = ${CKPT_DIR}/arm.pth  (best.pth via gdown → enables ts_rag + cross_rag)"
 echo ""
-echo " Then on a GPU node:  sbatch scripts/run_all_baselines.sh"
+echo " Then on a GPU node:  sbatch scripts/slurm_<model>.sh"
 echo "=============================================================="

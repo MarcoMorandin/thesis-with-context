@@ -95,4 +95,4 @@ done
 uv run python scripts/import_predictions.py --model solar_vlm --tag s2_ukpv_mm \
     --glob "$OUT/preds/solar_vlm_*_pred.npz" \
     --reference results/smart_persistence_s2_ukpv.json
-echo "✓ Solar-VLM done → results/solar_vlm_s2_ukpv_mm.json (make_tables / summarize_ukpv pick it up)."
+echo "✓ Solar-VLM done → results/solar_vlm_s2_ukpv_mm.json"

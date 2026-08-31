@@ -39,7 +39,7 @@ Legend — **Priority**: `P0` = mandatory for submission; `P1` = strongly expect
 | **PatchTST** | `Y, X_cov` | Strongest supervised patch transformer | ✅ **P0** `baselines/tslib/` |
 | **iTransformer** | `Y, X_cov` | Channel-attention SOTA, covariate-friendly | ✅ P1 `baselines/tslib/` |
 | TFT | `Y, X_cov` | Quantile-native; gives CRPS comparison for free | ✅ `baselines/tslib/` (TFT-lite; deviations in baselines/README) |
-| **iTransformer (library)** | `Y, X_cov` incl. future weather | Like-for-like control: pre-built [`neuralforecast`](https://github.com/Nixtla/neuralforecast) model on MMTSFM's windows, recipe and scorer | ✅ **P0** `baselines/tier2_lib/`, tag `itransformer_nf_s2_ukpv` |
+| **iTransformer (library)** | `Y, X_cov` incl. future weather | Like-for-like control: pre-built [`neuralforecast`](https://github.com/Nixtla/neuralforecast) model on MMTSFM's windows, recipe and scorer | ✅ **P0** `baselines/tier2/`, tag `itransformer_nf_s2_ukpv` |
 
 All Tier-2 models come essentially free via the [Time-Series-Library](https://github.com/thuml/Time-Series-Library) (PatchTST, iTransformer, DLinear share one trainer). One `baselines/tslib/` port covers the whole tier.
 
