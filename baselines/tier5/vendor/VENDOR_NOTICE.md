@@ -42,10 +42,25 @@ edits — diff against the pinned upstream SHA to see them:
 - `time_vlm/exp/exp_long_term_forecasting.py` — `test()` dumps per-window predictions to
   `results/<setting>/<test_csv_stem>_pred.npz` in our baseline-contract format (keyed by
   `data_path`, since one trained checkpoint is reused across all test plants).
+- `time_vlm/data_provider/data_loader.py` — **added** `Dataset_UKPV`, registered in
+  `data_factory.py` as `--data ukpv`. Upstream's `Dataset_Custom` cuts its own 70/10/20
+  chronological split out of whatever CSV it is handed, which broke the disjoint
+  cross-plant protocol three ways: it trained on ~48 of the 69 committed train plants,
+  early-stopped on a slice of those same plants instead of the 15 committed val plants,
+  and scored only the last 20% (winter) of each test plant while the skill-score
+  reference covers the whole series — making SS arithmetically invalid. `Dataset_UKPV`
+  uses each file whole, takes the split from committed plant membership, fits the scaler
+  on the train plants only, and never lets a window straddle a plant boundary.
+- `time_vlm/run.py` — upstream hardcoded `fix_seed = 2024` **before** `parse_args()`, so
+  `--seed` only ever reached the augmentation code. Seeding now happens after parsing and
+  is driven by `--seed` (default 42 = the protocol seed).
+- `time_vlm/dataset/prompt_bank/ukpv.txt` — **added**: `utils.tools.load_content` keys the
+  text prompt on `args.data`, so the `ukpv` loader needs its own entry.
 - `visionts_pp/run_ukpv.py` — **added** (not upstream): self-contained zero-shot runner over
   the exported uk_pv CSVs, dumping `*_pred.npz`.
 - The uk_pv → CSV bridge `tier4/vendor/export_ukpv.py` also emits `uk_pv_train_stacked.csv`
-  (all train plants concatenated) for Time-VLM's univariate `--features S` training.
+  (all train plants concatenated) plus the plant-blocked `uk_pv_train_protocol.csv` /
+  `uk_pv_val_protocol.csv` that `Dataset_UKPV` consumes.
 - `unicast/test_multi_modal_chronos.py` — added a `--dump_npz` flag (the only in-place
   edit to UniCast): writes `pred`/`true` in our baseline-contract format for
   `scripts/import_predictions.py`. Train/model code unchanged.

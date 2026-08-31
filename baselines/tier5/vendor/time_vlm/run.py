@@ -24,11 +24,6 @@ def str2bool(v):
         raise argparse.ArgumentTypeError('Boolean value expected.')
     
 if __name__ == '__main__':
-    fix_seed = 2024
-    random.seed(fix_seed)
-    torch.manual_seed(fix_seed)
-    np.random.seed(fix_seed)
-
     parser = argparse.ArgumentParser(description='TimeVLM')
 
     # basic config
@@ -132,7 +127,7 @@ if __name__ == '__main__':
     
     # Augmentation
     parser.add_argument('--augmentation_ratio', type=int, default=0, help="How many times to augment")
-    parser.add_argument('--seed', type=int, default=2024, help="Randomization seed")
+    parser.add_argument('--seed', type=int, default=42, help="Randomization seed")
     parser.add_argument('--jitter', default=False, action="store_true", help="Jitter preset augmentation")
     parser.add_argument('--scaling', default=False, action="store_true", help="Scaling preset augmentation")
     parser.add_argument('--permutation', default=False, action="store_true", help="Equal Length Permutation preset augmentation")
@@ -170,6 +165,14 @@ if __name__ == '__main__':
     parser.add_argument('--percent', type=float, default=1, help='proportion of in-distribution downstream dataset')
 
     args = parser.parse_args()
+
+    # PVTSFM adaptation: upstream hardcoded fix_seed=2024 BEFORE parsing, so
+    # --seed only ever reached the augmentation code. Seed everything from the
+    # one flag instead; default 42 = the protocol seed (knowledge/protocol.md).
+    random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+
     args.use_gpu = True if torch.cuda.is_available() else False
 
     # set gpu id

@@ -68,3 +68,33 @@ def test_adaptations_present():
     assert "_pred.npz" in exp and "PVTSFM adaptation" in exp
     # VENDOR_NOTICE documents that the code is no longer pristine
     assert "NO LONGER pristine" in (VENDOR / "VENDOR_NOTICE.md").read_text()
+
+
+def test_time_vlm_uses_committed_split_loader():
+    """`Dataset_Custom` would cut its own 70/10/20 split out of every uk_pv CSV,
+    which breaks the disjoint cross-plant protocol three ways (see the class
+    docstring). The `ukpv` loader must be present, registered, and wired up."""
+    tvlm = VENDOR / "time_vlm"
+    loader = (tvlm / "data_provider" / "data_loader.py").read_text()
+    assert "class Dataset_UKPV" in loader
+    assert "uk_pv_train_protocol.csv" in loader and "uk_pv_val_protocol.csv" in loader
+
+    factory = (tvlm / "data_provider" / "data_factory.py").read_text()
+    assert "'ukpv': Dataset_UKPV" in factory
+
+    # the exporter must actually produce the two protocol files
+    export = (VENDOR.parents[1] / "tier4" / "vendor" / "export_ukpv.py").read_text()
+    assert "uk_pv_train_protocol.csv" in export and "uk_pv_val_protocol.csv" in export
+
+    # and the recipe must select it (plus the 30-min solar period)
+    sh = (VENDOR.parents[1] / "scripts" / "slurm_time_vlm.sh").read_text()
+    assert "--data ukpv" in sh and "--periodicity 48" in sh
+
+    # prompt bank entry, keyed on args.data by utils.tools.load_content
+    assert (tvlm / "dataset" / "prompt_bank" / "ukpv.txt").is_file()
+
+
+def test_time_vlm_seed_is_parsed_not_hardcoded():
+    run = (VENDOR / "time_vlm" / "run.py").read_text()
+    assert "fix_seed = 2024" not in run, "upstream seeded before parse_args()"
+    assert "random.seed(args.seed)" in run

@@ -51,6 +51,21 @@ def _grid_frame(df: pd.DataFrame, sites: list[str]) -> pd.DataFrame:
     return wide[[s for s in sites if s in wide.columns]]
 
 
+def _long_frame(df: pd.DataFrame, sites: list[str]) -> pd.DataFrame:
+    """Plant-blocked long format: ``date``, ``plant``, ``OT``.
+
+    Unlike the stacked CSV below this keeps each row's REAL timestamp and tags
+    the owning plant, so a loader can (a) build honest calendar features and
+    (b) refuse windows that straddle two plants. Blocks are contiguous and in
+    committed-split order.
+    """
+    wide = _grid_frame(df, sites)
+    parts = [pd.DataFrame({"date": wide.index, "plant": s,
+                           "OT": wide[s].to_numpy()})
+             for s in wide.columns]
+    return pd.concat(parts, ignore_index=True)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--data", default=config.DEFAULT_DATA_PATH)
@@ -101,6 +116,18 @@ def main() -> None:
     # variable retrieved against the test query's `OT`. Same stacked train series.
     stacked_df.to_csv(out / "uk_pv.csv", index=False)
 
+    # Protocol-aligned train / val inputs for the TSLib-style harnesses
+    # (Time-VLM). The stacked CSV above is consumed through a loader that cuts
+    # its own 70/10/20 split out of whatever file it is handed, which would (a)
+    # train on the first ~48 of the 69 train plants and (b) early-stop on a
+    # slice of those same plants. knowledge/protocol.md §2 says early stopping
+    # belongs on the 15 COMMITTED val plants, so export them as their own file
+    # and let the loader use each file whole.
+    train_proto = _long_frame(df, splits["train"])
+    val_proto = _long_frame(df, splits["val"])
+    train_proto.to_csv(out / "uk_pv_train_protocol.csv", index=False)
+    val_proto.to_csv(out / "uk_pv_val_protocol.csv", index=False)
+
     # capacities (W) for de-normalising predictions back to physical scale
     caps = (df.drop_duplicates(config.SITE_COL)
               .set_index(config.SITE_COL)[config.CAPACITY_COL].to_dict())
@@ -110,19 +137,24 @@ def main() -> None:
     manifest = {
         "dataset": DATASET, "cadence_min": 30,
         "n_train_plants": len(splits["train"]),
+        "n_val_plants": len(splits["val"]),
         "n_test_plants": len(splits["test"]),
         "train_csv": "uk_pv_train.csv",
         "train_stacked_csv": "uk_pv_train_stacked.csv",
+        "train_protocol_csv": "uk_pv_train_protocol.csv",
+        "val_protocol_csv": "uk_pv_val_protocol.csv",
         "rag_knowledge_base_csv": "uk_pv.csv",
         "test_csvs": test_paths,
         "rows_train": int(len(train)),
         "rows_train_stacked": int(len(stacked)),
+        "rows_train_protocol": int(len(train_proto)),
+        "rows_val_protocol": int(len(val_proto)),
         "gap_fill": "0.0 (dense 30-min grid; night/outage = 0)",
         "target": "norm_power (capacity-normalised)",
     }
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2))
     assert (out / "uk_pv.csv").exists(), "uk_pv.csv (RAG knowledge base) not written"
-    print(f"wrote {1 + len(test_paths) + 3} files to {out} (incl. uk_pv.csv)")
+    print(f"wrote {1 + len(test_paths) + 5} files to {out} (incl. uk_pv.csv)")
     print(json.dumps(manifest, indent=2))
 
 

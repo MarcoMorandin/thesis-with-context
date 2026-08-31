@@ -50,17 +50,25 @@ def check_inputs(csv_dir: Path) -> list[str]:
             errs.append(f"{path.name}: missing 'OT' target column")
         if df.drop(columns=["date"]).isna().any().any():
             errs.append(f"{path.name}: NaNs present (loader StandardScale will break)")
-        ts = pd.to_datetime(df["date"])
-        if not ts.is_monotonic_increasing:
-            errs.append(f"{path.name}: 'date' not monotonically increasing")
-        steps = ts.diff().dropna().dt.total_seconds().unique()
-        if len(steps) != 1 or steps[0] != 1800.0:
-            errs.append(f"{path.name}: non-uniform / non-30min grid: {steps[:3]}")
-        vals = df.drop(columns=["date"]).to_numpy(dtype=float)
-        if not np.isfinite(vals).all():
-            errs.append(f"{path.name}: non-finite values")
-        if vals.min() < -1e-6 or vals.max() > 1.0 + 1e-6:
-            errs.append(f"{path.name}: values outside [0,1] (expected norm_power)")
+        # The protocol long-format exports (uk_pv_{train,val}_protocol.csv) are
+        # plant-BLOCKED: `date` restarts at every block and a string `plant`
+        # column tags the owner. Check each block on its own and keep `plant`
+        # out of the numeric range check.
+        blocks = ([(f"{path.name}[{p}]", g) for p, g in df.groupby("plant", sort=False)]
+                  if "plant" in df.columns else [(path.name, df)])
+        num_cols = [c for c in df.columns if c not in ("date", "plant")]
+        for label, blk in blocks:
+            ts = pd.to_datetime(blk["date"])
+            if not ts.is_monotonic_increasing:
+                errs.append(f"{label}: 'date' not monotonically increasing")
+            steps = ts.diff().dropna().dt.total_seconds().unique()
+            if len(steps) != 1 or steps[0] != 1800.0:
+                errs.append(f"{label}: non-uniform / non-30min grid: {steps[:3]}")
+            vals = blk[num_cols].to_numpy(dtype=float)
+            if not np.isfinite(vals).all():
+                errs.append(f"{label}: non-finite values")
+            if vals.min() < -1e-6 or vals.max() > 1.0 + 1e-6:
+                errs.append(f"{label}: values outside [0,1] (expected norm_power)")
     return errs
 
 

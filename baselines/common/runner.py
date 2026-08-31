@@ -152,7 +152,14 @@ def evaluate_model(
 
 
 def add_skill_scores(results: dict, reference: dict) -> dict:
-    """Attach SS = 1 − NRMSE/NRMSE_smart_persistence (overall + per plant)."""
+    """Attach SS = 1 − NRMSE/NRMSE_smart_persistence (overall + per plant).
+
+    SS is only meaningful if model and reference scored the SAME windows. A
+    harness that evaluates a sub-slice of a test plant (e.g. a TSLib loader
+    cutting its own 70/10/20 split, which lands on winter only) would divide a
+    seasonal NRMSE by a full-year one and report a fake skill. Flag that rather
+    than emit a silently wrong number.
+    """
     from .metrics import skill_score
 
     ref = reference["overall"].get("nrmse")
@@ -162,8 +169,17 @@ def add_skill_scores(results: dict, reference: dict) -> dict:
         )
     for plant, row in results["per_plant"].items():
         ref_row = reference["per_plant"].get(plant)
-        if ref_row:
-            row["skill_score"] = skill_score(row["nrmse"], ref_row["nrmse"])
+        if not ref_row:
+            continue
+        n, n_ref = row.get("n_steps"), ref_row.get("n_steps")
+        if n and n_ref and abs(n - n_ref) / n_ref > 0.01:
+            row["skill_score_window_mismatch"] = {
+                "n_steps": n, "n_steps_reference": n_ref,
+            }
+            print(f"WARNING: plant {plant}: model scored {n:.0f} steps but the "
+                  f"skill-score reference scored {n_ref:.0f} — SS compares "
+                  f"different windows and is NOT comparable.")
+        row["skill_score"] = skill_score(row["nrmse"], ref_row["nrmse"])
     return results
 
 

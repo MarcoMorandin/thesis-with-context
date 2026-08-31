@@ -76,8 +76,6 @@ def main() -> None:
     ap.add_argument("--glob", required=True, help="glob for *_<site>_pred.npz")
     ap.add_argument("--tag", default="s2_ukpv")
     ap.add_argument("--out", default="results")
-    ap.add_argument("--csv_dir", default=None,
-                    help="Directory containing original test CSVs to fit inverse scaler")
     ap.add_argument("--reference", default=None,
                     help="Smart Persistence result json for SS "
                          "(default: <out>/smart_persistence_<tag>.json)")
@@ -100,21 +98,6 @@ def main() -> None:
             raise SystemExit(f"{f.name}: pred {pred.shape} != true {true.shape}")
         
         site = site_of(f)
-        if args.csv_dir and args.model == "time_vlm":
-            import pandas as pd
-            csv_path = Path(args.csv_dir) / f"uk_pv_test_{site}.csv"
-            if csv_path.exists():
-                df = pd.read_csv(csv_path)
-                target_vals = df["OT"].values
-                border2 = 12 * 30 * 24
-                train_vals = target_vals[0:border2]
-                mean = train_vals.mean()
-                std = train_vals.std(ddof=0)
-                if std > 1e-8:
-                    pred = pred * std + mean
-                    true = true * std + mean
-            else:
-                print(f"WARN: CSV file not found: {csv_path}. Skipping inverse scaling for site {site}.")
 
         # raw (post-inverse, pre-clip) pred/true for later re-scoring
         np.savez(pred_dir / f"{args.model}_{site}_pred.npz",

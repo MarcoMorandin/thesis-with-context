@@ -746,3 +746,131 @@ class UEAloader(Dataset):
 
     def __len__(self):
         return len(self.all_IDs)
+
+
+class Dataset_UKPV(Dataset):
+    """Protocol-aligned uk_pv loader (PVTSFM adaptation, knowledge/protocol.md).
+
+    The generic ``Dataset_Custom`` cuts its own 70/10/20 chronological split out
+    of whatever CSV it is handed. On the uk_pv exports that is wrong three ways:
+    it would train on only the first ~48 of the 69 committed train plants, it
+    would early-stop on a slice of those same plants instead of the 15 committed
+    val plants, and on a test plant it would score only the last 20% of the
+    series while the skill-score reference covers the whole series.
+
+    This loader uses each file WHOLE and takes the split from the committed
+    plant membership instead:
+
+    ==========  =============================================================
+    ``flag``    file
+    ==========  =============================================================
+    ``train``   ``uk_pv_train_protocol.csv``  (69 train plants)
+    ``val``     ``uk_pv_val_protocol.csv``    (15 val plants)
+    ``test``    ``args.data_path``            (one ``uk_pv_test_<site>.csv``)
+    ==========  =============================================================
+
+    The two protocol files are plant-blocked long format (``date``, ``plant``,
+    ``OT``) so calendar features stay honest and no window is allowed to
+    straddle a plant boundary. The scaler is ALWAYS fitted on the train file --
+    never on val, never on the test plant -- so no test statistics leak.
+    """
+
+    TRAIN_FILE = 'uk_pv_train_protocol.csv'
+    VAL_FILE = 'uk_pv_val_protocol.csv'
+
+    def __init__(self, args, root_path, flag='train', size=None,
+                 features='S', data_path='uk_pv_train_protocol.csv',
+                 target='OT', scale=True, timeenc=0, freq='t',
+                 seasonal_patterns=None):
+        self.args = args
+        if size is None:
+            self.seq_len, self.label_len, self.pred_len = 672, 0, 12
+        else:
+            self.seq_len, self.label_len, self.pred_len = size
+        assert flag in ['train', 'val', 'test']
+        self.flag = flag
+        self.set_type = {'train': 0, 'val': 1, 'test': 2}[flag]
+
+        self.features = features
+        self.target = target
+        self.scale = scale
+        self.timeenc = timeenc
+        self.freq = freq
+        self.root_path = root_path
+        # train/val come from the committed protocol files; only test honours
+        # --data_path (the per-plant query CSV the caller loops over).
+        if flag == 'train':
+            self.data_path = self.TRAIN_FILE
+        elif flag == 'val':
+            self.data_path = self.VAL_FILE
+        else:
+            self.data_path = data_path
+        self.__read_data__()
+
+    def _load(self, name):
+        df = pd.read_csv(os.path.join(self.root_path, name))
+        if 'plant' not in df.columns:
+            df['plant'] = '_single'        # test CSVs are one plant already
+        return df[['date', 'plant', self.target]]
+
+    def __read_data__(self):
+        self.scaler = StandardScaler()
+        df_raw = self._load(self.data_path)
+
+        # Scaler is fitted on the TRAIN plants only, for every split.
+        if self.scale:
+            train_raw = (df_raw if self.data_path == self.TRAIN_FILE
+                         else self._load(self.TRAIN_FILE))
+            self.scaler.fit(train_raw[[self.target]].values)
+            data = self.scaler.transform(df_raw[[self.target]].values)
+        else:
+            data = df_raw[[self.target]].values
+
+        df_stamp = pd.DataFrame(
+            {'date': pd.to_datetime(df_raw['date'].values, utc=True)})
+        if self.timeenc == 0:
+            df_stamp['month'] = df_stamp.date.dt.month
+            df_stamp['day'] = df_stamp.date.dt.day
+            df_stamp['weekday'] = df_stamp.date.dt.weekday
+            df_stamp['hour'] = df_stamp.date.dt.hour
+            df_stamp['minute'] = df_stamp.date.dt.minute // 15
+            data_stamp = df_stamp.drop(['date'], axis=1).values
+        else:
+            data_stamp = time_features(
+                pd.to_datetime(df_stamp['date'].values), freq=self.freq)
+            data_stamp = data_stamp.transpose(1, 0)
+
+        self.data_x = data.astype(np.float32)
+        self.data_y = self.data_x
+        self.data_stamp = data_stamp.astype(np.float32)
+
+        # Window starts, per contiguous plant block: a window may never cross a
+        # boundary (two different plants) -- that would be a fake transition.
+        window = self.seq_len + self.pred_len
+        plants = df_raw['plant'].values
+        bounds = np.flatnonzero(plants[1:] != plants[:-1]) + 1
+        edges = np.concatenate(([0], bounds, [len(plants)]))
+        starts = [np.arange(lo, hi - window + 1)
+                  for lo, hi in zip(edges[:-1], edges[1:])
+                  if hi - lo >= window]
+        assert starts, (f'{self.data_path}: no plant block is long enough for '
+                        f'seq_len+pred_len={window}')
+        self.starts = np.concatenate(starts)
+
+    def __getitem__(self, index):
+        s_begin = int(self.starts[index])
+        s_end = s_begin + self.seq_len
+        r_begin = s_end - self.label_len
+        r_end = r_begin + self.label_len + self.pred_len
+
+        seq_x = self.data_x[s_begin:s_end]
+        seq_y = self.data_y[r_begin:r_end]
+        seq_x_mark = self.data_stamp[s_begin:s_end]
+        seq_y_mark = self.data_stamp[r_begin:r_end]
+        return seq_x, seq_y, seq_x_mark, seq_y_mark
+
+    def __len__(self):
+        return len(self.starts)
+
+    def inverse_transform(self, data):
+        return self.scaler.inverse_transform(data)

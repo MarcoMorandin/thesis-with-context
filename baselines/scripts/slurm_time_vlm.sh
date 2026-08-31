@@ -25,7 +25,7 @@
 #   sbatch --qos=boost_qos_lprod --time=01:00:00 \
 #          --export=ALL,EVAL_ONLY=1 scripts/slurm_time_vlm.sh
 #
-# Optional: DATA, SEQ_LEN(24) PRED_LEN(12) VLM_TYPE(CLIP) EPOCHS(10)
+# Optional: DATA, SEQ_LEN(24) PRED_LEN(12) VLM_TYPE(CLIP) EPOCHS(15)
 #           MODEL_ID(ukpv_tvlm) VENV_NAME(timevlm) EVAL_ONLY(0)
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")/..}"
@@ -48,7 +48,7 @@ EVAL_ONLY="${EVAL_ONLY:-0}"
 DATA="${DATA:-${TEAM_SCRATCH}/data_v2/dataset_all.parquet}"
 UKPV_DIR="${UKPV_DIR:-${TEAM_SCRATCH}/data_v2/ukpv_rag}"
 SEQ_LEN="${SEQ_LEN:-672}"; PRED_LEN="${PRED_LEN:-12}"   # 14-day context / 6h horizon (uk_pv 30-min)
-VLM_TYPE="${VLM_TYPE:-CLIP}"; EPOCHS="${EPOCHS:-10}"; MODEL_ID="${MODEL_ID:-ukpv_tvlm}"
+VLM_TYPE="${VLM_TYPE:-CLIP}"; EPOCHS="${EPOCHS:-15}"; MODEL_ID="${MODEL_ID:-ukpv_tvlm}"
 export VISION_MODEL_PATH="${VISION_MODEL_PATH:-${TEAM_SCRATCH}/weights/clip-vit-base-patch32}"
 
 # ---- 1. export uk_pv → Informer CSVs (reuse the tier-4 bridge) --------------
@@ -58,18 +58,26 @@ uv run python tier4/vendor/contract_check.py --inputs "$UKPV_DIR"
 source "$UV_ENVS_DIR/$VENV_NAME/bin/activate"
 cd tier5/vendor/time_vlm
 
+# --data ukpv = the committed-split loader (Dataset_UKPV): train file, val file
+# and each test plant are used WHOLE, scaler fitted on the train plants only.
+# --periodicity 48 = one solar day at 30-min cadence; Time-VLM reshapes the
+# series into pseudo-images on this period, so the paper's 96 (hourly ETT) would
+# fold the daily cycle wrong. --freq t gives minute-resolution calendar feats.
 common_args=(--task_name long_term_forecast --model TimeVLM --vlm_type "$VLM_TYPE"
-  --data custom --features S --target OT --root_path "$UKPV_DIR"
+  --data ukpv --features S --target OT --root_path "$UKPV_DIR"
   --enc_in 1 --dec_in 1 --c_out 1 --inverse
   --seq_len "$SEQ_LEN" --label_len 0 --pred_len "$PRED_LEN"
+  --periodicity 48 --freq t --use_amp --seed 42
   --model_id "$MODEL_ID" --des Exp --itr 1 --gpu 0)
 
-# ---- 2. TRAIN on the stacked train-plant series ----------------------------
+# ---- 2. TRAIN on the 69 committed train plants -----------------------------
+# (data_path is ignored for train/val: Dataset_UKPV routes to
+#  uk_pv_train_protocol.csv / uk_pv_val_protocol.csv itself.)
 if [[ "$EVAL_ONLY" == "1" ]]; then
     echo ">>> EVAL_ONLY=1 — skipping training, reusing checkpoint for model_id=$MODEL_ID"
 else
-    echo ">>> TRAIN Time-VLM on uk_pv_train_stacked.csv"
-    python run.py --is_training 1 --data_path uk_pv_train_stacked.csv \
+    echo ">>> TRAIN Time-VLM on uk_pv_train_protocol.csv (early stop on val plants)"
+    python run.py --is_training 1 --data_path uk_pv_train_protocol.csv \
       --train_epochs "$EPOCHS" "${common_args[@]}"
 fi
 
