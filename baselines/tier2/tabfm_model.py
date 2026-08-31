@@ -57,10 +57,12 @@ class TabFMRegressorBaseline(Baseline):
         self,
         max_context_rows: int = 10_000,
         n_estimators: int = 32,
-        ens_batch_size: int = 8,
+        ens_batch_size: int = 1,
         device: str | None = None,
         cache_context: bool = True,
         quantize_kv_cache: bool = False,
+        keep_cache_on_device: bool = False,
+        row_chunk_size: int | None = 1024,
         seed: int = config.SEED,
     ):
         # 10k, not TabPFN's 100k: TabFM reads the context through n_estimators
@@ -70,10 +72,27 @@ class TabFMRegressorBaseline(Baseline):
         # never quietly retuned to fit a wall-clock limit.
         self.max_context_rows = max_context_rows
         self.n_estimators = n_estimators
+        # Members-per-forward. Pure activation tiling: members are independent,
+        # so this changes peak device memory and nothing else. Upstream's own
+        # default is 1; anything higher multiplies the transient Fourier cell
+        # tensor [B, row_chunk, H, G, E] by B and OOMs a 64 GB A100 on this
+        # table (705 raw features -> 500 subsampled per member).
         self.ens_batch_size = ens_batch_size
         self.device = device
         self.cache_context = cache_context
         self.quantize_kv_cache = quantize_kv_cache
+        # Park each member's prefill cache on the host instead of accumulating
+        # 32 un-quantized ICL K/V caches on the GPU (with quantize_kv_cache
+        # False they are fp-wide, which is what fills the card before the first
+        # big allocation even lands). Costs one H2D copy per predict() batch;
+        # the cached values themselves are untouched, so predictions stay
+        # bit-identical -- which is the whole reason quantisation stays off.
+        self.keep_cache_on_device = keep_cache_on_device
+        # Rows per chunk in the cell embedder / row interactor. Upstream ships
+        # 4096; the chunks are concatenated, so this is a memory knob with no
+        # effect on the output. NOT a protocol parameter -- unlike
+        # max_context_rows and n_estimators it may be retuned freely.
+        self.row_chunk_size = row_chunk_size
         self.seed = seed
         self._model = None
 
@@ -92,7 +111,16 @@ class TabFMRegressorBaseline(Baseline):
             # bit-identical repeated predictions.
             cache_context=self.cache_context,
             maybe_quantize_kv_cache=self.quantize_kv_cache,
+            keep_cache_on_device=self.keep_cache_on_device,
         )
+
+    def _set_row_chunk(self, model) -> None:
+        """Override upstream's activation-chunk width on every submodule."""
+        if self.row_chunk_size is None:
+            return
+        for module in model.modules():
+            if hasattr(module, "row_chunk_size"):
+                module.row_chunk_size = self.row_chunk_size
 
     def fit(self, train: WindowDataset, val: WindowDataset) -> None:
         try:
@@ -110,6 +138,7 @@ class TabFMRegressorBaseline(Baseline):
         model = tabfm_v1_0_0.load(
             model_type="regression", device=device, dtype=torch.bfloat16
         )
+        self._set_row_chunk(model)
 
         x, y = training_table(train, self.max_context_rows, self.seed)
         kwargs = self._estimator_kwargs(model)

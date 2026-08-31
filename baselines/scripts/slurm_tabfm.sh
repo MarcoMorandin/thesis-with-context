@@ -44,6 +44,8 @@
 #   SEEDS             seed list                        (default: 42)
 #   MAX_CONTEXT_ROWS  in-context rows after subsample  (default: 10000)
 #   N_ESTIMATORS      TabFM ensemble members           (default: 32)
+#   ENS_BATCH_SIZE    members forwarded at once        (default: 1)
+#   ROW_CHUNK_SIZE    rows per activation chunk        (default: 1024)
 #   DATA              path to dataset_all.parquet
 #   BATCH_SIZE        run_eval eval batch size         (default: 256)
 #   DATASETS          dataset filter for s1/s2/s4      (default: uk_pv)
@@ -64,6 +66,11 @@ export HF_DATASETS_OFFLINE=1
 export HF_HUB_OFFLINE=1
 export TOKENIZERS_PARALLELISM=false
 
+# TabFM's Fourier cell embedding allocates one very large transient per chunk;
+# without expandable segments the allocator fragments and fails a contiguous
+# request while several GiB are nominally free.
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
 # ---- caches (pre-populated on the login node by precache_login.sh) ---------
 TEAM_SCRATCH="${TEAM_SCRATCH:-/leonardo_scratch/fast/IscrC_MTSFM}"
 export UV_CACHE_DIR="${UV_CACHE_DIR:-${TEAM_SCRATCH}/uv_cache}"
@@ -82,6 +89,11 @@ SEEDS="${SEEDS:-42}"
 # silently.
 MAX_CONTEXT_ROWS="${MAX_CONTEXT_ROWS:-10000}"
 N_ESTIMATORS="${N_ESTIMATORS:-32}"
+# Memory-only knobs: ensemble members are independent and the row chunks are
+# concatenated, so neither changes a single predicted value. Lower them if the
+# job OOMs; they need no footnote next to the number, unlike the two above.
+ENS_BATCH_SIZE="${ENS_BATCH_SIZE:-1}"
+ROW_CHUNK_SIZE="${ROW_CHUNK_SIZE:-1024}"
 BATCH_SIZE="${BATCH_SIZE:-256}"
 DATA="${DATA:-${TEAM_SCRATCH}/data_v2/dataset_all.parquet}"
 DATASETS="${DATASETS:-uk_pv}"   # cadence must be uniform — see scenario_flags()
@@ -105,6 +117,7 @@ echo " Stage      : $STAGE          Scenario: $SCENARIO"
 echo " Data       : $DATA"
 echo " Datasets   : $DATASETS"
 echo " Context    : $MAX_CONTEXT_ROWS rows   Members: $N_ESTIMATORS   Seeds: $SEEDS"
+echo " Memory     : ens_batch=$ENS_BATCH_SIZE  row_chunk=$ROW_CHUNK_SIZE  cache->host"
 echo " HF cache   : $HF_HOME"
 echo "============================================================"
 
@@ -142,7 +155,7 @@ scenario_flags() {
     esac
 }
 
-MODEL_KWARGS="{\"max_context_rows\": ${MAX_CONTEXT_ROWS}, \"n_estimators\": ${N_ESTIMATORS}}"
+MODEL_KWARGS="{\"max_context_rows\": ${MAX_CONTEXT_ROWS}, \"n_estimators\": ${N_ESTIMATORS}, \"ens_batch_size\": ${ENS_BATCH_SIZE}, \"row_chunk_size\": ${ROW_CHUNK_SIZE}}"
 
 case "$STAGE" in
     main)
