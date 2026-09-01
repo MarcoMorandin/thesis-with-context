@@ -30,8 +30,16 @@ A09 | eval  | s2c | vision_chronos2_s2c        | 42,43,44 | uk_pv_s2c_s2c_s{seed
 A10 | eval  | s2c | vision_chronos2_s2c        | 42,43,44 | uk_pv_s2c_s2c_s{seed}
 # A09 on s2a is the negative control's own control: if late fusion degrades as
 # much as s2c under shuffling, the control measures something other than motion.
-A09 | eval  | s2a | vision_chronos2            | 42,43,44 | uk_pv_s2a_base_s{seed}
-A10 | eval  | s2a | vision_chronos2            | 42,43,44 | uk_pv_s2a_base_s{seed}
+# DISABLED 2026-09-01: `uk_pv_s2a_base_s{42,43,44}` do not exist on scratch — the
+# submit-time check refused all six rows. `_base_` assumes MODEL_CFG
+# `vision_chronos2` produced the s2a arm, but wave 1 ran grassmann and
+# timeselfattn, so the arm on disk is `uk_pv_s2a` (canonical grassmann@42, no
+# suffix), `uk_pv_s2a_grassmann_s{43,44}` or `uk_pv_s2a_selfattn_s{seed}`.
+# Restore with the name `ls $CKPT_DIR | grep s2a` reports, and set MODEL_CFG to
+# the config that produced it — the two must agree or the control scores one arm
+# while claiming to be the late-fusion counterpart of another.
+# A09 | eval  | s2a | <MODEL_CFG>              | 42,43,44 | uk_pv_s2a<SUFFIX>
+# A10 | eval  | s2a | <MODEL_CFG>              | 42,43,44 | uk_pv_s2a<SUFFIX>
 
 # --- 2. the attribution pair: grid vs decoder granularity --------------------
 A17 | train | s2c | vision_chronos2_s2c        | 42,43,44 | uk_pv_s1_selfattn_s{seed}
