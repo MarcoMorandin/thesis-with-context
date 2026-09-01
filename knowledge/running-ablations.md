@@ -36,9 +36,127 @@ strategy and `eval_control`. Consequences:
 
 ## 1. How to launch
 
-All training ablations go through the existing stage launcher — no new script. The
-ablation rides in `EXTRA_OVERRIDES`, which `curriculum_stage.sbatch` appends last, so
-it wins over the stage and model configs.
+### 1.1 The batch — `scripts/ablation_sweep.sh` (default)
+
+The whole manifest goes out as a handful of whole-node jobs, each running four
+ablations at once. Submit from a **login node**, from `MMTSFM/`. Prereq: step 0 of
+[runbook.md](runbook.md) — `precache_login.sh` and `extract_vjepa.sbatch` have
+staged the uv env, weights, dataset and the V-JEPA latent cache.
+
+**Run the whole suite — the exact sequence:**
+
+```bash
+cd MMTSFM
+
+# 1. Verify every BASE resolves to a checkpoint that exists on scratch.
+ls /leonardo_scratch/fast/IscrC_MTSFM/checkpoints/curriculum
+
+# 2. Read the plan. Submits nothing; prints tags, pack layout and concurrency.
+DRY_RUN=1 bash scripts/ablation_sweep.sh
+
+# 3. Submit. 8 nodes puts all 22 training rows in one wave (§ table below).
+NPACKS=8 MAIL_USER=you@example.com bash scripts/ablation_sweep.sh
+```
+
+That is it — everything else has a default that is already right for `uk_pv` on
+Leonardo: `DATA_DIR=$TEAM_SCRATCH/data_v2`,
+`CKPT_DIR=$TEAM_SCRATCH/checkpoints/curriculum`, `RESULTS_DIR=<repo>/baselines/results`,
+`VJEPA_CACHE_VER=vit_large_f8_s224_nonhrv_sp45` (the **v2 non-HRV** cache of record
+— the bare `vit_large_f8_s224` path still on `/leonardo_work` holds obsolete v1 HRV
+latents), `TRAIN_STRIDE=12`, `SWEEP_EPOCHS=20`, `SWEEP_BATCH=4`, `SWEEP_ACCUM=4`,
+`SWEEP_TIME=24:00:00`, `ACCOUNT=IscrC_MTSFM`, `PARTITION=boost_usr_prod`.
+
+Fully-specified form, for a different dataset or a non-default scratch layout:
+
+```bash
+DS=uk_pv NPACKS=8 GPUS=4 CHAIN=2 \
+TEAM_SCRATCH=/leonardo_scratch/fast/IscrC_MTSFM \
+DATA_DIR=/leonardo_scratch/fast/IscrC_MTSFM/data_v2 \
+CKPT_DIR=/leonardo_scratch/fast/IscrC_MTSFM/checkpoints/curriculum \
+RESULTS_DIR="$PWD/../baselines/results" \
+VJEPA_CACHE_ROOT=/leonardo_work/IscrC_MTSFM/vjepa_cache \
+VJEPA_CACHE_VER=vit_large_f8_s224_nonhrv_sp45 \
+SWEEP_EPOCHS=20 SWEEP_BATCH=4 SWEEP_ACCUM=4 SWEEP_TIME=24:00:00 \
+MAIL_USER=you@example.com \
+  bash scripts/ablation_sweep.sh
+```
+
+Subsets and recovery:
+
+```bash
+ONLY="A09 A10" bash scripts/ablation_sweep.sh      # eval controls only (minutes)
+ONLY=A17 SEEDS=42 NPACKS=1 bash scripts/ablation_sweep.sh
+CHAIN=3 NPACKS=8 bash scripts/ablation_sweep.sh    # 3 linked packs: survive the 24 h cap
+NPACKS=8 bash scripts/ablation_sweep.sh            # after a TIMEOUT: same command, idempotent
+```
+
+Re-running the same command is safe and is the intended recovery path: `SKIP_DONE=1`
+skips any run whose results JSON exists, and everything else resumes from its own
+`last.ckpt`. Job files and the plan land in `logs/sweeps/<SWEEP_ID>/`.
+
+The manifest is [`MMTSFM/configs/ablation/sweep.manifest`](../MMTSFM/configs/ablation/sweep.manifest)
+— one row per ablation (`ID | MODE | STAGE | MODEL_CFG | SEEDS | BASE`). It is the
+only place the run list lives; the script expands seeds, resolves each warm-start
+or scoring checkpoint from `BASE`, and packs the jobs onto `NPACKS`
+nodes. ⚠ **Verify the `BASE` column against `ls $CKPT_DIR` before the first
+submission** — the s2c directory name depends on which `MODEL_CFG` produced it
+(`vision_chronos2_s2c` → `uk_pv_s2c_s2c_s42`, `vision_chronos2_timeselfattn` →
+`uk_pv_s2c_selfattn_s42`). A missing checkpoint is fatal at submit time, on the
+login node, before an allocation is spent.
+
+**What packing does and does not buy.** Each pack is `--nodes=1 --gres=gpu:4
+--cpus-per-task=32` running a work queue: four runs at a time, a freed GPU takes
+the next job. Against four separate `--gres=gpu:1` jobs that is the **same
+node-hours** — Leonardo bills allocated resources and four quarter-nodes equal one
+node — so this does not stretch the `IscrC_MTSFM` budget. What it buys: one queue
+wait per pack instead of one per ablation (45 → 4), one env + data warm-up
+amortised over the pack, no hand-typed `sbatch` (and so no hand-typed wrong
+`PREV_CKPT`), and a continuation chain that resumes whatever the walltime cut off.
+
+**What it costs, used carelessly: tail idle.** A pack drains a queue with 4 slots;
+once the queue is empty, a slot that finished early sits **allocated and idle**
+until the pack's slowest run ends. The sweep therefore bins jobs by cost class
+(eval = minutes, train = hours), gives each class its own packs in proportion to
+its job count, and round-robins only *within* a class — a minutes-long control
+never shares a pack with a 20 h training row. **With fewer than ~8 jobs, use §1.2
+instead.**
+
+**Wall-clock is `NPACKS`.** Nothing in the manifest waits for anything else — every
+row warm-starts from an arm already on scratch — so the sweep is embarrassingly
+parallel and the only limit is how many nodes you ask for. Concurrency is
+`NPACKS × GPUS`; a pack of *n* jobs takes `ceil(n/4)` waves of one run-length.
+
+| `NPACKS` | train packs | jobs/pack | waves | wall-clock ≈ |
+|---|---|---|---|---|
+| 4 (default) | 3 | 8/7/7 | 2 | 2 × run |
+| 6 | 4 | 6/6/5/5 | 2 | 2 × run |
+| **8** | 6 | 4/4/4/4/3/3 | **1** | **1 × run** |
+
+for the 34 runs the manifest currently expands to (12 eval + 22 train). Node-hours
+are identical in all three — only the calendar changes, plus a couple of idle GPUs
+in the last wave. Bound by the account's max running jobs, not by the budget:
+check with `scontrol show partition boost_usr_prod` and
+`sacctmgr show assoc user=$USER format=user,maxjobs,maxsubmitjobs,grpnodes`.
+
+**The axis deliberately not taken:** running one ablation across 4 GPUs
+(`trainer.devices=4`) would cut its wall-clock ~4× at the same node-hours, but the
+effective batch becomes `4 × BATCH × ACCUM` and the run is no longer comparable to
+the single-GPU arm it ablates — the ablation would measure the batch size as much
+as the component. Both launchers pin `trainer.devices=1 trainer.strategy=auto` for
+that reason. Parallelise across runs, never inside one.
+
+Knobs: `MANIFEST` `DS` `NPACKS`(4) `GPUS`(4) `CHAIN`(1) `SWEEP_TIME`(24:00:00)
+`SWEEP_EPOCHS`(20) `SWEEP_BATCH`(4) `SWEEP_ACCUM`(4) `ONLY` `SEEDS` `MAIL_USER`
+`DRY_RUN`. Chaining uses `afterany`, not `afterok` — the 24 h cap is reported as
+TIMEOUT, i.e. a failure, and resuming from it is the whole point; `SKIP_DONE=1`
+(default) makes the repeat idempotent by skipping any run whose results JSON
+already exists. Status by mail; never poll with `watch -n N squeue`.
+
+### 1.2 One ablation — the stage launcher
+
+For a single run, a debug pass, or a batch too small to fill a node. The ablation
+rides in `EXTRA_OVERRIDES`, which `curriculum_stage.sbatch` appends last, so it wins
+over the stage and model configs.
 
 ```bash
 cd MMTSFM
@@ -50,12 +168,23 @@ MARGINAL_GAIN=1 EXTRA_OVERRIDES="+ablation=A17" \
 sbatch scripts/curriculum_stage.sbatch
 ```
 
-Rules that apply to every row below:
+Both launchers build the Hydra command from the same
+`scripts/lib/stage_cmd.sh`, so a packed ablation and a hand-launched stage run
+byte-identical commands. Do not add overrides to one launcher only — that is how an
+ablation ends up compared against an arm trained slightly differently with nothing
+in the results saying so. `tests/test_ablation_sweep.py` and
+`tests/test_curriculum_runner_wave_safety.py` hold both paths to it.
+
+### 1.3 Rules that apply to every row below
 
 - **`MARGINAL_GAIN=1` is mandatory.** Without it the vision-on/off decomposition is
   absent from the JSON and the ablation cannot be read.
-- **`TAG` must name the ablation** (`mmtsfm_<ID>_ukpv_s<seed>`). The launcher passes
-  `model.results_tag=${TAG}` on the command line, which beats anything a config sets.
+- **`TAG` must name the ablation.** The sweep builds it as
+  `mmtsfm_<ID>_<stage>_<ds>_s<seed>`; a hand-launched stage must do the same by hand.
+  The launcher passes `model.results_tag=${TAG}` on the command line, which beats
+  anything a config sets. Two runs sharing a tag share a results JSON and a
+  checkpoint directory and clobber each other mid-run with no error raised — the
+  sweep refuses to submit if any two tags collide.
 - **Seeds 42/43/44** for anything with a verdict attached. n=1 is a look, not a result.
 - **Branch `exp/<ID>-<short-name>`** before launching (registry rule).
 - `DRY_RUN=1` prints the composed Hydra command and exits — use it once per new ID.

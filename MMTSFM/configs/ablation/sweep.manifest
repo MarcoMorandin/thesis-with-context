@@ -1,0 +1,60 @@
+# MMTSFM ablation sweep manifest — read by scripts/ablation_sweep.sh
+#
+# One row per registered ablation. The sweep script expands SEEDS into one run
+# each, resolves the warm-start / scoring checkpoint from BASE, and packs the
+# resulting jobs onto whole GPU nodes.
+#
+#   ID    | MODE  | STAGE | MODEL_CFG              | SEEDS    | BASE
+#
+# MODE   train = fit then test;  eval = score BASE's checkpoint only (no fit).
+# BASE   checkpoint DIRECTORY under $CKPT_DIR, `{seed}` expanded per run.
+#        train → ${CKPT_DIR}/<BASE>/best.ckpt is the weights-only warm start.
+#        eval  → ${CKPT_DIR}/<BASE>/best.ckpt is the checkpoint under test.
+#        A missing file is FATAL at submit time, on the login node, before any
+#        allocation is spent — an ablation that silently starts from random init
+#        produces a plausible-looking and meaningless arm.
+#
+# ⚠ VERIFY THE BASE COLUMN against what is actually on scratch before the first
+#   submission. The s2c checkpoint directory name depends on which MODEL_CFG
+#   produced it: `vision_chronos2_s2c` → uk_pv_s2c_s2c_s42, but
+#   `vision_chronos2_timeselfattn` → uk_pv_s2c_selfattn_s42. knowledge/
+#   running-ablations.md quotes the latter; slurm_curriculum.sh's worked example
+#   derives the former. `ls $CKPT_DIR` settles it. This is the same unresolved
+#   ambiguity as the s2b_wide fusion-mode question in running-ablations.md §0.
+#
+# Order matters: the sweep distributes jobs round-robin across packs, so rows
+# are listed cheapest-decision-first (running-ablations.md §2).
+
+# --- 1. eval-only negative controls: minutes each, can kill the paper ---------
+A09 | eval  | s2c | vision_chronos2_s2c        | 42,43,44 | uk_pv_s2c_s2c_s{seed}
+A10 | eval  | s2c | vision_chronos2_s2c        | 42,43,44 | uk_pv_s2c_s2c_s{seed}
+# A09 on s2a is the negative control's own control: if late fusion degrades as
+# much as s2c under shuffling, the control measures something other than motion.
+A09 | eval  | s2a | vision_chronos2            | 42,43,44 | uk_pv_s2a_base_s{seed}
+A10 | eval  | s2a | vision_chronos2            | 42,43,44 | uk_pv_s2a_base_s{seed}
+
+# --- 2. the attribution pair: grid vs decoder granularity --------------------
+A17 | train | s2c | vision_chronos2_s2c        | 42,43,44 | uk_pv_s1_selfattn_s{seed}
+A22 | train | s2c | vision_chronos2_s2c        | 42,43,44 | uk_pv_s1_selfattn_s{seed}
+
+# --- 3. is A01's negative result clean? -------------------------------------
+A23 | train | s2a | vision_chronos2            | 42,43,44 | uk_pv_s1_selfattn_s{seed}
+
+# --- 4. mechanism honesty ----------------------------------------------------
+A19 | train | s2c | vision_chronos2_s2c        | 42,43,44 | uk_pv_s1_selfattn_s{seed}
+A27 | train | s2c | vision_chronos2_s2c        | 42,43,44 | uk_pv_s1_selfattn_s{seed}
+
+# --- 5. component-by-component effectiveness table (n=1 look, not a verdict) --
+A24 | train | s2c | vision_chronos2_s2c        | 42       | uk_pv_s1_selfattn_s{seed}
+A25 | train | s2c | vision_chronos2_s2c        | 42       | uk_pv_s1_selfattn_s{seed}
+A26 | train | s2c | vision_chronos2_s2c        | 42       | uk_pv_s1_selfattn_s{seed}
+A18a| train | s2c | vision_chronos2_s2c        | 42       | uk_pv_s1_selfattn_s{seed}
+A18b| train | s2c | vision_chronos2_s2c        | 42       | uk_pv_s1_selfattn_s{seed}
+
+# --- 6. follow-ups -----------------------------------------------------------
+A20 | train | s2c | vision_chronos2_s2c        | 42       | uk_pv_s1_selfattn_s{seed}
+A28 | train | s2c | vision_chronos2_s2c        | 42       | uk_pv_s1_selfattn_s{seed}
+# A21 (visual_grid=14) is deliberately COMMENTED OUT: it is only worth running if
+# A17 comes back positive, and its KV token count is ~784/sample against s2c's 64
+# — it needs its own BATCH_SIZE. Uncomment and set SWEEP_BATCH once A17 lands.
+# A21 | train | s2c | vision_chronos2_s2c      | 42       | uk_pv_s1_selfattn_s{seed}
