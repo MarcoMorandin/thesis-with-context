@@ -68,6 +68,16 @@ class MMTSFMDataModule(LightningDataModule):
         train_frac: float = 0.70,
         val_frac: float = 0.10,
         vis_cadence_multiplier: int = 1,
+        # Test order. False (protocol default) = the deterministic series-major
+        # order every recorded number was produced under. The ONE caller that
+        # needs True is the A10 mismatched-plant control: test windows are laid
+        # out series-major (~984 per plant at stride=H), so an ordered batch is
+        # a single site and no sample can be handed a DIFFERENT plant's sky.
+        # Metrics are aggregated per plant from site_id and are order-invariant,
+        # so this changes which batch the attention diagnostic captures and
+        # nothing else.
+        shuffle_test: bool = False,
+        shuffle_test_seed: int = 42,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -131,7 +141,11 @@ class MMTSFMDataModule(LightningDataModule):
             )
 
     def _loader(
-        self, dataset: MMTSFMDataset, shuffle: bool, drop_last: bool = False
+        self,
+        dataset: MMTSFMDataset,
+        shuffle: bool,
+        drop_last: bool = False,
+        generator: Optional[torch.Generator] = None,
     ) -> DataLoader:
         return DataLoader(
             dataset,
@@ -142,6 +156,7 @@ class MMTSFMDataModule(LightningDataModule):
             collate_fn=_collate_optional_z,
             pin_memory=True,
             persistent_workers=self.hparams.num_workers > 0,
+            generator=generator,
         )
 
     def train_dataloader(self) -> DataLoader:
@@ -151,4 +166,9 @@ class MMTSFMDataModule(LightningDataModule):
         return self._loader(self.val_dataset, shuffle=False)
 
     def test_dataloader(self) -> DataLoader:
-        return self._loader(self.test_dataset, shuffle=False)
+        if not self.hparams.shuffle_test:
+            return self._loader(self.test_dataset, shuffle=False)
+        # Seeded so the shuffled control is reproducible run to run.
+        gen = torch.Generator()
+        gen.manual_seed(int(self.hparams.shuffle_test_seed))
+        return self._loader(self.test_dataset, shuffle=True, generator=gen)

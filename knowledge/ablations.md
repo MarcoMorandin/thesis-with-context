@@ -76,12 +76,56 @@ s2c changes **five** things at once relative to s2b. Only #1 is the intended var
 |----|---------------------------|--------|--------|---------|
 | A13 | *"s2c only wins because it gets more visual tokens."* | `model=vision_chronos2_wide` — differs from `vision_chronos2_timeselfattn` by exactly one line, `n_soft_tokens: 1 → 16` | **DONE n=3** | **Killed — publishable null.** 16× more *pooled* tokens moved ramp 0.0003 (inside the 0.0011 floor); 64 *spatially arranged* tokens moved it 0.0024. Token count is not the mechanism; spatial arrangement is. Was previously logged as TODO; it is done. |
 | A17 | *"s2c only wins because of the 3-slot forecast head (#2/#3), not the grid."* | `+ablation=A17` — s2c with `vision_cfg.visual_grid=1` | **CONFIG READY — highest value open item** | Holds the 3-position decoder fixed, varies only grid-vs-blob. This is the **one** run that separates the architecture claim from a decoder-granularity artefact. Run at n=3. |
-| A09 | *"the model isn't reading the frames at all, it's exploiting a correlate."* | `+ablation=A09` — `model.eval_control=shuffle_frames`, eval-only | **CONFIG READY — MANDATORY**, eval-only, cheap | Temporal shuffle destroys motion but preserves marginals. Expected: s2c degrades, s2a does not. |
-| A10 | *"the grid isn't spatially grounded."* | `+ablation=A10` — `model.eval_control=swap_plant_frames`, eval-only | **CONFIG READY — MANDATORY for s2c** | Mismatched-plant frames. The 4×4 grid claim requires this; for s2a/s2b it is optional. |
+| A09 | *"the model isn't reading the frames at all, it's exploiting a correlate."* | `+ablation=A09` — `model.eval_control=shuffle_frames`, eval-only | **NOT RUNNABLE ON s2c — refuses at `on_test_start`** | Temporal shuffle destroys motion but preserves marginals. On s2c it is a **proven no-op**, confirmed both analytically and empirically — see §2.2.1. Runnable and informative only on an arm whose visual path can represent frame order (`fusion_mode != future_query` **and** `n_visual_context_steps > 1`). |
+| A09i | *"…"* — the same claim, recorded as an architecture fact instead of a result | `+ablation=A09i` — A09 plus `model.eval_control_allow_inert=true` | **DONE n=3 — architectural null** | The three `mmtsfm_A09_s2c_ukpv_s4*.json` on disk are this run: every reported metric is **bit-identical** to the corresponding plain s2c run (nmae 0.069239 / 0.071379 / 0.069512; Δ 0.007249 / 0.006497 / 0.007630). That is the receipt, not a finding. **Never report it as "shuffling frames does not hurt s2c".** |
+| A10 | *"the grid isn't spatially grounded."* | `+ablation=A10` — `model.eval_control=swap_plant_frames` **plus `data.shuffle_test=true`**, eval-only | **CONFIG READY (rewritten 2026-09) — MANDATORY for s2c, NOT YET RUN** | Mismatched-plant frames, donor matched by `batch["site_id"]`. Needs the shuffled test loader: the ordered loader is series-major, so a batch is one plant and a cross-plant donor does not exist in it. Raises rather than substituting silently. |
+| A10b | *"the sky helps, but any recent sky would do."* | `+ablation=A10b` — `model.eval_control=stale_sky`, ordered loader | **DONE n=3 — strongest positive control on record** | Same plant, one horizon earlier. **nmae 0.0692→0.0911, 0.0714→0.0875, 0.0695→0.0917** (mean +0.0201, +29%); Δramp +0.0148 / +0.0113 / +0.0154. The marginal gain **flips sign**: +0.0072 → −0.0147 (mean −0.0129), i.e. a one-step-stale sky is *worse than no sky at all*. Vision is being read, and read for its timing. The three `mmtsfm_A10_s2c_ukpv_s4*.json` are these runs, filed under the wrong name — re-file, do not re-run. |
 | A22 | *"s2c only wins because of the grid, not the 3-slot head."* — the mirror of A17 | `+ablation=A22` — s2c with `output_patch_size=16`, `max_output_patches=4` (1 decoder position, grid held at 4×4) | **CONFIG READY** | A17 and A22 are only interpretable as a pair: A17 kills the grid, A22 kills the decoder, and which one the gain follows is the attribution. Run at n=3. |
 | A23 | *"A01's null is a dropout artefact, not a fusion-mode result."* | `+ablation=A23` — s2a with `visual_dropout_prob=0.5` | **CONFIG READY** | s2a trains at 0.3, s2b/s2c at 0.5, so A01 currently confounds fusion mode with recipe. If Δ stays ~0 the negative result is clean; if it moves, A01 as written must be withdrawn. n=3. |
 
-### 2.3 s2c mechanism sweeps (do after A17, for the analysis section)
+#### 2.2.1 Why A09 cannot falsify anything on s2c
+
+Established 2026-09-01 by reading `vision_chronos2.py` / `model.py`, then encoded as a
+runtime guard (`_assert_eval_control_is_falsifiable`). Two independent routes make a frame
+permutation invisible:
+
+1. **`fusion_mode="future_query"` (s2c).** `_build_visual_kv` block-pools `[B, T_lat, P, D_v]`
+   to a `g×g` grid and flattens to `[B, T_lat·g·g, D_v]` — 4 slices × 16 cells = 64 keys —
+   with **no temporal and no spatial embedding**, under `kv_mask = zeros` (`model.py:102`);
+   and `TimeCrossAttention` builds its `MHA(config, use_rope=False)` (`layers.py:450`), so
+   there is no positional encoding anywhere on the KV. Softmax over an unordered key set is
+   permutation-invariant, so shuffling `T_lat` is *bit-exact* identity. `video_delta_t` is
+   unused on this branch, and `visual_mask` enters only as `visual_mask.sum(dim=1) > 0`.
+   The s2c path also bypasses `LatentSummarizer` and `CrossModalAdapter` entirely — so
+   raising `n_visual_context_steps` alone does **not** make A09 meaningful here.
+2. **`LatentSummarizer` with `n_vis_steps == 1`.** No positional encoding on K/V, and the
+   single query's causal threshold admits every frame → the summary is a set function.
+
+Consequence: a plain A09 run on s2c writes a `delta` identical to the uncorrupted run, which
+reads exactly like the empirical finding *"motion does not matter"* while being a fact about
+the wiring. `on_test_start` now raises unless `eval_control_allow_inert=true` (→ A09i). Fixing
+this is a **training** change — a temporal embedding on the visual KV — not an eval-config
+change; raising `n_visual_context_steps` does **not** help on s2c, because route 1 never
+reaches the summarizer.
+
+**Confirmed empirically, 2026-09-01.** The three synced `mmtsfm_A09_s2c_ukpv_s4*.json` agree
+with the plain s2c runs to every printed digit — nmae 0.069239 / 0.071379 / 0.069512,
+`delta_nmae` 0.007249 / 0.006497 / 0.007630, vision-off 0.076489 / 0.077876 / 0.077142 — while
+A10b on the same checkpoints moves nmae by +0.020. The invariance is not a theoretical worry;
+it is what the numbers already on disk show.
+
+Provenance note: the controls carry `dataset_version dataset_all.parquet:92099550:…` against
+the baselines' `:92166811:…` — the parquet was rewritten between 2026-08-29 and 2026-09-01.
+Bit-identical vision-off metrics across the two prove the rewrite did not change the uk_pv
+test windows, so control-vs-baseline differences remain valid. Re-check this if the file
+changes again.
+
+Related fix, same commit: on the V-JEPA cached-latent path the frame permutation never reached
+`visual_mask` (the gate required `video is not None`). Harmless on s2c, where the mask enters
+only as `visual_mask.sum(dim=1) > 0`, but it would have silently corrupted availability on any
+arm where A09 is actually meaningful.
+
+
 
 | ID | Question | Config | Status |
 |----|----------|--------|--------|
@@ -142,9 +186,12 @@ flatten in later ones; do not claim learned advection, do not concede degeneracy
 
 Launch lines for every ID below: [running-ablations.md](running-ablations.md).
 
-1. **A09 + A10** — shuffled-frames and swapped-plant-frames controls. Eval-only, minutes
-   against checkpoints already on disk, and they decide whether the model reads the sky at
-   all. Cheapest thing that can falsify the paper, so it goes first.
+1. **A10 (+ A09i, A10b bookkeeping)** — the negative controls. Eval-only, minutes against
+   checkpoints already on disk. **A10** is now the only one of the three that can still
+   falsify anything: it needs `data.shuffle_test=true` and it is the run that decides whether
+   the 4×4 grid is spatially grounded. **A09i** is a one-shot receipt for an architectural
+   null (§2.2.1) and **A10b** is already measured — re-file the synced A10 JSONs under that
+   name rather than re-running them.
 2. **A02** — resume s2b seeds 42/43. Without it the headline comparison rests on n=1.
 3. **A17 + A22** — the attribution pair, n=3 each. Only interpretable together: A17 kills the
    grid, A22 kills the 3-slot decoder, and which one the gain follows *is* the claim.

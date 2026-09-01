@@ -37,3 +37,10 @@ num_samples_test: 200
 train_frac: 0.70
 val_frac: 0.10
 vis_cadence_multiplier: 1
+
+# Test order. false = the deterministic series-major order of record. Only the
+# A10 mismatched-plant control sets it true: ordered test batches are a single
+# plant (~984 windows per plant at stride=H), so nothing can be handed a
+# DIFFERENT plant's sky. Metrics aggregate per plant and are order-invariant.
+shuffle_test: false
+shuffle_test_seed: 42

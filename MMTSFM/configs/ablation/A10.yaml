@@ -1,10 +1,23 @@
 # @package _global_
 # A10 — negative control: MISMATCHED PLANT. Eval-only, MANDATORY for s2c.
 #
-# Rolls the visual tensors one position along the batch, so each sample is scored
-# against a different plant's sky. Frames, mask and Δt move together, so the
-# input is internally consistent — it is simply the wrong site. Destroys plant
-# identity and site bias as well as ordering.
+# Each sample is scored against a DIFFERENT plant's sky, matched row-to-row by
+# batch["site_id"]. Frames, mask and Δt move together, so the input is
+# internally consistent — it is simply the wrong site. Destroys plant identity
+# and site bias as well as ordering.
+#
+# ⚠ REQUIRES data.shuffle_test=true, set below. The protocol test loader is
+#   unshuffled and its windows are series-major (~984 per plant at stride=H),
+#   so an ordered batch is ONE plant and a within-batch roll cannot cross sites.
+#   The pre-2026-09 version of this ablation rolled by one row on the ordered
+#   loader: that gave every sample the SAME plant's sky one horizon earlier,
+#   which is a real control but a different one — it is now A10b (stale_sky).
+#   _apply_eval_control RAISES on a single-plant batch rather than silently
+#   measuring staleness under this ablation's name.
+#
+# Shuffling test order does not touch the numbers: metrics are aggregated per
+# plant from site_id and are order-invariant. It changes which batch the
+# horizon-attention diagnostic captures.
 #
 # The 4x4 spatial-grounding claim requires this control. If performance is
 # unchanged, the grid is not grounded in the plant's own sky.
@@ -13,6 +26,9 @@
 #   train=false ckpt_path=<best.ckpt> +ablation=A10
 train: false
 test: true
+data:
+  shuffle_test: true
+  shuffle_test_seed: 42
 model:
   eval_control: swap_plant_frames
   compute_marginal_gain: true

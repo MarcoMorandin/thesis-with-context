@@ -1,0 +1,32 @@
+# @package _global_
+# A10b — negative control: STALE SKY. Eval-only.
+#
+# Each sample is scored against the SAME plant's sky from one horizon earlier
+# (the previous window in the series-major test order). Plant identity, site
+# bias and internal frame ordering all survive; only the CURRENCY of the sky is
+# destroyed. This is persistence applied to the visual input.
+#
+# It separates two readings of a positive marginal gain that A10 cannot:
+#   A10  "the model reads THIS plant's sky"  vs  "any sky will do"
+#   A10b "the model reads THIS sky"          vs  "any sky from this site will do"
+# A gain that survives A10b is a site/season constant the encoder learned, not
+# nowcasting — which is exactly the claim the 4x4 grid is asked to support.
+#
+# Requires the ORDERED loader (data.shuffle_test=false, the default): the roll
+# is only "one horizon earlier at the same plant" while windows are laid out
+# series-major. _apply_eval_control raises if adjacent rows stop sharing a site.
+#
+# PROVENANCE: this is what the runs labelled A10 before 2026-09 actually
+# measured — the old swap_plant_frames rolled by one row on the ordered loader.
+# Those JSONs are valid A10b measurements under the wrong name; re-run under
+# this ID rather than quoting them, and see knowledge/ablations.md.
+#
+# NO TRAINING. Score an existing checkpoint:
+#   train=false ckpt_path=<best.ckpt> +ablation=A10b
+train: false
+test: true
+data:
+  shuffle_test: false
+model:
+  eval_control: stale_sky
+  compute_marginal_gain: true

@@ -85,7 +85,7 @@ MAIL_USER=you@example.com \
 Subsets and recovery:
 
 ```bash
-ONLY="A09 A10" bash scripts/ablation_sweep.sh      # eval controls only (minutes)
+ONLY="A09i A10 A10b" bash scripts/ablation_sweep.sh  # eval controls only (minutes)
 ONLY=A17 SEEDS=42 NPACKS=1 bash scripts/ablation_sweep.sh
 CHAIN=3 NPACKS=8 bash scripts/ablation_sweep.sh    # 3 linked packs: survive the 24 h cap
 NPACKS=8 bash scripts/ablation_sweep.sh            # after a TIMEOUT: same command, idempotent
@@ -218,7 +218,7 @@ and everything after them is analysis that only matters if the claims survive.
 
 | # | Run | Cost | Decides |
 |---|---|---|---|
-| 1 | **A09 + A10** | eval-only, minutes | whether the model reads the sky at all |
+| 1 | **A10** (+A09i, A10b) | eval-only, minutes | whether the model reads the *sky of this plant* |
 | 2 | **A17** | 3 × full train | grid vs decoder-granularity — the architecture claim |
 | 3 | **A22** | 3 × full train | the other half of the same attribution |
 | 4 | **A23** | 3 × full train | whether A01's negative result is clean |
@@ -230,46 +230,72 @@ and everything after them is analysis that only matters if the claims survive.
 
 ## 3. Eval-only controls — run these first
 
-No training. Both score an **existing** checkpoint, so they cost one test pass and can
+No training. Each scores an **existing** checkpoint, so they cost one test pass and can
 run today against the s2c seeds already on disk.
 
 ```bash
-# A09 — temporal shuffle
-uv run python -m mmtsfm.train +stage=s2c model=vision_chronos2_s2c +ablation=A09 \
-  train=false ckpt_path=<uk_pv_s2c_s2c_s42/best.ckpt> \
-  data.data_dir=$DATA_DIR data.vjepa_cache_dir=$VJEPA_CACHE \
-  model.results_dir=results model.results_tag=mmtsfm_A09_s2c_ukpv_s42
-
-# A10 — mismatched plant
+# A10 — mismatched plant. NOTE data.shuffle_test=true, set by the ablation config:
+# the default test loader is series-major, so a batch is ONE plant and no cross-plant
+# donor exists in it. Without the shuffle the run raises instead of substituting.
 uv run python -m mmtsfm.train +stage=s2c model=vision_chronos2_s2c +ablation=A10 \
   train=false ckpt_path=<uk_pv_s2c_s2c_s42/best.ckpt> \
   data.data_dir=$DATA_DIR data.vjepa_cache_dir=$VJEPA_CACHE \
   model.results_dir=results model.results_tag=mmtsfm_A10_s2c_ukpv_s42
+
+# A09i — s2c only. Records the ARCHITECTURAL null on purpose (ablations.md §2.2.1).
+# Plain +ablation=A09 raises on s2c at on_test_start, by design.
+uv run python -m mmtsfm.train +stage=s2c model=vision_chronos2_s2c +ablation=A09i \
+  train=false ckpt_path=<uk_pv_s2c_s2c_s42/best.ckpt> \
+  data.data_dir=$DATA_DIR data.vjepa_cache_dir=$VJEPA_CACHE \
+  model.results_dir=results model.results_tag=mmtsfm_A09i_s2c_ukpv_s42
+
+# A10b — stale sky. ALREADY MEASURED: the pre-2026-09 A10 JSONs are A10b runs under the
+# wrong name. Re-file them; only rerun if you need a seed that is missing.
+uv run python -m mmtsfm.train +stage=s2c model=vision_chronos2_s2c +ablation=A10b \
+  train=false ckpt_path=<uk_pv_s2c_s2c_s42/best.ckpt> \
+  data.data_dir=$DATA_DIR data.vjepa_cache_dir=$VJEPA_CACHE \
+  model.results_dir=results model.results_tag=mmtsfm_A10b_s2c_ukpv_s42
 ```
 
-Run both against **s2a as well** — A09 on s2a is the negative-control's own control. If
-s2a degrades as much as s2c under shuffling, the control is measuring something other
-than motion. This pair is **not in the sweep yet**: it needs the real s2a checkpoint
-directory name and the `MODEL_CFG` that produced it (§1.1).
+Run **A09** (the plain one) against **s2a as well** — it is the negative control's own
+control, and unlike s2c it can actually degrade there. If s2a degrades as much, the control
+is measuring something other than motion. This pair is **not in the sweep yet**: it needs the
+real s2a checkpoint directory name, the `MODEL_CFG` that produced it, and a check that its
+`n_visual_context_steps > 1` (§1.1) — otherwise A09 is inert on s2a too.
 
 What the controls do, exactly:
 
-- **A09 `shuffle_frames`** — permutes the temporal axis within each sample. Every frame
-  still belongs to the right plant on the right day, so per-plant bias and time-of-day
-  marginals survive intact; only cloud **motion** is destroyed. Δt is deliberately left
-  unpermuted, so the claimed timestamps no longer describe the frames.
-- **A10 `swap_plant_frames`** — rolls the visual tensors one position along the batch:
-  frames, mask and Δt move together, so the input is internally consistent but belongs
-  to another site. Destroys plant identity and site bias as well as ordering.
+- **A09 `shuffle_frames`** — permutes the temporal axis within each sample; frames, mask and
+  the visual latents move together. Every frame still belongs to the right plant on the right
+  day, so per-plant bias and time-of-day marginals survive; only cloud **motion** is destroyed.
+  Δt is deliberately left unpermuted, so the claimed timestamps no longer describe the frames.
+  **Refuses to run** on any arm where the visual path cannot represent frame order
+  (`fusion_mode=future_query`, or `n_visual_context_steps<=1`) — see ablations.md §2.2.1.
+- **A10 `swap_plant_frames`** — gives every row the frames of a **different site**, chosen by
+  grouping the batch on `batch["site_id"]` and rotating the seeded group order. Frames, mask
+  and Δt move as one unit, so the input is internally consistent but belongs to another plant.
+  Destroys plant identity and site bias. Raises if the batch holds one plant or carries no
+  `site_id` — `entity_ids` are positional (`0..N-1`) and cannot identify a site.
+- **A10b `stale_sky`** — rolls the visual tensors one position along the batch of the
+  **ordered** loader: same plant, one horizon earlier. Measures temporal specificity, not
+  spatial grounding. Raises if the loader was shuffled.
 
-Both are pure test-time input transforms — no weights, no training path, no config
-touched by the model under test. The permutation is seeded from `seed`, so a rerun
-reproduces the same corruption.
+All are pure test-time input transforms — no weights, no training path, no config touched by
+the model under test. The permutation is seeded from `seed`, so a rerun reproduces the same
+corruption.
 
-**Expected**: s2c degrades on both; s2a moves little on either (its Δ is already ~0).
-**If s2c does not degrade**, the 0.0056 Δramp is a correlate — a per-plant or
-per-day constant the images happen to encode — and the spatial claim does not survive
-review. That is the single cheapest way to find out, which is why it goes first.
+**A10b has already answered half of this** (n=3, 2026-09-01). A one-horizon-stale sky from the
+*same* plant costs s2c **+0.0201 nmae** (0.0692→0.0911, 0.0714→0.0875, 0.0695→0.0917, +29%) and
+**+0.0138 Δramp**, and flips the marginal gain from +0.0072 to −0.0129 — a stale sky is worse
+than no sky. So the images are read, and read for their *timing*. The 0.0056 Δramp is not a
+static per-plant constant.
+
+**A10 answers the other half**: is the signal *this plant's* sky, or any sky at that instant?
+Expected: s2c degrades on A10 too; s2a moves little (its Δ is already ~0). **If s2c does not
+degrade on A10** while it degrades on A10b, the model is reading a regional/temporal condition
+rather than site-local cloud, and the *spatial-grounding* claim must be weakened to a temporal
+one. Cheap to find out — hence first.
+
 
 ⚠ Caveat that limits both controls on `uk_pv`: all 07:30 origins hold a blank-frame
 embedding, so vision is only measurable at h≤5. Report the controls on the same

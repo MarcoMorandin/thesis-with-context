@@ -1,5 +1,5 @@
 # @package _global_
-# A09 — negative control: TEMPORAL SHUFFLE. Eval-only, MANDATORY.
+# A09 — negative control: TEMPORAL SHUFFLE. Eval-only.
 #
 # Permutes the frame order within each sample at test time. Every frame still
 # belongs to the right plant on the right day, so per-plant bias and
@@ -7,8 +7,26 @@
 # Δt vector is deliberately left unpermuted, so the claimed timestamps no longer
 # describe the frames.
 #
-# Expected: s2c degrades (its 4 temporal slices are the mechanism), s2a does not.
-# If s2c does NOT degrade, the marginal gain is a correlate, not sky reading.
+# ⚠ NOT VALID ON s2c. `fusion_mode: future_query` builds its visual KV in
+#   _build_visual_kv (vision_chronos2.py), which block-pools [T_lat, g, g] into
+#   ONE flat key set with no temporal or spatial embedding, and model.py attends
+#   to it under an all-zero kv_mask. Softmax over an unordered key set is
+#   invariant to permuting T_lat, so this control is a bit-exact no-op there and
+#   its Δ = 0.000 is a fact about the wiring that no checkpoint could falsify.
+#   The same holds for any summarizer arm with n_visual_context_steps = 1.
+#   on_test_start REFUSES those runs (_assert_eval_control_is_falsifiable).
+#
+# Where it IS falsifiable: a late/interleaved-fusion arm with
+# n_visual_context_steps > 1, whose LatentSummarizer queries see nested causal
+# windows and therefore depend on which frame sits where.
+#   Expected: that arm degrades. If it does not, the marginal gain is a
+#   correlate, not sky reading.
+#
+# To record the s2c architectural null ON PURPOSE (a legitimate reported
+# result, provided it is labelled as structural and not empirical), add:
+#   model.eval_control_allow_inert=true
+# It is stamped into the results JSON under config.eval_control_allow_inert so
+# the file itself says which kind of null it holds.
 #
 # NO TRAINING. Score an existing checkpoint:
 #   train=false ckpt_path=<best.ckpt> +ablation=A09
@@ -16,4 +34,5 @@ train: false
 test: true
 model:
   eval_control: shuffle_frames
+  eval_control_allow_inert: false
   compute_marginal_gain: true

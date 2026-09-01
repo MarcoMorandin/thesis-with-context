@@ -106,8 +106,16 @@ class VisionChronos2LightningModule(LightningModule):
         # TEST TIME ONLY so that a non-zero marginal gain can be attributed to
         # genuine sky information rather than to a per-plant or per-day constant.
         #   "shuffle_frames"     — permute the temporal axis within each sample
-        #   "swap_plant_frames"  — give each sample another plant's sky sequence
+        #   "swap_plant_frames"  — give each sample another PLANT's sky sequence
+        #   "stale_sky"          — give each sample the SAME plant's sky from one
+        #                          horizon earlier (persistence of the visual input)
         eval_control: str = "none",
+        # Escape hatch for eval_control="shuffle_frames" on an arm whose visual
+        # pathway is provably permutation-invariant (see
+        # _assert_eval_control_is_falsifiable). Default False so a control that
+        # CANNOT degrade refuses to run instead of writing a null that reads as
+        # an empirical finding.
+        eval_control_allow_inert: bool = False,
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["video_encoder"])
@@ -549,15 +557,78 @@ class VisionChronos2LightningModule(LightningModule):
     # Training / Validation / Test
     # ------------------------------------------------------------------
 
-    _EVAL_CONTROLS = ("none", "shuffle_frames", "swap_plant_frames")
+    _EVAL_CONTROLS = ("none", "shuffle_frames", "swap_plant_frames", "stale_sky")
 
-    def _apply_eval_control(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
+    @staticmethod
+    def _row_site_ids(batch: Any, n_rows: int) -> Optional[list]:
+        """Per-row plant identity, or None when the batch does not carry one.
+
+        ``_unpack_batch`` entity_ids are POSITIONAL (0..N-1 within the sample),
+        so they cannot identify a plant.  ``batch["site_id"]`` is the real one
+        (pv_record.py), and it deliberately never enters the inputs dict — that
+        dict is ``**``-splatted into ``model.forward`` and mapped through
+        ``_to_float32``, neither of which accepts a string column.
+        """
+        if not isinstance(batch, dict):
+            return None
+        sid = batch.get("site_id")
+        if sid is None:
+            return None
+        if isinstance(sid, torch.Tensor):
+            sid = [str(v) for v in sid.reshape(-1).tolist()]
+        elif isinstance(sid, str):
+            sid = [sid]
+        else:
+            sid = [str(v) for v in sid]
+        if len(sid) == n_rows:
+            return sid
+        # _unpack_batch flattens [BS, N] -> [BS*N]. N == 1 at val/test
+        # (datamodule W4), so this only fires if that ever changes.
+        if sid and n_rows % len(sid) == 0:
+            reps = n_rows // len(sid)
+            return [s for s in sid for _ in range(reps)]
+        return None
+
+    @staticmethod
+    def _cross_site_donor(sites: list, generator: torch.Generator) -> Optional[list]:
+        """Row index j for every row i such that ``sites[j] != sites[i]``.
+
+        Rows are grouped by plant and the GROUPS are rotated under a seeded
+        permutation, rather than each row drawing an independent random donor.
+        A per-row draw on a batch of 32 leaves the donor distribution lumpy and
+        can hand several rows the same sky; a rotation of distinct groups gives
+        every row a different plant and spreads the donors evenly.
+
+        Returns None when the batch holds a single plant — no row can then be
+        given a *different* plant's sky, and silently rolling within one site
+        would measure staleness while claiming to measure identity.
+        """
+        groups: Dict[str, list] = {}
+        for i, s in enumerate(sites):
+            groups.setdefault(s, []).append(i)
+        keys = sorted(groups)
+        if len(keys) < 2:
+            return None
+        perm = torch.randperm(len(keys), generator=generator).tolist()
+        donor_of = {
+            keys[perm[k]]: keys[perm[(k + 1) % len(keys)]] for k in range(len(keys))
+        }
+        idx = [0] * len(sites)
+        for site, rows in groups.items():
+            pool = groups[donor_of[site]]
+            for r, i in enumerate(rows):
+                idx[i] = pool[r % len(pool)]
+        return idx
+
+    def _apply_eval_control(
+        self, inputs: Dict[str, Any], batch: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """Corrupt the visual stream at TEST TIME for the negative controls.
 
         A non-zero marginal gain says only that the visual tokens carry
         *something* the numeric stream lacks — a per-plant bias or a
         time-of-day constant would produce exactly the same signature as real
-        sky information.  Two controls separate those:
+        sky information.  Three controls separate those:
 
         ``shuffle_frames``
             Permutes the temporal axis within each sample.  Every frame the
@@ -567,14 +638,29 @@ class VisionChronos2LightningModule(LightningModule):
             vector is deliberately NOT permuted, so the claimed timestamps no
             longer describe the frames.
 
-        ``swap_plant_frames``
-            Rolls the visual tensors one position along the flattened batch,
-            so each sample is scored against another plant's sky.  Destroys
-            plant identity and site-specific bias as well as ordering.
+            Inert by construction on some arms: see
+            ``_assert_eval_control_is_falsifiable``, which refuses the run
+            rather than let it write a null.
 
-        Both are pure test-time input transforms: no weights, no config, and
-        no training path changes, so the model under control is bit-identical
-        to the model under the headline number.
+        ``swap_plant_frames``
+            Gives each sample a DIFFERENT plant's sky, matched row-to-row by
+            ``batch["site_id"]``.  Destroys plant identity and site-specific
+            bias as well as ordering.  Raises when the batch holds one plant —
+            the protocol test loader is series-major and unshuffled, so whole
+            batches are a single site and this control needs
+            ``data.shuffle_test=true``.
+
+        ``stale_sky``
+            Gives each sample the SAME plant's sky from one horizon earlier
+            (the previous window in series-major order).  Plant identity,
+            site bias and internal frame ordering all survive; only the
+            *currency* of the sky is destroyed.  This is persistence applied
+            to the visual input, and it is the control that separates "the
+            model reads THIS sky" from "the model reads A sky from this site".
+
+        All three are pure test-time input transforms: no weights, no config,
+        and no training path changes, so the model under control is
+        bit-identical to the model under the headline number.
         """
         control = getattr(self.hparams, "eval_control", "none")
         if control == "none" or not self._eval_control_active:
@@ -591,44 +677,154 @@ class VisionChronos2LightningModule(LightningModule):
         out = dict(inputs)
         ref = latents if latents is not None else video
         B = ref.shape[0]
+        seed = int(getattr(self.hparams, "seed", 42))
 
         if control == "shuffle_frames":
             # One independent permutation per sample, drawn from a generator
             # seeded off the run seed so the control is reproducible.
-            gen = torch.Generator().manual_seed(int(getattr(self.hparams, "seed", 42)))
+            gen = torch.Generator().manual_seed(seed)
+            lat_perm = vid_perm = None
             if latents is not None:
                 # [B, T_lat, P, D_v] — temporal axis 1
-                perm = torch.stack(
+                lat_perm = torch.stack(
                     [torch.randperm(latents.shape[1], generator=gen) for _ in range(B)]
                 ).to(latents.device)
-                idx = perm.view(B, -1, 1, 1).expand_as(latents)
+                idx = lat_perm.view(B, -1, 1, 1).expand_as(latents)
                 out["video_latents"] = torch.gather(latents, 1, idx)
             if video is not None:
                 # [B, C, T_v, H, W] — temporal axis 2
-                perm = torch.stack(
+                vid_perm = torch.stack(
                     [torch.randperm(video.shape[2], generator=gen) for _ in range(B)]
                 ).to(video.device)
-                idx = perm.view(B, 1, -1, 1, 1).expand_as(video)
+                idx = vid_perm.view(B, 1, -1, 1, 1).expand_as(video)
                 out["video"] = torch.gather(video, 2, idx)
             # visual_mask is per-frame availability; permute it with the frames
-            # only when its length matches, so a shuffled-in frame is not
-            # simultaneously marked absent.
+            # so a shuffled-in frame is not simultaneously marked absent. Match
+            # it against whichever tensor shares its frame count — on the
+            # cached-latent path `video` is absent entirely, and gating on it
+            # left the mask unpermuted for every V-JEPA run.
             vm = inputs.get("visual_mask")
-            if vm is not None and video is not None and vm.shape[1] == video.shape[2]:
-                out["visual_mask"] = torch.gather(vm, 1, perm.to(vm.device))
-        else:  # swap_plant_frames
-            # Roll every visual tensor TOGETHER so frames, mask and Δt stay
-            # mutually consistent — they are simply the wrong plant's.
+            if vm is not None and vm.dim() >= 2:
+                for perm, n in ((lat_perm, vm.shape[1]), (vid_perm, vm.shape[1])):
+                    if perm is not None and perm.shape[1] == n:
+                        out["visual_mask"] = torch.gather(vm, 1, perm.to(vm.device))
+                        break
+        elif control == "swap_plant_frames":
+            sites = self._row_site_ids(batch, B)
+            if sites is None:
+                raise RuntimeError(
+                    "eval_control='swap_plant_frames' needs batch['site_id'] to "
+                    "match every row to a DIFFERENT plant, and this batch does "
+                    "not carry it. entity_ids are positional (0..N-1) and cannot "
+                    "identify a site. Score a pv_record dataset (uk_pv / "
+                    "goes_pvdaq), not synthetic."
+                )
+            donor = self._cross_site_donor(sites, torch.Generator().manual_seed(seed))
+            if donor is None:
+                raise RuntimeError(
+                    "eval_control='swap_plant_frames': every row of this batch is "
+                    f"plant {sites[0]!r}, so no sample can be handed a DIFFERENT "
+                    "plant's sky. The protocol test loader is unshuffled and its "
+                    "windows are series-major (~984 per plant), so whole batches "
+                    "are one site. Set data.shuffle_test=true — "
+                    "configs/ablation/A10.yaml does. To score the same-plant "
+                    "stale-sky control instead, use eval_control='stale_sky'."
+                )
+            idx = torch.as_tensor(donor, dtype=torch.long)
+            for key in ("video", "video_latents", "visual_mask", "video_delta_t"):
+                val = inputs.get(key)
+                if val is not None:
+                    out[key] = val.index_select(0, idx.to(val.device))
+        else:  # stale_sky
+            # Roll every visual tensor TOGETHER by one row so frames, mask and
+            # Δt stay mutually consistent — they are simply one horizon stale.
             for key in ("video", "video_latents", "visual_mask", "video_delta_t"):
                 val = inputs.get(key)
                 if val is not None:
                     out[key] = torch.roll(val, shifts=1, dims=0)
+            # "One window earlier at the same site" only holds while the loader
+            # is series-major and unshuffled. Under data.shuffle_test=true the
+            # same roll is an unlabelled mixture of sites and horizons, which is
+            # not a control at all.
+            sites = self._row_site_ids(batch, B)
+            if sites is not None and B > 1:
+                same = sum(sites[i] == sites[i - 1] for i in range(1, B))
+                if same < (B - 1) // 2:
+                    raise RuntimeError(
+                        "eval_control='stale_sky' expects the ordered "
+                        "series-major test loader, where rolling by one row is "
+                        "the SAME plant one horizon earlier. Only "
+                        f"{same}/{B - 1} adjacent rows share a plant here, so "
+                        "the roll is crossing sites. Set data.shuffle_test=false."
+                    )
         return out
+
+    def _assert_eval_control_is_falsifiable(self) -> None:
+        """Refuse a control the architecture cannot possibly react to.
+
+        ``shuffle_frames`` is a claim about temporal ordering, and two of the
+        visual pathways here are permutation-invariant over frames by
+        construction.  Running it on one of those produces Δ = 0.000 that reads
+        exactly like the empirical finding "motion does not matter", when it is
+        in fact a statement about wiring that no checkpoint could falsify.
+
+        Set ``model.eval_control_allow_inert=true`` to record that
+        architectural null deliberately.
+        """
+        control = getattr(self.hparams, "eval_control", "none")
+        if control != "shuffle_frames":
+            return
+        reasons = []
+        vcfg = getattr(self.model, "vcfg", None)
+        if vcfg is not None and getattr(vcfg, "fusion_mode", None) == "future_query":
+            reasons.append(
+                "fusion_mode='future_query' (s2c): _build_visual_kv block-pools "
+                "[T_lat, g, g] and flattens it into ONE unordered key set with no "
+                "temporal or spatial embedding, model.py attends to it under an "
+                "all-zero kv_mask, and TimeCrossAttention builds its MHA with "
+                "use_rope=False — so the KV carries no position at all. Softmax "
+                "over an unordered key set is invariant to permuting T_lat, so "
+                "shuffle_frames changes nothing bit-for-bit. Making it bite needs "
+                "a temporal embedding on the visual KV — a TRAINING change, not "
+                "an eval flag, and NOT n_visual_context_steps (this branch never "
+                "reaches the LatentSummarizer)."
+            )
+        summ = getattr(self.model, "latent_summarizer", None)
+        if summ is not None and int(getattr(summ, "n_vis_steps", 0)) <= 1:
+            reasons.append(
+                "LatentSummarizer has n_vis_steps=1: its K/V carry no positional "
+                "encoding and the single query's causal threshold admits every "
+                "frame, so the summary is a set function over the token bag and a "
+                "frame permutation is invisible. n_visual_context_steps > 1 makes "
+                "it falsifiable."
+            )
+        if not reasons:
+            return
+        if bool(getattr(self.hparams, "eval_control_allow_inert", False)):
+            print(
+                "[eval-control] shuffle_frames is INERT on this arm "
+                "(allow_inert=true). The Δ it reports is an ARCHITECTURAL null, "
+                "not an empirical one — report it as such:\n  - "
+                + "\n  - ".join(reasons),
+                flush=True,
+            )
+            return
+        raise RuntimeError(
+            "eval_control='shuffle_frames' cannot degrade this arm — it is a "
+            "no-op by construction, so a null result would say nothing about "
+            "whether the model reads cloud motion:\n  - "
+            + "\n  - ".join(reasons)
+            + "\nEither score an arm whose visual pathway encodes frame order, "
+            "or set model.eval_control_allow_inert=true to record the "
+            "architectural null on purpose."
+        )
 
     def _forward(self, batch: Dict[str, torch.Tensor], force_vision_off: bool = False):
         """Run the fp32 forward once; return (unpacked inputs, model output)."""
         inputs = self._unpack_batch(batch)
-        inputs = self._apply_eval_control(inputs)
+        # `batch`, not `inputs`: site_id is the only real plant identity and it
+        # must stay out of the dict that is splatted into model.forward.
+        inputs = self._apply_eval_control(inputs, batch)
         device_type = self.device.type
         device_type = (
             device_type
@@ -746,6 +942,9 @@ class VisionChronos2LightningModule(LightningModule):
         control = getattr(self.hparams, "eval_control", "none")
         if control != "none":
             print(f"[eval-control] ACTIVE: {control}", flush=True)
+            # Before a single batch is scored: a control that cannot degrade
+            # this arm writes a null indistinguishable from an empirical one.
+            self._assert_eval_control_is_falsifiable()
 
         self._protocol_eval = ProtocolEvaluator(
             horizon=self.hparams.horizon,
@@ -938,6 +1137,12 @@ class VisionChronos2LightningModule(LightningModule):
                 )
             },
             "eval_control": getattr(hp, "eval_control", "none"),
+            # True marks a control that is a no-op on this architecture: the Δ
+            # in this file is an ARCHITECTURAL null, not an empirical one, and
+            # nothing downstream may read it as "the model ignores motion".
+            "eval_control_allow_inert": bool(
+                getattr(hp, "eval_control_allow_inert", False)
+            ),
             "compute_marginal_gain": getattr(hp, "compute_marginal_gain", False),
         }
 
