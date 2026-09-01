@@ -1,0 +1,17 @@
+# @package _global_
+# A22 — decoder-granularity control (confound #2 in ablations.md §2.2).
+#
+# The mirror image of A17. A17 keeps the 3-position decoder and kills the grid;
+# A22 keeps the 4x4 grid and returns the decoder to ONE future position
+# (output_patch_size 4 -> 16, the s2a/s2b setting). Together the pair attributes
+# s2c's gain between "spatial field" and "three decoder slots", which no run
+# currently does — the s2c-vs-s2b comparison changes both at once.
+#
+# With one future position there is a single query, so the lead-time embedding is
+# inert here by construction.
+#   base: model=vision_chronos2_s2c +stage=s2c
+model:
+  chronos_core_cfg:
+    chronos_config:
+      output_patch_size: 16
+      max_output_patches: 4

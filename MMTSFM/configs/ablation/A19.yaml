@@ -1,0 +1,15 @@
+# @package _global_
+# A19 — does the learned lead-time embedding tau matter?
+#
+# Directly load-bearing for D15. The three future queries are distinguished by
+# (a) sequence position and (b) a learned per-lead-time offset. D15 found they
+# differentiate in block 0 and flatten afterwards. Removing tau tells you which
+# of the two is doing the work: if the ramp gain is unchanged, tau is decoration
+# and the D15 "collapse" reading is the honest one.
+#
+# With use_lead_time_embed=false the parameter is not constructed at all, so it
+# is absent from the state_dict — harmless, every load here is strict=False.
+#   base: model=vision_chronos2_s2c +stage=s2c
+model:
+  vision_cfg:
+    use_lead_time_embed: false

@@ -1,0 +1,6 @@
+# @package _global_
+# A26 — leave-one-out: segment embedding (context vs future).
+#   base: any arm; run on the arm you intend to publish (s2c)
+model:
+  vision_cfg:
+    disable_segment_embed: true

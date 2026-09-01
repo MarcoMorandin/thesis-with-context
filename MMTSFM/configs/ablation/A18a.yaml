@@ -1,0 +1,9 @@
+# @package _global_
+# A18 (k=1) — how much cross-attention DEPTH is needed?
+# s2c injects visual KV into the last 4 of 6 encoder blocks. This gives it the
+# last block only. Cheaper arm of the {1,2,4} sweep; 4 is the s2c default and is
+# already measured.
+#   base: model=vision_chronos2_s2c +stage=s2c
+model:
+  chronos_core_cfg:
+    visual_cross_attn_blocks: 1

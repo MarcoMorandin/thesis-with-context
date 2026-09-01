@@ -1,0 +1,12 @@
+# @package _global_
+# A20 — finer decoder granularity: output_patch_size 4 -> 1, i.e. 12 future
+# positions instead of 3, one per horizon step. Costs a longer sequence and more
+# fresh future_patch_embedding weight; the question is whether per-step queries
+# beat per-4-step queries.
+# max_output_patches must grow with it or the horizon no longer fits.
+#   base: model=vision_chronos2_s2c +stage=s2c
+model:
+  chronos_core_cfg:
+    chronos_config:
+      output_patch_size: 1
+      max_output_patches: 12

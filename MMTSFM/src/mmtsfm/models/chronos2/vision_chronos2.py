@@ -204,6 +204,20 @@ class VisionChronos2Config:
     freeze_visual_encoder: bool = True
     skip_vision_stack: bool = False
 
+    # --- Ablation switches (see knowledge/ablations.md §2.5) ---
+    # A19: the learned per-lead-time query offset on the s2c future queries. When
+    # False the three future positions are distinguished by sequence position
+    # alone, which is exactly the degeneracy ticket 15 exists to detect. Only
+    # meaningful for fusion_mode="future_query".
+    use_lead_time_embed: bool = True
+    # M1a/M1b/M1c: leave-one-out over the additive MultimodalEmbedding channels.
+    # The embedding tables are still built, so state_dict shape — and therefore
+    # warm-starting from any existing checkpoint — is unchanged.
+    disable_modality_embed: bool = False
+    disable_segment_embed: bool = False
+    disable_token_type_embed: bool = False
+    disable_entity_embed: bool = False
+
 
 # ---------------------------------------------------------------------------
 # Output
@@ -240,7 +254,15 @@ class MultimodalEmbedding(nn.Module):
         2 = visual      — visual soft-context tokens from CrossModalAdapter.
     """
 
-    def __init__(self, d_model: int, n_entities: int = 0):
+    def __init__(
+        self,
+        d_model: int,
+        n_entities: int = 0,
+        disable_modality_embed: bool = False,
+        disable_segment_embed: bool = False,
+        disable_token_type_embed: bool = False,
+        disable_entity_embed: bool = False,
+    ):
         super().__init__()
         self.modality_embed = nn.Embedding(2, d_model)
         self.segment_embed = nn.Embedding(2, d_model)
@@ -250,6 +272,15 @@ class MultimodalEmbedding(nn.Module):
         self.entity_embed = (
             nn.Embedding(n_entities, d_model) if n_entities > 0 else None
         )
+        # Leave-one-out ablation switches (registry M1a/M1b/M1c). The tables are
+        # still CONSTRUCTED when disabled, so the state_dict shape is unchanged and
+        # a disabled run loads from — and warm-starts — any existing checkpoint.
+        # Only the additive contribution is suppressed, at the single place each
+        # channel is applied, rather than at the ~30 call sites in forward().
+        self.disable_modality_embed = disable_modality_embed
+        self.disable_segment_embed = disable_segment_embed
+        self.disable_token_type_embed = disable_token_type_embed
+        self.disable_entity_embed = disable_entity_embed
         # Default N(0,1) init gives magnitude ≈ sqrt(d_model) ≈ 22 which swamps the
         # pretrained Chronos-2 activations and causes bf16 overflow → NaN loss.
         # Use small std (0.02, same as BERT/T5 token embeddings) to keep scale compatible.
@@ -260,11 +291,15 @@ class MultimodalEmbedding(nn.Module):
 
     def add_modality(self, tokens: torch.Tensor, modality_id: int) -> torch.Tensor:
         """``tokens [B, T, d]`` + scalar modality embedding."""
+        if self.disable_modality_embed:
+            return tokens
         idx = torch.tensor(modality_id, device=tokens.device, dtype=torch.long)
         return tokens + self.modality_embed(idx)
 
     def add_segment(self, tokens: torch.Tensor, segment_id: int) -> torch.Tensor:
         """``tokens [B, T, d]`` + scalar segment embedding (0=context, 1=future)."""
+        if self.disable_segment_embed:
+            return tokens
         idx = torch.tensor(segment_id, device=tokens.device, dtype=torch.long)
         return tokens + self.segment_embed(idx)
 
@@ -277,6 +312,8 @@ class MultimodalEmbedding(nn.Module):
         1 : covariate — future covariate tokens.
         2 : visual    — soft visual context tokens.
         """
+        if self.disable_token_type_embed:
+            return tokens
         idx = torch.tensor(token_type_id, device=tokens.device, dtype=torch.long)
         return tokens + self.token_type_embed(idx)
 
@@ -284,7 +321,7 @@ class MultimodalEmbedding(nn.Module):
         self, tokens: torch.Tensor, entity_ids: torch.Tensor
     ) -> torch.Tensor:
         """``tokens [B, T, d]`` + entity embedding ``[B, d]`` from position indices."""
-        if self.entity_embed is None:
+        if self.entity_embed is None or self.disable_entity_embed:
             return tokens
         assert entity_ids.max() < self.entity_embed.num_embeddings, (
             f"entity_ids max={entity_ids.max().item()} >= "
@@ -375,8 +412,13 @@ class VisionChronos2Model(nn.Module):
                 n_lead = int(
                     getattr(chronos_model.chronos_config, "max_output_patches", 4)
                 )
-                self.lead_time_embed: Optional[nn.Parameter] = nn.Parameter(
-                    torch.randn(n_lead, d_model) * (d_model**-0.5)
+                # A19 turns this off: the parameter is then absent from the
+                # state_dict and forward() falls through its `is not None` guard,
+                # leaving the future queries separated by position alone.
+                self.lead_time_embed: Optional[nn.Parameter] = (
+                    nn.Parameter(torch.randn(n_lead, d_model) * (d_model**-0.5))
+                    if vision_config.use_lead_time_embed
+                    else None
                 )
             else:
                 self.visual_kv_proj = None
@@ -403,7 +445,12 @@ class VisionChronos2Model(nn.Module):
             self.cross_modal_adapter = None
 
         self.multimodal_embed = MultimodalEmbedding(
-            d_model=d_model, n_entities=vision_config.n_entities
+            d_model=d_model,
+            n_entities=vision_config.n_entities,
+            disable_modality_embed=vision_config.disable_modality_embed,
+            disable_segment_embed=vision_config.disable_segment_embed,
+            disable_token_type_embed=vision_config.disable_token_type_embed,
+            disable_entity_embed=vision_config.disable_entity_embed,
         )
 
     # ------------------------------------------------------------------
@@ -630,8 +677,8 @@ class VisionChronos2Model(nn.Module):
         g0 = int(round(Pn**0.5))
         if g0 * g0 != Pn:
             raise ValueError(
-                f'V-JEPA patch count {Pn} is not a square grid; cannot retain spatial '
-                'layout for future_query fusion.'
+                f"V-JEPA patch count {Pn} is not a square grid; cannot retain spatial "
+                "layout for future_query fusion."
             )
         g = min(int(self.vcfg.visual_grid), g0)
         b = g0 // g
@@ -847,9 +894,7 @@ class VisionChronos2Model(nn.Module):
             if force_vision_off:
                 vis_on = torch.zeros_like(vis_on)
             elif self.training and self.vcfg.visual_dropout_prob > 0:
-                vis_on = (
-                    torch.rand(B, device=device) >= self.vcfg.visual_dropout_prob
-                )
+                vis_on = torch.rand(B, device=device) >= self.vcfg.visual_dropout_prob
             if visual_mask is not None:
                 vis_on = vis_on & (visual_mask.sum(dim=1) > 0)
             self._last_visual_active = vis_on
@@ -1297,9 +1342,7 @@ class VisionChronos2Model(nn.Module):
                 self._last_visual_active.view(B, 1)
             )
             if n_rows > B:
-                visual_kv = visual_kv.repeat(
-                    (n_rows + B - 1) // B, 1, 1
-                )[:n_rows]
+                visual_kv = visual_kv.repeat((n_rows + B - 1) // B, 1, 1)[:n_rows]
 
         all_embeds = torch.nan_to_num(all_embeds, nan=0.0, posinf=0.0, neginf=0.0)
         # Backward hook: the encoder backward runs under Lightning's bf16 autocast

@@ -1,0 +1,17 @@
+# @package _global_
+# A17 — grid vs blob, decoder held fixed.  HIGHEST-VALUE OPEN ITEM.
+#
+# s2c differs from s2b in five ways at once (ablations.md §2.2). This run holds
+# four of them fixed — future_query fusion, output_patch_size=4 (3 decoder
+# positions), the fresh future_patch_embedding, the s1 warm start — and varies
+# only the SPATIAL ARRANGEMENT: the V-JEPA field is block-pooled to 1x1 per
+# temporal slice instead of 4x4, i.e. 4 KV tokens instead of 64.
+#
+# If s2c's ramp gain survives visual_grid=1, the win is a decoder-granularity
+# artefact and the spatial claim is dead. If it collapses, the spatial claim is
+# the mechanism. No other single run can make that call.
+#
+#   base: model=vision_chronos2_s2c +stage=s2c
+model:
+  vision_cfg:
+    visual_grid: 1

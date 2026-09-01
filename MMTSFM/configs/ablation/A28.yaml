@@ -1,0 +1,14 @@
+# @package _global_
+# A28 — entity embedding, currently DEAD CODE in every run on disk.
+#
+# data/ukpv.yaml declares num_entities: 4 but every model config sets
+# n_entities: 0, so MultimodalEmbedding.entity_embed is None and add_entity is a
+# pass-through. The plants in a group batch are therefore indistinguishable to
+# the model. This is also the missing number for W4 (cross-plant group batching):
+# the code is done and no result exists.
+#   base: any arm; needs data.num_entities to match n_entities
+model:
+  vision_cfg:
+    n_entities: 4
+data:
+  num_entities: 4

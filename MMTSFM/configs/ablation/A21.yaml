@@ -1,0 +1,12 @@
+# @package _global_
+# A21 — finer spatial grid: the NATIVE ViT patch grid instead of 4x4 blocks.
+# _build_visual_kv clamps the request to the native grid g0, so a too-large value
+# is safe. Run only if A17 is positive — otherwise there is no spatial claim to
+# refine.
+#
+# COST WARNING: KV tokens = T_lat * g^2. At g=14 that is ~784 tokens per sample
+# against 64 for s2c; cross-attention memory grows with it. Reduce batch size.
+#   base: model=vision_chronos2_s2c +stage=s2c
+model:
+  vision_cfg:
+    visual_grid: 14

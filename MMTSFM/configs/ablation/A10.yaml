@@ -1,0 +1,18 @@
+# @package _global_
+# A10 — negative control: MISMATCHED PLANT. Eval-only, MANDATORY for s2c.
+#
+# Rolls the visual tensors one position along the batch, so each sample is scored
+# against a different plant's sky. Frames, mask and Δt move together, so the
+# input is internally consistent — it is simply the wrong site. Destroys plant
+# identity and site bias as well as ordering.
+#
+# The 4x4 spatial-grounding claim requires this control. If performance is
+# unchanged, the grid is not grounded in the plant's own sky.
+#
+# NO TRAINING. Score an existing checkpoint:
+#   train=false ckpt_path=<best.ckpt> +ablation=A10
+train: false
+test: true
+model:
+  eval_control: swap_plant_frames
+  compute_marginal_gain: true

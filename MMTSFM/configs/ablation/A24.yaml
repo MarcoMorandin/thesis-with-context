@@ -1,0 +1,11 @@
+# @package _global_
+# A24 — leave-one-out: token-type embedding (the "M1 fix").
+#
+# Three additive embedding channels were added to disambiguate the packed
+# sequence (target / covariate / visual) and NONE has ever been ablated. The
+# table is still constructed when disabled, so the state_dict shape is unchanged
+# and this warm-starts from any existing checkpoint.
+#   base: any arm; run on the arm you intend to publish (s2c)
+model:
+  vision_cfg:
+    disable_token_type_embed: true

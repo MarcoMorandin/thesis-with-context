@@ -100,6 +100,14 @@ class VisionChronos2LightningModule(LightningModule):
         # burned 6.5 GPU-hours in exactly that state, val/loss pinned at 6.3977,
         # and would have poisoned every downstream curriculum stage.
         max_nonfinite_grad_steps: int = 50,
+        # Test-time negative controls (registry A09/A10). "none" is the only value
+        # that leaves the eval path byte-identical to every run recorded so far;
+        # the others corrupt the visual input in a specific, structured way at
+        # TEST TIME ONLY so that a non-zero marginal gain can be attributed to
+        # genuine sky information rather than to a per-plant or per-day constant.
+        #   "shuffle_frames"     — permute the temporal axis within each sample
+        #   "swap_plant_frames"  — give each sample another plant's sky sequence
+        eval_control: str = "none",
     ):
         super().__init__()
         self.save_hyperparameters(ignore=["video_encoder"])
@@ -107,6 +115,9 @@ class VisionChronos2LightningModule(LightningModule):
         # on_save_checkpoint); loading must therefore tolerate missing keys.
         self.strict_loading = False
         self._protocol_eval = None
+        # A09/A10: armed in on_test_start only, so training and validation take
+        # the untouched path no matter what eval_control says.
+        self._eval_control_active = False
         self.grassmann_warmup_steps = grassmann_warmup_steps
         self.n_unfreeze_encoder_blocks = n_unfreeze_encoder_blocks
         self._last_loss = None
@@ -538,9 +549,86 @@ class VisionChronos2LightningModule(LightningModule):
     # Training / Validation / Test
     # ------------------------------------------------------------------
 
+    _EVAL_CONTROLS = ("none", "shuffle_frames", "swap_plant_frames")
+
+    def _apply_eval_control(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
+        """Corrupt the visual stream at TEST TIME for the negative controls.
+
+        A non-zero marginal gain says only that the visual tokens carry
+        *something* the numeric stream lacks — a per-plant bias or a
+        time-of-day constant would produce exactly the same signature as real
+        sky information.  Two controls separate those:
+
+        ``shuffle_frames``
+            Permutes the temporal axis within each sample.  Every frame the
+            model sees still belongs to the right plant on the right day, so
+            any per-plant or per-day constant survives untouched; only the
+            *temporal ordering* — cloud advection — is destroyed.  The Δt
+            vector is deliberately NOT permuted, so the claimed timestamps no
+            longer describe the frames.
+
+        ``swap_plant_frames``
+            Rolls the visual tensors one position along the flattened batch,
+            so each sample is scored against another plant's sky.  Destroys
+            plant identity and site-specific bias as well as ordering.
+
+        Both are pure test-time input transforms: no weights, no config, and
+        no training path changes, so the model under control is bit-identical
+        to the model under the headline number.
+        """
+        control = getattr(self.hparams, "eval_control", "none")
+        if control == "none" or not self._eval_control_active:
+            return inputs
+        if control not in self._EVAL_CONTROLS:
+            raise ValueError(
+                f"eval_control={control!r} is not one of {self._EVAL_CONTROLS}"
+            )
+        video = inputs.get("video")
+        latents = inputs.get("video_latents")
+        if video is None and latents is None:
+            return inputs  # vision-off arm: control is a no-op by construction
+
+        out = dict(inputs)
+        ref = latents if latents is not None else video
+        B = ref.shape[0]
+
+        if control == "shuffle_frames":
+            # One independent permutation per sample, drawn from a generator
+            # seeded off the run seed so the control is reproducible.
+            gen = torch.Generator().manual_seed(int(getattr(self.hparams, "seed", 42)))
+            if latents is not None:
+                # [B, T_lat, P, D_v] — temporal axis 1
+                perm = torch.stack(
+                    [torch.randperm(latents.shape[1], generator=gen) for _ in range(B)]
+                ).to(latents.device)
+                idx = perm.view(B, -1, 1, 1).expand_as(latents)
+                out["video_latents"] = torch.gather(latents, 1, idx)
+            if video is not None:
+                # [B, C, T_v, H, W] — temporal axis 2
+                perm = torch.stack(
+                    [torch.randperm(video.shape[2], generator=gen) for _ in range(B)]
+                ).to(video.device)
+                idx = perm.view(B, 1, -1, 1, 1).expand_as(video)
+                out["video"] = torch.gather(video, 2, idx)
+            # visual_mask is per-frame availability; permute it with the frames
+            # only when its length matches, so a shuffled-in frame is not
+            # simultaneously marked absent.
+            vm = inputs.get("visual_mask")
+            if vm is not None and video is not None and vm.shape[1] == video.shape[2]:
+                out["visual_mask"] = torch.gather(vm, 1, perm.to(vm.device))
+        else:  # swap_plant_frames
+            # Roll every visual tensor TOGETHER so frames, mask and Δt stay
+            # mutually consistent — they are simply the wrong plant's.
+            for key in ("video", "video_latents", "visual_mask", "video_delta_t"):
+                val = inputs.get(key)
+                if val is not None:
+                    out[key] = torch.roll(val, shifts=1, dims=0)
+        return out
+
     def _forward(self, batch: Dict[str, torch.Tensor], force_vision_off: bool = False):
         """Run the fp32 forward once; return (unpacked inputs, model output)."""
         inputs = self._unpack_batch(batch)
+        inputs = self._apply_eval_control(inputs)
         device_type = self.device.type
         device_type = (
             device_type
@@ -652,6 +740,12 @@ class VisionChronos2LightningModule(LightningModule):
 
     def on_test_start(self):
         from eval.protocol_eval import ProtocolEvaluator
+
+        # A09/A10 arm here and nowhere else — training/validation never see it.
+        self._eval_control_active = True
+        control = getattr(self.hparams, "eval_control", "none")
+        if control != "none":
+            print(f"[eval-control] ACTIVE: {control}", flush=True)
 
         self._protocol_eval = ProtocolEvaluator(
             horizon=self.hparams.horizon,
@@ -799,6 +893,54 @@ class VisionChronos2LightningModule(LightningModule):
         tau = None if emb is None else emb.detach().float().cpu().numpy()
         self._protocol_eval.extra["horizon_attention"] = acc.report(tau_embed=tau)
 
+    def _run_cfg(self) -> Dict[str, Any]:
+        """Provenance record written into the results manifest (see knowledge/running-ablations.md §0).
+
+        runner.write_results stores this as manifest["config"] AND derives
+        config_hash from it. It used to hold three keys — seed, model,
+        quantile_levels — none of which vary across architectures, so s1, s2a,
+        s2b and s2c all landed on the single hash 18d5735b73123686 and no result
+        JSON could say which model produced it. Recording the full resolved
+        architecture makes every ablation self-identifying from its own file.
+        """
+        from omegaconf import OmegaConf
+
+        def _plain(value):
+            """DictConfig/ListConfig → plain containers; anything else as-is."""
+            if OmegaConf.is_config(value):
+                return OmegaConf.to_container(value, resolve=True)
+            return value
+
+        hp = self.hparams
+        return {
+            "seed": getattr(hp, "seed", 42),
+            "model": "mmtsfm",
+            "quantile_levels": None,
+            "chronos_core_cfg": _plain(hp.chronos_core_cfg),
+            "vision_cfg": _plain(hp.vision_cfg),
+            "horizon": getattr(hp, "horizon", None),
+            "pretrained_model_name_or_path": getattr(
+                hp, "pretrained_model_name_or_path", None
+            ),
+            "train_strategy": {
+                key: getattr(hp, key, None)
+                for key in (
+                    "lr",
+                    "weight_decay",
+                    "warmup_steps",
+                    "min_lr_ratio",
+                    "freeze_chronos",
+                    "n_unfreeze_encoder_blocks",
+                    "backbone_lr_ratio",
+                    "grassmann_warmup_steps",
+                    "n_visual_unfreeze_layers",
+                    "progressive_vision_unfreeze",
+                )
+            },
+            "eval_control": getattr(hp, "eval_control", "none"),
+            "compute_marginal_gain": getattr(hp, "compute_marginal_gain", False),
+        }
+
     def on_test_epoch_end(self):
         if self._protocol_eval is None or not self.trainer.is_global_zero:
             return
@@ -820,13 +962,7 @@ class VisionChronos2LightningModule(LightningModule):
             if k in overall:
                 self.log(f"test/{k}", float(overall[k]), rank_zero_only=True)
         try:
-            from omegaconf import OmegaConf
-
-            run_cfg = {
-                "seed": getattr(self.hparams, "seed", 42),
-                "model": "mmtsfm",
-                "quantile_levels": None,
-            }
+            run_cfg = self._run_cfg()
             path = self._protocol_eval.write(
                 self.hparams.results_dir, self.hparams.results_tag, run_cfg
             )

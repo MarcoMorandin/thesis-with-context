@@ -1,0 +1,8 @@
+# @package _global_
+# A25 — leave-one-out: modality embedding (numeric vs visual).
+# Most likely of the three to be redundant on s2c, where the visual tokens never
+# enter the sequence at all and are reached only through cross-attention.
+#   base: any arm; run on the arm you intend to publish (s2c)
+model:
+  vision_cfg:
+    disable_modality_embed: true

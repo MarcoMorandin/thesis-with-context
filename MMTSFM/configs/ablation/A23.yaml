@@ -1,0 +1,15 @@
+# @package _global_
+# A23 — recipe-matched s2a. Kills: "s2a's null is a dropout artefact."
+#
+# s2a trains at visual_dropout_prob=0.3; s2b and s2c at 0.5. A01 reports s2a's
+# ramp gain as a RECIPE effect (Δramp 0.0000 with vision forced off) — but s2a is
+# the only arm whose recipe differs, so "late fusion cannot read images" and
+# "late fusion was trained with weaker modality dropout" are not separated by
+# anything currently on disk. This makes the recipe identical and leaves fusion
+# mode as the only difference.
+#
+# If Δ stays ~0 here, A01's negative result becomes clean and publishable.
+#   base: model=vision_chronos2 (or the s2a model cfg) +stage=s2a
+model:
+  vision_cfg:
+    visual_dropout_prob: 0.5

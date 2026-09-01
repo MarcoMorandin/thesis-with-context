@@ -1,0 +1,12 @@
+# @package _global_
+# A27 — asymmetric modality dropout, numeric side off.
+#
+# Training drops the VISUAL stream at p=0.5 and the NUMERIC stream at p=0.1
+# (effective rate 0.1 x (1 - 0.5)). The numeric side has never been justified by
+# a measurement. It is a regulariser on the arm whose headline claim is "the
+# model uses the images", so it is exactly the knob a reviewer will ask about:
+# does forcing occasional vision-only prediction create the marginal gain?
+#   base: model=vision_chronos2_s2c +stage=s2c
+model:
+  vision_cfg:
+    numeric_dropout_prob: 0.0

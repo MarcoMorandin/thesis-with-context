@@ -1,0 +1,6 @@
+# @package _global_
+# A18 (k=2) — middle point of the cross-attention depth sweep {1,2,4}.
+#   base: model=vision_chronos2_s2c +stage=s2c
+model:
+  chronos_core_cfg:
+    visual_cross_attn_blocks: 2

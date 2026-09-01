@@ -22,6 +22,7 @@ those rules point at.
 | How do I run / train / submit anything? | [runbook.md](runbook.md) |
 | Where does code go? Naming, Hydra, git | [conventions.md](conventions.md) |
 | Which ablations exist and what is their status? | [ablations.md](ablations.md) |
+| How do I launch a registered ablation, in what order? | [running-ablations.md](running-ablations.md) |
 | Dated design decisions, superseded designs | [specs/](specs/) |
 | Where do issues live? How do agent skills read/write tickets? | [agents/issue-tracker.md](agents/issue-tracker.md) |
 | How should agent skills consume domain docs? | [agents/domain.md](agents/domain.md) |
@@ -51,6 +52,7 @@ Facts that exist in exactly one place. Anything else citing them must **link**, 
 | Live baseline numbers | `baselines/results/ALL_RESULTS.md` (generated) |
 | Results interpretation | `report/BASELINE_TEST_REPORT.md` |
 | Ablation status | `ablations.md` |
+| Ablation launch procedure | `running-ablations.md` |
 | Code layout, naming, git rules | `conventions.md` |
 | Agent rules and non-negotiables | `../AGENTS.md` |
 
