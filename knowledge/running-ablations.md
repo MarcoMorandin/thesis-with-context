@@ -49,6 +49,7 @@ staged the uv env, weights, dataset and the V-JEPA latent cache.
 cd MMTSFM
 
 # 1. Verify every BASE resolves to a checkpoint that exists on scratch.
+#    s2c + s1 bases confirmed 2026-09-01; the s2a arm's name is still unknown.
 ls /leonardo_scratch/fast/IscrC_MTSFM/checkpoints/curriculum
 
 # 2. Read the plan. Submits nothing; prints tags, pack layout and concurrency.
@@ -98,11 +99,23 @@ The manifest is [`MMTSFM/configs/ablation/sweep.manifest`](../MMTSFM/configs/abl
 — one row per ablation (`ID | MODE | STAGE | MODEL_CFG | SEEDS | BASE`). It is the
 only place the run list lives; the script expands seeds, resolves each warm-start
 or scoring checkpoint from `BASE`, and packs the jobs onto `NPACKS`
-nodes. ⚠ **Verify the `BASE` column against `ls $CKPT_DIR` before the first
-submission** — the s2c directory name depends on which `MODEL_CFG` produced it
-(`vision_chronos2_s2c` → `uk_pv_s2c_s2c_s42`, `vision_chronos2_timeselfattn` →
-`uk_pv_s2c_selfattn_s42`). A missing checkpoint is fatal at submit time, on the
-login node, before an allocation is spent.
+nodes. A missing checkpoint is fatal at submit time, on the login node, before an
+allocation is spent — which is how the first real submission (2026-09-01) resolved
+the `BASE` names rather than guessing them:
+
+| BASE | Status |
+|---|---|
+| `uk_pv_s2c_s2c_s{42,43,44}` | ✅ exists — the s2c arms came from `vision_chronos2_s2c` |
+| `uk_pv_s1_selfattn_s{42,43,44}` | ✅ exists — warm start for every training row |
+| `uk_pv_s2a_base_s{42,43,44}` | ❌ does not exist — see below |
+
+The four **s2a eval-control rows are commented out** in the manifest. `_base_` assumed
+`vision_chronos2` produced the s2a arm, but wave 1 ran grassmann and timeselfattn, so
+the directory on scratch is `uk_pv_s2a` (canonical grassmann@42 takes an *empty*
+suffix), `uk_pv_s2a_grassmann_s{43,44}`, or `uk_pv_s2a_selfattn_s{seed}`. Restore the
+rows with the name `ls $CKPT_DIR | grep s2a` reports **and** the `MODEL_CFG` that
+produced it — the two must agree, or the control scores one arm while claiming to be
+the late-fusion counterpart of another (§3).
 
 **What packing does and does not buy.** Each pack is `--nodes=1 --gres=gpu:4
 --cpus-per-task=32` running a work queue: four runs at a time, a freed GPU takes
@@ -129,10 +142,11 @@ parallel and the only limit is how many nodes you ask for. Concurrency is
 | `NPACKS` | train packs | jobs/pack | waves | wall-clock ≈ |
 |---|---|---|---|---|
 | 4 (default) | 3 | 8/7/7 | 2 | 2 × run |
-| 6 | 4 | 6/6/5/5 | 2 | 2 × run |
-| **8** | 6 | 4/4/4/4/3/3 | **1** | **1 × run** |
+| 6 | 5 | 5/5/4/4/4 | 2 | 2 × run |
+| **8** | 7 | 4/3/3/3/3/3/3 | **1** | **1 × run** |
 
-for the 34 runs the manifest currently expands to (12 eval + 22 train). Node-hours
+for the 28 runs the manifest currently expands to (6 eval + 22 train; the eval class
+takes one pack in every layout above). Node-hours
 are identical in all three — only the calendar changes, plus a couple of idle GPUs
 in the last wave. Bound by the account's max running jobs, not by the budget:
 check with `scontrol show partition boost_usr_prod` and
@@ -222,20 +236,21 @@ run today against the s2c seeds already on disk.
 ```bash
 # A09 — temporal shuffle
 uv run python -m mmtsfm.train +stage=s2c model=vision_chronos2_s2c +ablation=A09 \
-  train=false ckpt_path=<uk_pv_s2c_selfattn_s42/best.ckpt> \
+  train=false ckpt_path=<uk_pv_s2c_s2c_s42/best.ckpt> \
   data.data_dir=$DATA_DIR data.vjepa_cache_dir=$VJEPA_CACHE \
   model.results_dir=results model.results_tag=mmtsfm_A09_s2c_ukpv_s42
 
 # A10 — mismatched plant
 uv run python -m mmtsfm.train +stage=s2c model=vision_chronos2_s2c +ablation=A10 \
-  train=false ckpt_path=<uk_pv_s2c_selfattn_s42/best.ckpt> \
+  train=false ckpt_path=<uk_pv_s2c_s2c_s42/best.ckpt> \
   data.data_dir=$DATA_DIR data.vjepa_cache_dir=$VJEPA_CACHE \
   model.results_dir=results model.results_tag=mmtsfm_A10_s2c_ukpv_s42
 ```
 
 Run both against **s2a as well** — A09 on s2a is the negative-control's own control. If
 s2a degrades as much as s2c under shuffling, the control is measuring something other
-than motion.
+than motion. This pair is **not in the sweep yet**: it needs the real s2a checkpoint
+directory name and the `MODEL_CFG` that produced it (§1.1).
 
 What the controls do, exactly:
 
