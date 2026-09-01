@@ -32,3 +32,8 @@ num_samples_test: 200
 train_frac: 0.70
 val_frac: 0.10
 vis_cadence_multiplier: 1
+
+# See configs/data/ukpv.yaml — A10 (swap_plant_frames) is the only caller that
+# sets this true.
+shuffle_test: false
+shuffle_test_seed: 42

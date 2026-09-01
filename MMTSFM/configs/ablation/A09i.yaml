@@ -1,0 +1,29 @@
+# @package _global_
+# A09i — A09's null on s2c, recorded ON PURPOSE as an ARCHITECTURAL result.
+#
+# Identical to A09 except that it acknowledges the control is inert here. Read
+# A09.yaml first: on `fusion_mode: future_query` the visual KV is one flat,
+# position-free key set attended under an all-zero mask, so permuting frames is
+# a bit-exact no-op and A09 refuses to run.
+#
+# What this run is FOR: a receipt. Its output is numerically identical to the
+# plain s2c test JSON (delta_nmae = 0.000 exactly, not approximately), which is
+# the evidence that the invariance is structural rather than a coincidence of
+# this checkpoint. It is NOT evidence that the model ignores cloud motion, and
+# must never be reported as "shuffling frames does not hurt s2c".
+#
+# The claim it licenses, in full: s2c's visual pathway CANNOT represent frame
+# order, so whatever its marginal gain measures, it is not advection. Making
+# that falsifiable needs a temporal embedding on the visual KV — a training
+# change (see A27 / the follow-up column in knowledge/ablations.md).
+#
+# config.eval_control_allow_inert = true in the results JSON marks the file.
+#
+# NO TRAINING. Score an existing checkpoint:
+#   train=false ckpt_path=<best.ckpt> +ablation=A09i
+train: false
+test: true
+model:
+  eval_control: shuffle_frames
+  eval_control_allow_inert: true
+  compute_marginal_gain: true

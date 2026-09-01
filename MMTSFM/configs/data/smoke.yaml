@@ -23,3 +23,5 @@ num_samples_test: 4
 train_frac: 0.7
 val_frac: 0.1
 vis_cadence_multiplier: 1
+shuffle_test: false
+shuffle_test_seed: 42

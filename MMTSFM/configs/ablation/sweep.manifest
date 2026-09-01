@@ -26,10 +26,26 @@
 # are listed cheapest-decision-first (running-ablations.md §2).
 
 # --- 1. eval-only negative controls: minutes each, can kill the paper ---------
-A09 | eval  | s2c | vision_chronos2_s2c        | 42,43,44 | uk_pv_s2c_s2c_s{seed}
+# A09 (temporal shuffle) is NOT listed for s2c. It is a bit-exact no-op on
+# `fusion_mode: future_query` — _build_visual_kv emits one flat, position-free
+# key set attended under an all-zero kv_mask — so on_test_start REFUSES it. A09i
+# is that null recorded deliberately as an ARCHITECTURAL claim; one seed is
+# enough because the output equals the plain s2c test JSON exactly, for every
+# seed, by construction. See configs/ablation/A09.yaml.
+A09i| eval  | s2c | vision_chronos2_s2c        | 42       | uk_pv_s2c_s2c_s{seed}
+# A10 needs data.shuffle_test=true (set in its own config): the protocol test
+# loader is series-major, so an ordered batch is ONE plant and no sample can be
+# handed a DIFFERENT plant's sky.
 A10 | eval  | s2c | vision_chronos2_s2c        | 42,43,44 | uk_pv_s2c_s2c_s{seed}
+# A10b = same plant, sky one horizon stale. This is what the pre-2026-09 runs
+# labelled A10 actually measured; it separates "reads THIS sky" from "reads A
+# sky from this site", which is the claim the 4x4 grid has to support.
+A10b| eval  | s2c | vision_chronos2_s2c        | 42,43,44 | uk_pv_s2c_s2c_s{seed}
 # A09 on s2a is the negative control's own control: if late fusion degrades as
 # much as s2c under shuffling, the control measures something other than motion.
+# It is ALSO the only arm where A09 is falsifiable at all — and only if that arm
+# ran with n_visual_context_steps > 1. At 1 the LatentSummarizer is a set
+# function over the token bag and on_test_start refuses it for that reason too.
 # DISABLED 2026-09-01: `uk_pv_s2a_base_s{42,43,44}` do not exist on scratch — the
 # submit-time check refused all six rows. `_base_` assumes MODEL_CFG
 # `vision_chronos2` produced the s2a arm, but wave 1 ran grassmann and
@@ -37,7 +53,8 @@ A10 | eval  | s2c | vision_chronos2_s2c        | 42,43,44 | uk_pv_s2c_s2c_s{seed
 # suffix), `uk_pv_s2a_grassmann_s{43,44}` or `uk_pv_s2a_selfattn_s{seed}`.
 # Restore with the name `ls $CKPT_DIR | grep s2a` reports, and set MODEL_CFG to
 # the config that produced it — the two must agree or the control scores one arm
-# while claiming to be the late-fusion counterpart of another.
+# while claiming to be the late-fusion counterpart of another. Check that arm's
+# vision_cfg.n_visual_context_steps before restoring the A09 row.
 # A09 | eval  | s2a | <MODEL_CFG>              | 42,43,44 | uk_pv_s2a<SUFFIX>
 # A10 | eval  | s2a | <MODEL_CFG>              | 42,43,44 | uk_pv_s2a<SUFFIX>
 
