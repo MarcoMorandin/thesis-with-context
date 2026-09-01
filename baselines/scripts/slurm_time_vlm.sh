@@ -25,8 +25,13 @@
 #   sbatch --qos=boost_qos_lprod --time=01:00:00 \
 #          --export=ALL,EVAL_ONLY=1 scripts/slurm_time_vlm.sh
 #
+# RESUME=1 picks training up from <checkpoints>/<setting>/resume.pth (written every
+# epoch: weights + optimizer + AMP scaler + epoch + early-stopping counters). A
+# walltime kill therefore costs at most one epoch. Chain jobs, each --resume 1:
+#   sbatch --export=ALL,RESUME=1 scripts/slurm_time_vlm.sh
+#
 # Optional: DATA, SEQ_LEN(24) PRED_LEN(12) VLM_TYPE(CLIP) EPOCHS(15)
-#           MODEL_ID(ukpv_tvlm) VENV_NAME(timevlm) EVAL_ONLY(0)
+#           MODEL_ID(ukpv_tvlm) VENV_NAME(timevlm) EVAL_ONLY(0) RESUME(0)
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")/..}"
 [[ -f .env ]] && source .env
@@ -49,6 +54,7 @@ DATA="${DATA:-${TEAM_SCRATCH}/data_v2/dataset_all.parquet}"
 UKPV_DIR="${UKPV_DIR:-${TEAM_SCRATCH}/data_v2/ukpv_rag}"
 SEQ_LEN="${SEQ_LEN:-672}"; PRED_LEN="${PRED_LEN:-12}"   # 14-day context / 6h horizon (uk_pv 30-min)
 VLM_TYPE="${VLM_TYPE:-CLIP}"; EPOCHS="${EPOCHS:-15}"; MODEL_ID="${MODEL_ID:-ukpv_tvlm}"
+RESUME="${RESUME:-0}"; WARM_START="${WARM_START:-0}"
 export VISION_MODEL_PATH="${VISION_MODEL_PATH:-${TEAM_SCRATCH}/weights/clip-vit-base-patch32}"
 
 # ---- 1. export uk_pv → Informer CSVs (reuse the tier-4 bridge) --------------
@@ -78,7 +84,8 @@ if [[ "$EVAL_ONLY" == "1" ]]; then
 else
     echo ">>> TRAIN Time-VLM on uk_pv_train_protocol.csv (early stop on val plants)"
     python run.py --is_training 1 --data_path uk_pv_train_protocol.csv \
-      --train_epochs "$EPOCHS" "${common_args[@]}"
+      --train_epochs "$EPOCHS" --resume "$RESUME" --warm_start "$WARM_START" \
+      "${common_args[@]}"
 fi
 
 # ---- 3. EVAL each disjoint test plant (reuses the trained checkpoint) -------

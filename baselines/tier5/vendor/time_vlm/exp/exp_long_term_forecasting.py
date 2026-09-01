@@ -74,7 +74,13 @@ class Exp_Long_Term_Forecast(Exp_Basic):
     def train(self, setting):
         train_data, train_loader = self._get_data(flag='train')
         vali_data, vali_loader = self._get_data(flag='val')
-        test_data, test_loader = self._get_data(flag='test')
+        # PVTSFM adaptation: upstream also builds a 'test' loader here and scores
+        # it every epoch purely to print. Under --data ukpv, flag='test' routes to
+        # args.data_path, which during training IS the train CSV — so that pass
+        # re-scored all 69 train plants each epoch for a number nothing uses
+        # (early stopping reads vali_loss only). Skipped: pure walltime.
+        if self.args.data != 'ukpv':
+            test_data, test_loader = self._get_data(flag='test')
 
         path = os.path.join(self.args.checkpoints, setting)
         if not os.path.exists(path):
@@ -91,7 +97,43 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         if self.args.use_amp:
             scaler = torch.cuda.amp.GradScaler()
 
-        for epoch in range(self.args.train_epochs):
+        # PVTSFM adaptation: resume support. resume.pth is written EVERY epoch and
+        # carries what checkpoint.pth (best-val weights only) cannot — optimizer
+        # moments, AMP scaler, epoch index and the early-stopping counters — so a
+        # walltime kill costs at most one epoch instead of the whole run.
+        resume_path = os.path.join(path, 'resume.pth')
+        start_epoch = 0
+        if getattr(self.args, 'resume', 0) and os.path.exists(resume_path):
+            state = torch.load(resume_path, map_location=self.device)
+            self.model.load_state_dict(state['model'])
+            model_optim.load_state_dict(state['optimizer'])
+            if self.args.use_amp and state.get('amp_scaler') is not None:
+                scaler.load_state_dict(state['amp_scaler'])
+            start_epoch = state['epoch']
+            early_stopping.best_score = state['best_score']
+            early_stopping.val_loss_min = state['val_loss_min']
+            early_stopping.counter = state['counter']
+            print(f'>>> resumed from {resume_path}: {start_epoch} epochs done, '
+                  f'best val {early_stopping.val_loss_min:.7f}, '
+                  f'patience counter {early_stopping.counter}')
+        elif getattr(self.args, 'resume', 0):
+            print(f'>>> --resume set but no {resume_path}; starting from scratch')
+
+        # PVTSFM adaptation: warm start. A run killed before resume.pth existed
+        # still leaves checkpoint.pth (best-val WEIGHTS only). Reusing them beats
+        # random init, but the optimizer moments and the LR schedule position are
+        # gone, so this is NOT equivalent to an uninterrupted run — kept behind
+        # its own flag so it can never be confused with --resume, and it is
+        # ignored once a real resume.pth exists.
+        if (start_epoch == 0 and getattr(self.args, 'warm_start', 0)
+                and os.path.exists(os.path.join(path, 'checkpoint.pth'))):
+            ckpt = os.path.join(path, 'checkpoint.pth')
+            self.model.load_state_dict(torch.load(ckpt, map_location=self.device))
+            print(f'>>> WARM START from {ckpt}: weights only. Optimizer state and '
+                  f'LR schedule restart at epoch 1 — this run is NOT equivalent '
+                  f'to an uninterrupted one; record it as a warm start.')
+
+        for epoch in range(start_epoch, self.args.train_epochs):
             iter_count = 0
             train_loss = []
 
@@ -147,11 +189,26 @@ class Exp_Long_Term_Forecast(Exp_Basic):
             print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
             train_loss = np.average(train_loss)
             vali_loss = self.vali(vali_data, vali_loader, criterion)
-            test_loss = self.vali(test_data, test_loader, criterion)
+            test_loss = (float('nan') if self.args.data == 'ukpv'
+                         else self.vali(test_data, test_loader, criterion))
 
             print("Epoch: {0}, Steps: {1} | Train Loss: {2:.7f} Vali Loss: {3:.7f} Test Loss: {4:.7f}".format(
                 epoch + 1, train_steps, train_loss, vali_loss, test_loss))
             early_stopping(vali_loss, self.model, path)
+
+            # PVTSFM adaptation: checkpoint the FULL training state after every
+            # epoch (see --resume). Written after early_stopping so best_score /
+            # counter are the post-epoch values.
+            torch.save({
+                'epoch': epoch + 1,
+                'model': self.model.state_dict(),
+                'optimizer': model_optim.state_dict(),
+                'amp_scaler': scaler.state_dict() if self.args.use_amp else None,
+                'best_score': early_stopping.best_score,
+                'val_loss_min': early_stopping.val_loss_min,
+                'counter': early_stopping.counter,
+            }, resume_path)
+
             if early_stopping.early_stop:
                 print("Early stopping")
                 break

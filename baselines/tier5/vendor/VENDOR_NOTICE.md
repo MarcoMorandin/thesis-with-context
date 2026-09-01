@@ -53,7 +53,21 @@ edits — diff against the pinned upstream SHA to see them:
   on the train plants only, and never lets a window straddle a plant boundary.
 - `time_vlm/run.py` — upstream hardcoded `fix_seed = 2024` **before** `parse_args()`, so
   `--seed` only ever reached the augmentation code. Seeding now happens after parsing and
-  is driven by `--seed` (default 42 = the protocol seed).
+  is driven by `--seed` (default 42 = the protocol seed). Also adds `--resume`.
+- `time_vlm/exp/exp_long_term_forecasting.py` — **resumable training**. Upstream persists
+  only best-val *weights* (`checkpoint.pth`), so a SLURM walltime kill loses the optimizer
+  moments, the epoch index and the early-stopping counters — the run restarts from zero.
+  A `resume.pth` is now written every epoch with all of that; `--resume 1` picks up from
+  it, so a kill costs at most one epoch and long trainings can be chained across jobs.
+  `--warm_start 1` is the weaker fallback for a run killed *before* any `resume.pth`
+  existed: it initializes from `checkpoint.pth` (weights only, fresh optimizer and LR
+  schedule). That is **not** an exact resume and must be recorded as a warm start
+  wherever the number is reported; it is ignored once a real `resume.pth` exists.
+  Same file: the per-epoch `test` pass is skipped under `--data ukpv`. Upstream builds a
+  test loader in `train()` and scores it each epoch only to print `Test Loss`; with
+  `Dataset_UKPV`, `flag='test'` routes to `args.data_path`, which during training is the
+  *train* CSV — so it re-scored all 69 train plants every epoch for a number nothing
+  consumes (early stopping reads `vali_loss` alone). Pure walltime, now `nan`.
 - `time_vlm/dataset/prompt_bank/ukpv.txt` — **added**: `utils.tools.load_content` keys the
   text prompt on `args.data`, so the `ukpv` loader needs its own entry.
 - `visionts_pp/run_ukpv.py` — **added** (not upstream): self-contained zero-shot runner over

@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 VENDOR = Path(__file__).resolve().parents[1] / "tier5" / "vendor"
+SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 
 SHAS = {
     "time_vlm": "796e6ec963788657207ea2b5553740993ea3ea2b",
@@ -98,3 +99,21 @@ def test_time_vlm_seed_is_parsed_not_hardcoded():
     run = (VENDOR / "time_vlm" / "run.py").read_text()
     assert "fix_seed = 2024" not in run, "upstream seeded before parse_args()"
     assert "random.seed(args.seed)" in run
+
+
+def test_time_vlm_training_is_resumable():
+    """A walltime kill must cost one epoch, not the run. Upstream saves only
+    best-val weights, so optimizer moments / epoch / early-stop counters die
+    with the job."""
+    tvlm = VENDOR / "time_vlm"
+    assert "--resume" in (tvlm / "run.py").read_text()
+    exp = (tvlm / "exp" / "exp_long_term_forecasting.py").read_text()
+    assert "resume.pth" in exp
+    for key in ("'optimizer': model_optim.state_dict()", "'epoch': epoch + 1",
+                "'counter': early_stopping.counter"):
+        assert key in exp, f"resume state missing {key}"
+    assert "for epoch in range(start_epoch, self.args.train_epochs)" in exp
+    # the per-epoch 'test' pass re-scored the TRAIN csv under --data ukpv
+    assert "if self.args.data != 'ukpv':" in exp
+    assert 'RESUME="${RESUME:-0}"' in (
+        SCRIPTS / "slurm_time_vlm.sh").read_text()

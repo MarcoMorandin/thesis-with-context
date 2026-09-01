@@ -92,6 +92,15 @@ if __name__ == '__main__':
     parser.add_argument('--loss', type=str, default='MSE', help='loss function')
     parser.add_argument('--lradj', type=str, default='type1', help='adjust learning rate')
     parser.add_argument('--use_amp', action='store_true', help='use automatic mixed precision training', default=False)
+    # PVTSFM adaptation: upstream has no resume path — it saves only best-val
+    # model weights, so a walltime kill loses the optimizer state, the epoch
+    # counter and the early-stopping counter. --resume 1 picks up from the
+    # per-epoch resume.pth written alongside checkpoint.pth.
+    parser.add_argument('--resume', type=int, default=0,
+                        help='resume training from <checkpoints>/<setting>/resume.pth if present')
+    parser.add_argument('--warm_start', type=int, default=0,
+                        help='if no resume.pth, initialize weights from checkpoint.pth '
+                             '(fresh optimizer + LR schedule — NOT an exact resume)')
     
     # hyperparameters
     parser.add_argument('--vlm_type', type=str, default='CLIP', help='VLM model type, e.g. CLIP, BLIP2, etc.')
