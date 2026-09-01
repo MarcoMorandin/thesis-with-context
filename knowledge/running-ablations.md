@@ -68,10 +68,37 @@ wait per pack instead of one per ablation (45 → 4), one env + data warm-up
 amortised over the pack, no hand-typed `sbatch` (and so no hand-typed wrong
 `PREV_CKPT`), and a continuation chain that resumes whatever the walltime cut off.
 
-**What it costs, used carelessly: tail idle.** When a pack runs out of queued jobs,
-finished GPUs sit allocated and idle until the last run ends — one 24 h straggler
-beside three finished slots wastes three GPU-days. Keep jobs-per-pack well above 4.
-**With fewer than ~8 jobs, use §1.2 instead.**
+**What it costs, used carelessly: tail idle.** A pack drains a queue with 4 slots;
+once the queue is empty, a slot that finished early sits **allocated and idle**
+until the pack's slowest run ends. The sweep therefore bins jobs by cost class
+(eval = minutes, train = hours), gives each class its own packs in proportion to
+its job count, and round-robins only *within* a class — a minutes-long control
+never shares a pack with a 20 h training row. **With fewer than ~8 jobs, use §1.2
+instead.**
+
+**Wall-clock is `NPACKS`.** Nothing in the manifest waits for anything else — every
+row warm-starts from an arm already on scratch — so the sweep is embarrassingly
+parallel and the only limit is how many nodes you ask for. Concurrency is
+`NPACKS × GPUS`; a pack of *n* jobs takes `ceil(n/4)` waves of one run-length.
+
+| `NPACKS` | train packs | jobs/pack | waves | wall-clock ≈ |
+|---|---|---|---|---|
+| 4 (default) | 3 | 8/7/7 | 2 | 2 × run |
+| 6 | 4 | 6/6/5/5 | 2 | 2 × run |
+| **8** | 6 | 4/4/4/4/3/3 | **1** | **1 × run** |
+
+for the 34 runs the manifest currently expands to (12 eval + 22 train). Node-hours
+are identical in all three — only the calendar changes, plus a couple of idle GPUs
+in the last wave. Bound by the account's max running jobs, not by the budget:
+check with `scontrol show partition boost_usr_prod` and
+`sacctmgr show assoc user=$USER format=user,maxjobs,maxsubmitjobs,grpnodes`.
+
+**The axis deliberately not taken:** running one ablation across 4 GPUs
+(`trainer.devices=4`) would cut its wall-clock ~4× at the same node-hours, but the
+effective batch becomes `4 × BATCH × ACCUM` and the run is no longer comparable to
+the single-GPU arm it ablates — the ablation would measure the batch size as much
+as the component. Both launchers pin `trainer.devices=1 trainer.strategy=auto` for
+that reason. Parallelise across runs, never inside one.
 
 Knobs: `MANIFEST` `DS` `NPACKS`(4) `GPUS`(4) `CHAIN`(1) `SWEEP_TIME`(24:00:00)
 `SWEEP_EPOCHS`(20) `SWEEP_BATCH`(4) `SWEEP_ACCUM`(4) `ONLY` `SEEDS` `MAIL_USER`

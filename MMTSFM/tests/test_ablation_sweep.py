@@ -162,15 +162,47 @@ def test_duplicate_manifest_rows_are_rejected_before_anything_is_queued(env, tmp
     assert "duplicate run tags" in proc.stdout
 
 
-def test_round_robin_spreads_cheap_and_expensive_rows_across_packs(env):
-    packs = _packs(env, NPACKS="3")
-    assert len(packs) == 3
-    sizes = [len(p) for p in packs]
+def test_short_and_long_runs_never_share_a_pack(env):
+    # A pack drains a queue with GPUS slots; once the queue is empty a slot that
+    # finished early sits allocated and idle until the pack's slowest run ends.
+    # An eval (minutes) sharing a pack with a train (hours) is that GPU wasted
+    # for the whole difference, which is what makes the parallelism nominal.
+    packs = [p for p in _packs(env, NPACKS="3") if p]
+    assert len(packs) >= 2
+    for pack in packs:
+        modes = {"eval" if "_A09_" in t or "_A10_" in t else "train" for t in pack}
+        assert len(modes) == 1, f"pack mixes cost classes: {pack}"
+    evals = [p for p in packs if all("_A09_" in t or "_A10_" in t for t in p)]
+    trains = [p for p in packs if p not in evals]
+    assert evals and trains
+    assert sum(len(p) for p in evals) == 2
+    assert sum(len(p) for p in trains) == 4
+
+
+def test_round_robin_balances_packs_within_a_cost_class(env):
+    # Within a class the jobs are interchangeable, so no pack should draw a
+    # disproportionate share and run out of walltime while another finishes early.
+    packs = [p for p in _packs(env, NPACKS="3") if p]
+    trains = [p for p in packs if not all("_A09_" in t or "_A10_" in t for t in p)]
+    sizes = [len(p) for p in trains]
     assert max(sizes) - min(sizes) <= 1, sizes
-    # The manifest is ordered cheapest-first. Contiguous slicing would put both
-    # minutes-long A09 evals in pack 0 and leave it idle for 23 h.
-    packs_with_a09 = [i for i, p in enumerate(packs) if any("_A09_" in t for t in p)]
-    assert len(packs_with_a09) > 1, packs
+
+
+def test_every_job_lands_in_exactly_one_pack(env):
+    packs = _packs(env, NPACKS="3")
+    flat = [t for p in packs for t in p]
+    assert len(flat) == 6
+    assert len(set(flat)) == 6, flat
+
+
+def test_empty_packs_are_not_submitted(env):
+    # NPACKS is clamped to the job count, but a cost class can still end up with
+    # fewer jobs than the packs allotted to it. Submitting the empty one would
+    # allocate a node for a worker that exits FATAL on an empty slice.
+    plan = _plan(env, NPACKS="5", ONLY="A09")
+    assert "PACK=" in plan
+    for pack in _packs(env, NPACKS="5", ONLY="A09"):
+        assert pack, "an empty pack was submitted"
 
 
 def test_missing_checkpoint_is_fatal_at_submit_time(env, tmp_path):

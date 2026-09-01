@@ -91,7 +91,7 @@ SWEEP_ID="${SWEEP_ID:-$(date +%Y%m%d_%H%M%S)}"
 SWEEP_DIR="${SWEEP_DIR:-logs/sweeps/${SWEEP_ID}}"
 mkdir -p "$SWEEP_DIR" logs/slurm
 
-declare -a J_LINE=() J_TAG=()
+declare -a J_LINE=() J_TAG=() J_MODE=()
 missing=0
 while IFS='|' read -r id mode stage model_cfg seeds base; do
   id="${id// /}"; mode="${mode// /}"; stage="${stage// /}"
@@ -112,7 +112,7 @@ while IFS='|' read -r id mode stage model_cfg seeds base; do
     tag="mmtsfm_${id}_${stage}_$(dcfg_for "$DS")_s${seed}"
     init_ckpt=""; score_ckpt=""
     if [[ "$mode" == "eval" ]]; then score_ckpt="$ckpt"; else init_ckpt="$ckpt"; fi
-    J_TAG+=("$tag")
+    J_TAG+=("$tag"); J_MODE+=("$mode")
     # `|`-separated, NOT tab: tab is an IFS whitespace character, so `read` with
     # IFS=$'\t' collapses runs of them and an empty init_ckpt would shift every
     # later column left by one — silently handing the batch size to `seed`.
@@ -132,23 +132,61 @@ NJOBS=${#J_TAG[@]}
 dupes="$(printf '%s\n' "${J_TAG[@]}" | sort | uniq -d)"
 [[ -z "$dupes" ]] || { echo "FATAL: duplicate run tags in the sweep:"; echo "$dupes"; exit 1; }
 
-# ---- split round-robin across packs -----------------------------------------
-# Round-robin, not contiguous slices: the manifest is ordered cheapest-first, so
-# contiguous packs would put every minutes-long eval row in pack 0 and every 24 h
-# training row in the last pack — one node finishing in an hour while another
-# runs out of walltime.
+# ---- split across packs: by cost class first, round-robin within -------------
+# Everything here is embarrassingly parallel — every row warm-starts from an arm
+# that already exists on scratch, so nothing waits for anything else. The only
+# question is how the jobs are laid out, and that decides wall-clock.
+#
+# Round-robin alone is not enough. A pack drains a queue with GPUS slots; once
+# the queue is empty a slot that finishes early sits ALLOCATED AND IDLE until
+# the pack's slowest run ends. Mixing a minutes-long eval with a 20 h train in
+# one pack therefore buys nothing and wastes a GPU for 20 h. So: bin by cost
+# class (eval = minutes, train = hours), give each class its own packs
+# proportional to its job count, and round-robin inside a class — where the jobs
+# really are interchangeable, so no pack draws all the long ones.
 (( NPACKS < 1 )) && NPACKS=1
 (( NPACKS > NJOBS )) && NPACKS=$NJOBS
-for (( p=0; p<NPACKS; p++ )); do : > "${SWEEP_DIR}/pack${p}.jobs"; done
+
+declare -a IDX_SHORT=() IDX_LONG=()
 for (( k=0; k<NJOBS; k++ )); do
-  printf '%s\n' "${J_LINE[$k]}" >> "${SWEEP_DIR}/pack$((k % NPACKS)).jobs"
+  if [[ "${J_MODE[$k]}" == "eval" ]]; then IDX_SHORT+=("$k"); else IDX_LONG+=("$k"); fi
 done
+n_short=${#IDX_SHORT[@]}
+P_SHORT=0
+if (( n_short > 0 && NPACKS > 1 )); then
+  P_SHORT=$(( NPACKS * n_short / NJOBS ))
+  (( P_SHORT < 1 )) && P_SHORT=1
+  (( P_SHORT > NPACKS - 1 )) && P_SHORT=$(( NPACKS - 1 ))
+fi
+# One pack total: no split to make. Keep manifest order (evals first) so the
+# controls still come out of the single queue before the training rows.
+if (( P_SHORT == 0 )); then
+  IDX_LONG=( ${IDX_SHORT[@]+"${IDX_SHORT[@]}"} ${IDX_LONG[@]+"${IDX_LONG[@]}"} )
+  IDX_SHORT=()
+fi
+P_LONG=$(( NPACKS - P_SHORT ))
+
+# _assign <first_pack> <n_packs> <job index...>
+_assign() {
+  local base="$1" span="$2"; shift 2
+  local c=0 k
+  (( span > 0 )) || return 0
+  for k in "$@"; do
+    printf '%s\n' "${J_LINE[$k]}" >> "${SWEEP_DIR}/pack$(( base + c % span )).jobs"
+    c=$((c+1))
+  done
+}
+
+for (( p=0; p<NPACKS; p++ )); do : > "${SWEEP_DIR}/pack${p}.jobs"; done
+_assign 0 "$P_SHORT" ${IDX_SHORT[@]+"${IDX_SHORT[@]}"}
+_assign "$P_SHORT" "$P_LONG" ${IDX_LONG[@]+"${IDX_LONG[@]}"}
 
 echo "=============================================================="
 echo " MMTSFM ABLATION SWEEP   ${SWEEP_ID}"
 echo " manifest=${MANIFEST}   ds=${DS}   jobs=${NJOBS}"
 echo " packs=${NPACKS} x ${GPUS} GPU   chain=${CHAIN}   walltime=${SWEEP_TIME}"
-echo " job files → ${SWEEP_DIR}/pack*.jobs"
+echo " layout: ${n_short} eval → ${P_SHORT} pack(s), $(( NJOBS - n_short )) train → ${P_LONG} pack(s)"
+echo " concurrency=$(( NPACKS * GPUS )) runs at once   job files → ${SWEEP_DIR}/pack*.jobs"
 echo "=============================================================="
 
 [[ "$DRY_RUN" == "1" ]] || command -v sbatch >/dev/null || {
@@ -161,6 +199,9 @@ declare -a MAIL=()
 for (( p=0; p<NPACKS; p++ )); do
   job_file="${SWEEP_DIR}/pack${p}.jobs"
   n_in_pack="$(wc -l < "$job_file" | tr -d ' ')"
+  # A group can end up with fewer jobs than packs. Submitting the empty one
+  # would allocate a whole node for a worker that exits FATAL on an empty slice.
+  (( n_in_pack > 0 )) || { echo "  pack ${p} empty — not submitted"; continue; }
   exports="ALL,JOB_FILE=${job_file},DATA_DIR=${DATA_DIR},CKPT_DIR=${CKPT_DIR}"
   exports+=",RESULTS_DIR=${RESULTS_DIR},GPUS=${GPUS},TRAIN_STRIDE=${TRAIN_STRIDE}"
   exports+=",VJEPA_CACHE=${VJEPA_CACHE_ROOT}/${DS}/${VJEPA_CACHE_VER}"
