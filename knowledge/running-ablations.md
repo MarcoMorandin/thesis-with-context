@@ -39,20 +39,65 @@ strategy and `eval_control`. Consequences:
 ### 1.1 The batch — `scripts/ablation_sweep.sh` (default)
 
 The whole manifest goes out as a handful of whole-node jobs, each running four
-ablations at once. Submit from a **login node**, from `MMTSFM/`.
+ablations at once. Submit from a **login node**, from `MMTSFM/`. Prereq: step 0 of
+[runbook.md](runbook.md) — `precache_login.sh` and `extract_vjepa.sbatch` have
+staged the uv env, weights, dataset and the V-JEPA latent cache.
+
+**Run the whole suite — the exact sequence:**
 
 ```bash
 cd MMTSFM
-DRY_RUN=1 bash scripts/ablation_sweep.sh          # print the plan, submit nothing
-MAIL_USER=you@example.com bash scripts/ablation_sweep.sh
-ONLY="A09 A10" bash scripts/ablation_sweep.sh     # just the eval controls
-CHAIN=3 bash scripts/ablation_sweep.sh            # 3 linked packs: survive the 24 h cap
+
+# 1. Verify every BASE resolves to a checkpoint that exists on scratch.
+ls /leonardo_scratch/fast/IscrC_MTSFM/checkpoints/curriculum
+
+# 2. Read the plan. Submits nothing; prints tags, pack layout and concurrency.
+DRY_RUN=1 bash scripts/ablation_sweep.sh
+
+# 3. Submit. 8 nodes puts all 22 training rows in one wave (§ table below).
+NPACKS=8 MAIL_USER=you@example.com bash scripts/ablation_sweep.sh
 ```
+
+That is it — everything else has a default that is already right for `uk_pv` on
+Leonardo: `DATA_DIR=$TEAM_SCRATCH/data_v2`,
+`CKPT_DIR=$TEAM_SCRATCH/checkpoints/curriculum`, `RESULTS_DIR=<repo>/baselines/results`,
+`VJEPA_CACHE_VER=vit_large_f8_s224_nonhrv_sp45` (the **v2 non-HRV** cache of record
+— the bare `vit_large_f8_s224` path still on `/leonardo_work` holds obsolete v1 HRV
+latents), `TRAIN_STRIDE=12`, `SWEEP_EPOCHS=20`, `SWEEP_BATCH=4`, `SWEEP_ACCUM=4`,
+`SWEEP_TIME=24:00:00`, `ACCOUNT=IscrC_MTSFM`, `PARTITION=boost_usr_prod`.
+
+Fully-specified form, for a different dataset or a non-default scratch layout:
+
+```bash
+DS=uk_pv NPACKS=8 GPUS=4 CHAIN=2 \
+TEAM_SCRATCH=/leonardo_scratch/fast/IscrC_MTSFM \
+DATA_DIR=/leonardo_scratch/fast/IscrC_MTSFM/data_v2 \
+CKPT_DIR=/leonardo_scratch/fast/IscrC_MTSFM/checkpoints/curriculum \
+RESULTS_DIR="$PWD/../baselines/results" \
+VJEPA_CACHE_ROOT=/leonardo_work/IscrC_MTSFM/vjepa_cache \
+VJEPA_CACHE_VER=vit_large_f8_s224_nonhrv_sp45 \
+SWEEP_EPOCHS=20 SWEEP_BATCH=4 SWEEP_ACCUM=4 SWEEP_TIME=24:00:00 \
+MAIL_USER=you@example.com \
+  bash scripts/ablation_sweep.sh
+```
+
+Subsets and recovery:
+
+```bash
+ONLY="A09 A10" bash scripts/ablation_sweep.sh      # eval controls only (minutes)
+ONLY=A17 SEEDS=42 NPACKS=1 bash scripts/ablation_sweep.sh
+CHAIN=3 NPACKS=8 bash scripts/ablation_sweep.sh    # 3 linked packs: survive the 24 h cap
+NPACKS=8 bash scripts/ablation_sweep.sh            # after a TIMEOUT: same command, idempotent
+```
+
+Re-running the same command is safe and is the intended recovery path: `SKIP_DONE=1`
+skips any run whose results JSON exists, and everything else resumes from its own
+`last.ckpt`. Job files and the plan land in `logs/sweeps/<SWEEP_ID>/`.
 
 The manifest is [`MMTSFM/configs/ablation/sweep.manifest`](../MMTSFM/configs/ablation/sweep.manifest)
 — one row per ablation (`ID | MODE | STAGE | MODEL_CFG | SEEDS | BASE`). It is the
 only place the run list lives; the script expands seeds, resolves each warm-start
-or scoring checkpoint from `BASE`, and packs the jobs round-robin onto `NPACKS`
+or scoring checkpoint from `BASE`, and packs the jobs onto `NPACKS`
 nodes. ⚠ **Verify the `BASE` column against `ls $CKPT_DIR` before the first
 submission** — the s2c directory name depends on which `MODEL_CFG` produced it
 (`vision_chronos2_s2c` → `uk_pv_s2c_s2c_s42`, `vision_chronos2_timeselfattn` →
