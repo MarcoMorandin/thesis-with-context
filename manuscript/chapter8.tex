@@ -1,0 +1,437 @@
+\chapter{Experimental Design and Results}
+\label{cha:expdesign}
+
+The training campaign for MMTSFM was still running at the time of writing. This chapter
+therefore states, in full, \emph{how} the model is measured --- the arms, the controls, the
+reporting rules and the integrity constraints --- and leaves the result tables as
+placeholders to be filled from the completed runs. Earlier development runs exist but are
+superseded by the current campaign and are deliberately not reported here: a provisional
+number that later moves is worse than no number, because it propagates into every
+downstream comparison.
+
+Everything below is on the primary scenario of Section~\ref{sec:scenarios}: cross-plant
+(S2) on \texttt{uk\_pv}, fourteen disjoint test plants, fourteen days of history, six-hour
+horizon, evaluated against the bars established in Section~\ref{sec:bar}.
+
+\section{Arms}
+\label{sec:arms}
+
+Four arms constitute the main experiment. They are designed so that each pair differs in
+exactly one factor, which is what makes the differences interpretable.
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabular}{l l l l p{4.4cm}}
+\hline
+\textbf{Arm} & \textbf{Vision} & \textbf{Mixer} & \textbf{Fusion} & \textbf{Isolates} \\
+\hline
+A --- numeric & off & Grassmann & --- & The vision-lift lower bound \\
+B --- late & on & self-attention & late & The conventional multimodal design \\
+C --- interleaved & on & Grassmann & interleaved & The proposed model \\
+D --- no pair bias & on & Grassmann & interleaved & The modality-pair correction \\
+\hline
+\end{tabular}
+\caption{The four main arms. All share the curriculum, data, seed and schedule of
+Chapter~\ref{cha:method}; they differ only in the stated factor.}
+\label{tab:arms}
+\end{table}
+
+Three comparisons follow directly:
+
+\begin{itemize}
+  \item \textbf{C against A} answers H1 --- does the visual stream contribute measurable
+    skill at all? Arm~A is the lower bound: the identical recipe with the vision stack
+    disabled. If C does not exceed A, no amount of fusion sophistication is doing work, and
+    any advantage over an external baseline comes from the training recipe rather than from
+    multimodality.
+  \item \textbf{C against B} answers H2 --- does fusion \emph{depth} matter? Same backbones,
+    same data, same schedule; only the point at which the modalities meet differs.
+  \item \textbf{C against D} isolates the modality-aware offset gating of
+    Section~\ref{sec:grassmann}, and is expected to show up in calibration at least as much
+    as in point accuracy.
+\end{itemize}
+
+Arm~A deserves emphasis because it is the arm most often omitted in multimodal work. Without
+a modality-off control run under the \emph{identical} recipe, a multimodal model that beats
+an external unimodal baseline proves nothing about its second modality: the gain may come
+entirely from the curriculum, the normalisation or the horizon head. Arm~A is what converts
+the comparison from suggestive to conclusive, in whichever direction it falls.
+
+\section{Reporting template}
+\label{sec:reporting}
+
+Results will be recorded in the form of Table~\ref{tab:mmtsfm-results}, with each arm's
+in-process test metrics, and read against the three bars of Section~\ref{sec:bar}: 0.552
+overall, 0.540 multimodal, and 0.331 for the same backbone fine-tuned.
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabular}{l c c c c c}
+\hline
+\textbf{Arm} & \textbf{NMAE} $\downarrow$ & \textbf{NRMSE} $\downarrow$ &
+\textbf{SS} $\uparrow$ & \textbf{CRPS} $\downarrow$ & \textbf{Cov@80} \\
+\hline
+A --- numeric (vision off) & --- & --- & --- & --- & --- \\
+B --- late fusion & --- & --- & --- & --- & --- \\
+C --- interleaved (proposed) & --- & --- & --- & --- & --- \\
+D --- no pair bias & --- & --- & --- & --- & --- \\
+\hline
+\multicolumn{6}{l}{\emph{Reference points}} \\
+Chronos-2 fine-tuned (same backbone) & 0.1120 & 0.1543 & 0.331 & 0.0855 & --- \\
+TS-RAG (best frozen-backbone adaptation) & 0.0705 & 0.1203 & 0.478 & --- & --- \\
+iTransformer (overall bar) & 0.0699 & 0.1032 & 0.552 & --- & --- \\
+\hline
+\end{tabular}
+\caption{Reporting template for the MMTSFM campaign. Reference rows are from
+Table~\ref{tab:leaderboard}; the arm rows are pending completion of the runs.}
+\label{tab:mmtsfm-results}
+\end{table}
+
+Three secondary views are reported alongside the aggregate table, because the aggregate
+alone cannot distinguish the hypotheses of interest.
+
+\paragraph{Per-horizon profile.} Normalised mean absolute error as a function of lead time,
+per arm. If the visual stream contributes, its contribution should be concentrated at short
+to medium lead times, where advection is predictable from the observed cloud field, and
+should decay as the field leaves the crop. An arm whose profile is indistinguishable from
+the vision-free arm at \emph{every} lead time has not used its frames, regardless of what
+the aggregate says.
+
+\paragraph{Ramp subset.} The same metrics restricted to the top decile of $|\Delta y|$ per
+site (scenario S6). This is where the multimodal hypothesis lives or dies: clear-sky periods
+are won by persistence, and vision earns its tokens only during cloud transitions. The
+reference to beat here is Time-VLM's ramp NRMSE of 0.172, the best in the suite.
+
+\paragraph{Calibration.} Empirical coverage of the nominal 80\% interval alongside the
+continuous ranked probability score. The modality-pair-bias ablation in particular is
+expected to affect the predictive distribution more than the conditional mean.
+
+\section{The run matrix}
+\label{sec:run-matrix}
+
+Each arm is not one job but a chain of four, one per curriculum stage, each warm-starting from
+the previous stage's best checkpoint. Table~\ref{tab:runmatrix} states the full matrix, which
+is what determines the compute budget and the order in which results become available.
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabular}{l c c c c l}
+\hline
+\textbf{Arm} & \textbf{S1} & \textbf{S2a} & \textbf{S2b} & \textbf{S3} & \textbf{Notes} \\
+\hline
+A --- numeric (vision off) & yes & --- & --- & yes & S2a/S2b are vision stages and do not
+apply \\
+B --- late fusion, self-attention & yes & yes & --- & yes & stops at late fusion by
+construction \\
+C --- interleaved, Grassmann & yes & yes & yes & yes & the full curriculum \\
+D --- interleaved, no pair bias & yes & yes & yes & yes & branches from C at S2b \\
+\hline
+\end{tabular}
+\caption{Curriculum stages required per arm. Arms C and D share their S1 and S2a
+checkpoints, so the marginal cost of D is two stages rather than four.}
+\label{tab:runmatrix}
+\end{table}
+
+Two properties of this matrix affect interpretation. Arms C and D share their earlier stages,
+so the comparison between them isolates the modality-pair bias cleanly --- they are identical
+up to the point where the bias is introduced. Arm A, by contrast, skips the vision stages
+entirely and therefore differs from the others in \emph{schedule} as well as in modality; its
+S1 and S3 are longer to compensate for the stages it does not run. That asymmetry is
+unavoidable --- a vision-free model cannot run a visual alignment stage --- and it is a
+caveat on the vision-lift comparison that must be stated whenever that comparison is reported.
+
+\section{Controls}
+\label{sec:ablation-design}
+
+Aggregate metrics cannot establish that a model \emph{reads} its second modality; they can
+only establish that having it does not hurt. Four controls are specified for that purpose,
+and their status is stated honestly.
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabular}{l p{7.0cm} l}
+\hline
+\textbf{Control} & \textbf{What it establishes} & \textbf{Status} \\
+\hline
+Shuffled frames & The frames are read \emph{temporally}. A random permutation of the visual
+window should degrade a model that uses advection; a model whose gain is regularisation is
+unaffected. & specified \\
+Mismatched-plant frames & The frames are \emph{spatially grounded}. Substituting another
+plant's frames should degrade a model using local cloud structure; a model relying on a
+generic cloudiness prior is unaffected. & specified \\
+Modality grid & A four-way decomposition --- target only, target with covariates, target
+with vision, all three --- attributing the gain to a specific input rather than to their
+combination. & specified \\
+Vision-only & An upper bound on the information content of the visual stream alone. &
+specified \\
+\hline
+\end{tabular}
+\caption{Control battery. ``Specified'' means designed and registered but not yet executed.}
+\label{tab:controls}
+\end{table}
+
+The shuffled-frames and modality-grid controls are the highest-value of the four, because
+between them they distinguish the three explanations of any observed outcome: the frames
+carry usable signal and the model extracts it; the frames carry signal that the encoder
+interface fails to transmit; or the frames are redundant with the covariate track, which
+already contains cloud cover and irradiance. The benchmark of Chapter~\ref{cha:baselines}
+--- where the best multimodal model uses no external imagery --- makes the second and third
+explanations live possibilities rather than pedantic alternatives, which raises the value of
+running these controls considerably.
+
+Beyond the four above, three sensitivity studies are specified: the visual window length
+(three, six and twelve hours), the visual token budget after the latent summariser, and
+frozen against partially unfrozen backbones. The last separates the contribution of the
+fusion architecture from the contribution of raw adaptation capacity, and complements the
+Chronos-2 fine-tuned row already in Table~\ref{tab:leaderboard}.
+
+\section{How each control would be interpreted}
+\label{sec:control-logic}
+
+A control is only useful if its possible outcomes have been assigned meanings \emph{before}
+it runs. Table~\ref{tab:control-logic} does that for the two decisive controls, so that the
+result cannot be rationalised after the fact.
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabular}{p{3.4cm} p{4.6cm} p{5.4cm}}
+\hline
+\textbf{Control} & \textbf{Outcome} & \textbf{Conclusion} \\
+\hline
+Shuffled frames & Skill degrades materially & The model reads temporal structure in the
+visual stream; the visual path is working \\
+ & Skill unchanged & The frames contribute nothing temporal --- at best a static prior, at
+worst nothing \\
+ & Skill improves & The visual path is actively harmful and the shuffle acts as
+regularisation \\
+\hline
+Modality grid & Target $<$ target$+$cov $<$ target$+$cov$+$vis & Both modalities contribute;
+the architecture works as intended \\
+ & target$+$cov $=$ target$+$cov$+$vis & Vision is redundant with the covariate track \\
+ & target$+$vis $>$ target$+$cov & Vision carries information the covariates do not, but
+fusion of all three fails to combine them \\
+\hline
+\end{tabular}
+\caption{Pre-registered interpretation of the two decisive controls. Assigning meanings in
+advance is what prevents a null result from being explained away.}
+\label{tab:control-logic}
+\end{table}
+
+The third row of each block is the one that would be most informative, and neither is the
+outcome the architecture was designed to produce. Evidence from
+Chapter~\ref{cha:benchmark} makes them live possibilities rather than pedantic ones: real
+satellite frames demonstrably carry cloud-state information beyond the covariate track
+(Figure~\ref{fig:cloud-residual}), and yet no model in the suite that consumes them converts
+that into skill.
+
+\section{Statistical treatment}
+\label{sec:statistics}
+
+Three practices govern how differences between arms are read.
+
+\paragraph{Ties.} Differences smaller than the seed-to-seed variance are reported as ties, not
+as orderings. Since that variance has not been measured for this architecture --- one seed per
+arm --- the operational rule is conservative: no ordering is claimed between arms differing by
+less than approximately 0.01 skill, which is the scale on which nearby leaderboard entries
+already sit.
+
+\paragraph{Overlapping windows.} Consecutive forecast origins share most of their context, so
+per-window losses are strongly autocorrelated and naive tests overstate significance. The
+appropriate instrument is a Diebold--Mariano test~\cite{diebold} on the loss-differential
+series with an autocorrelation-consistent variance estimator, computed per plant and combined
+across plants. This is specified but not executed, and its absence is a stated limitation.
+
+\paragraph{Per-plant reporting.} Alongside every aggregate figure, the per-plant distribution
+is retained, so that an improvement driven by one anomalous plant can be distinguished from a
+uniform improvement. Win rate against the reference over the fourteen test plants
+(Appendix~\ref{app:aggregation}) is the summary statistic for this: a model beating the
+reference on every plant by a modest margin is a more trustworthy result than one with the
+same mean driven by three plants.
+
+\section{Compute and reproducibility}
+\label{sec:compute}
+
+Training runs on the Leonardo cluster under SLURM, with one job per arm and per-job logs
+retained so that any reported number traces to the job that produced it. Configuration is
+composed by Hydra; the exact override set for each arm is recorded in the experiment registry
+(Appendix~\ref{app:registry}) before the job is submitted, not reconstructed from logs
+afterwards.
+
+Three practices support reproducibility beyond seed fixing. Splits are committed to version
+control rather than regenerated, and their disjointness is asserted at every load, so a
+future run cannot silently receive a different partition. Every experiment is registered
+before it launches with a hypothesis, a configuration diff and a nominated comparison
+baseline, which prevents the retrospective reframing of an experiment as a test of whatever
+it happened to show. And the dataset of record is read-only, so no result can depend on an
+undocumented change to the data.
+
+\section{Sensitivity studies}
+\label{sec:sensitivity}
+
+Three sweeps are specified beyond the controls. Each varies one design constant that was
+fixed by argument rather than by measurement, and each has a prediction attached.
+
+\paragraph{Visual window length: 3, 6 and 12 hours.} Section~\ref{sec:decoupled} argues that
+vision carries information only over the cloud-advection horizon, and that widening the
+window adds cost rather than signal. The prediction is a concave profile: three hours is too
+short to capture an approaching field, twelve hours includes frames whose cloud structure has
+left the domain, and six hours --- the configuration of record --- is near the optimum. A
+monotone increasing profile would falsify the decoupled-resolution argument and indicate that
+the visual context should simply be longer.
+
+\paragraph{Visual token budget.} The latent summariser compresses $4 \times 196$ V-JEPA
+patch embeddings into $n_{\text{vis}}$ tokens, with $n_{\text{vis}}=1$ for \texttt{uk\_pv}.
+That is aggressive compression, and it is a candidate explanation for a weak visual
+contribution: a single 768-dimensional vector may simply be too narrow a channel for the
+spatial structure of a cloud field. Sweeping the budget separates ``the vision path does not
+work'' from ``the vision path is bottlenecked''. If skill rises with token count, the
+interface is the problem; if it is flat, the interface is not.
+
+\paragraph{Frozen against partially unfrozen backbones.} The curriculum unfreezes
+progressively, and the final stage trains everything. Comparing arms that stop at each stage
+separates the contribution of the fusion architecture from the contribution of raw adaptation
+capacity. It also complements the Chronos-2 fine-tuned row of
+Table~\ref{tab:leaderboard}: if a fully unfrozen MMTSFM merely matches a fine-tuned bare
+backbone, the fusion machinery is contributing nothing that adaptation does not.
+
+\section{Horizon-resolved analysis}
+\label{sec:horizon-analysis}
+
+Aggregate metrics average over a six-hour horizon in which the information available to the
+model changes character completely. At the first step the model is essentially doing
+persistence with a correction; by the twelfth, the cloud field observed at the forecast
+origin has largely advected out of the crop and only the numerical context and the
+deterministic covariates remain informative. Reporting a single number across that range
+hides the mechanism.
+
+Three horizon-resolved views are therefore specified. \emph{Per-step NMAE} per arm, which
+should separate the arms at short lead times if vision works at all. \emph{Skill decay} at
+one, six and twenty-four hours, which positions the model against the regimes of
+Table~\ref{tab:leadtime}. And \emph{the vision-minus-no-vision difference as a function of
+lead time}, which is the sharpest single plot the experiment can produce: a positive
+difference concentrated at short horizons decaying to zero is exactly the signature the
+architecture predicts, and a flat zero line at every horizon is exactly the signature of a
+visual path that is not being read.
+
+\section{An efficiency claim measured separately}
+\label{sec:efficiency}
+
+The Grassmann operator's asymptotic advantage is a claim about \emph{cost}, and it must be
+measured as one rather than inferred from an accuracy table. The comparison against the
+matched self-attention twin is therefore reported on two axes: peak memory and step latency
+as a function of context length, at $T \in \{128, 512, 1024, 2048\}$ patches, with all else
+held fixed.
+
+This matters for how a null accuracy result would be interpreted. If the two mixers score
+identically but one is linear in sequence length, the geometric operator is still the better
+engineering choice at long context, and the honest conclusion is that its inductive bias is
+neutral rather than beneficial at the context lengths tested. Reporting only accuracy would
+lose that distinction.
+
+\section{Integrity constraint on reported numbers}
+\label{sec:integrity}
+
+One methodological constraint governs every number this chapter will contain, and it is
+stated here rather than in a footnote because it restricts what may be claimed.
+
+Saved checkpoints of this model \textbf{do not reproduce their training-time scores when
+re-scored in a fresh process}. The discrepancy is large --- validation loss moving from
+approximately 2.84 to 4.08, with a corresponding collapse in test skill --- and it affects
+both temporal-mixer variants, so it is not specific to the Grassmann operator.
+
+The obvious explanations were eliminated experimentally. Weight restoration is
+tensor-faithful: all non-vision parameter keys apply and their values were verified
+element-wise after loading. The configurations are bit-identical between the saving and
+loading processes. The visual feature cache is unchanged. The dataset iteration is
+deterministic under the fixed seed, and the derived buffers are deterministic. Restoring
+through the training entry point rather than the evaluation entry point fails identically.
+The conclusion that survives is that the checkpoint \emph{content} does not correspond to the
+model that produced the scores, despite capturing every registered parameter --- and that
+apparently seamless resumed runs are consistent with one or two epochs of retraining
+repairing the damage rather than with a faithful restore.
+
+Two consequences follow, and both are binding:
+
+\begin{enumerate}
+  \item \textbf{In-process numbers are the record.} Metrics computed within the training
+    process that produced the model are internally consistent and are what will be reported.
+  \item \textbf{No post-hoc re-scoring.} No number in this thesis may be derived by reloading
+    a checkpoint and evaluating it, and no analysis requiring that path --- including
+    activation-level inspection of a trained model --- can currently be performed.
+\end{enumerate}
+
+The next diagnostic step is an activation fingerprint bisection: dumping per-module outputs
+on a fixed batch at save time and again after reload, and locating the first module whose
+output diverges. Until that is resolved, the constraint above stands, and the reader should
+treat any claim in this thesis that would require re-scoring a checkpoint as unsupported.
+
+\section{What each outcome would mean for the thesis}
+\label{sec:outcomes}
+
+The campaign has three broad possible outcomes, and the thesis is written so that each of
+them is reportable. Stating this in advance is not hedging; it is what prevents the result
+from being framed after the fact to suit whatever happened.
+
+\paragraph{If interleaving beats late fusion, and both beat the vision-free arm.} The
+architectural hypotheses H1 and H2 are supported. The contribution is then the mechanism
+itself, and the interesting follow-up questions are about scale: does the advantage grow with
+context length, where the $O(L)$ mixer's asymptotics start to matter, and does it survive the
+cross-dataset shift of scenario S3.
+
+\paragraph{If the arms are indistinguishable.} The vision-free arm matches the fusion arms,
+and interleaving matches late fusion. H1 and H2 are unsupported at the scale tested, and the
+thesis's contribution shifts to the benchmark and the controls --- which is why
+Chapter~\ref{cha:benchmark} is written to stand on its own. This outcome is not a failure of
+the experiment; it is a measurement, and given the benchmark evidence that no
+satellite-consuming model in the suite converts imagery into skill, it is the outcome the
+surrounding evidence currently favours. The controls of Section~\ref{sec:ablation-design}
+would then become the primary result, because they distinguish a redundant modality from a
+mis-interfaced one.
+
+\paragraph{If the vision-free arm \emph{beats} the fusion arms.} The visual path is actively
+harmful --- most likely because the newly initialised summariser and fusion interface consume
+capacity and inject noise without supplying information. This would be the most informative
+outcome of the three for the field, and the diagnostic path is clear: the token-budget sweep
+(Section~\ref{sec:sensitivity}) separates a bottleneck from a nuisance, and the shuffled-frames
+control establishes whether anything temporal is being read at all.
+
+In all three cases the reporting rule is the same. The vision-free arm is reported as a
+headline row, not as an appendix ablation, and no comparison against an external baseline is
+presented without it.
+
+\section{Threats to validity}
+\label{sec:threats}
+
+\begin{enumerate}
+  \item \textbf{A single dataset.} Every number reported in this thesis is
+    \texttt{uk\_pv}. Cross-dataset transfer to \texttt{goes\_pvdaq} (scenario S3) is
+    \emph{unproven}, not disproven, and no claim about generalisation beyond a single
+    fleet, sensor and climate is supported.
+  \item \textbf{A single seed per arm.} Differences smaller than the seed-to-seed variance
+    cannot be distinguished, and that variance has not been measured. No significance test
+    --- Diebold--Mariano~\cite{diebold} or otherwise --- accompanies the comparisons, so
+    small differences between arms must be read as ties.
+  \item \textbf{The checkpoint integrity issue} of Section~\ref{sec:integrity}.
+  \item \textbf{Ramp subsets are not bit-aligned across tiers.} For the externally
+    integrated baselines the ramp mask is recomputed from saved predictions on their native
+    windows, so ramp columns are comparable \emph{within} a tier or by rank, not
+    element-wise across the whole leaderboard.
+  \item \textbf{Two harness-limited baseline rows.} Time-VLM's evaluation windows are not
+    aligned with the rest of the suite, and UniCast's weakness is partly attributable to a
+    window skew in its native evaluation regime. Both are flagged in
+    Section~\ref{sec:implementation}; neither number should be used as a precise comparison
+    point.
+  \item \textbf{Oracle rows are upper bounds.} The two privileged-information variants
+    quantify available headroom and are never competitors.
+  \item \textbf{Random rather than region-based plant splits.} As discussed in
+    Section~\ref{sec:splits}, spatially adjacent plants may straddle the split boundary,
+    which inflates absolute numbers across the board.
+\end{enumerate}
+
+\par
+

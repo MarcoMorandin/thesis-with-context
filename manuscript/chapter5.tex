@@ -1,0 +1,392 @@
+\chapter{The Baseline Suite}
+\label{cha:baselines}
+
+A benchmark is only as informative as the alternatives it contains. This chapter describes
+the twenty-eight forecasters evaluated under the protocol of Chapter~\ref{cha:protocol}:
+why each is present, what it consumes, how it was implemented, and where the
+implementation departs from the published method. Chapter~\ref{cha:benchmark} reports what
+they scored.
+
+The organising principle is adversarial rather than encyclopaedic. Each model exists to
+close one escape route --- one alternative explanation of a multimodal gain that a
+sceptical reader would otherwise be entitled to propose. A suite assembled this way is
+smaller than a survey and more useful than one, because every row has a job.
+
+\section{Suite design}
+\label{sec:suite-design}
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabular}{p{1.2cm} p{6.4cm} p{5.8cm}}
+\hline
+\textbf{Tier} & \textbf{Models} & \textbf{Question it answers} \\
+\hline
+T0 & Persistence, \textbf{smart persistence}, hourly climatology, seasonal naive &
+Is the task trivial? What is the reference floor? \\
+T1 & LightGBM (one model per quantile), TabPFN-3 & Does a tabular model already suffice? \\
+T2 & MLP, DLinear, PatchTST, iTransformer, TFT & Is a simpler or a purely supervised model
+better? \\
+T3 & Chronos-2 zero-shot and fine-tuned (plus oracle variants), TimesFM~2.5, TiRex, TTM-R2
+zero-shot and fine-tuned & Do foundation models transfer? Is any finding
+backbone-specific? \\
+T4 & TS-RAG, Cross-RAG, CoRA & Would retrieval or a covariate adapter close the gap without
+vision? \\
+T5 & Time-VLM, Aurora, VisionTS++, UniCast & Do pseudo-images or prompting suffice? \\
+T6 & Solar-VLM, CrossViVit, SUNSET & Does the domain state of the art already win? \\
+\hline
+\end{tabular}
+\caption{The baseline suite and the question each tier answers.}
+\label{tab:suite}
+\end{table}
+
+The tiers span the three adaptation strategies of Section~\ref{sec:adaptation} --- full
+supervision (T1--T2), zero-shot transfer (T3), and frozen-backbone adaptation (T4) --- which
+is what allows Chapter~\ref{cha:benchmark} to compare them directly rather than by
+citation. They also span the endogenous/exogenous distinction of
+Section~\ref{sec:multimodal}: T5 contains models whose second modality is synthesised from
+the numerical series, T6 models that consume genuine satellite frames. Holding the protocol
+fixed across that boundary is what makes the comparison of the two classes meaningful, and
+it is the comparison that produces the sharpest result in this thesis.
+
+\paragraph{The rebuttal matrix.} Table~\ref{tab:rebuttal} states the mapping from objection
+to evidence explicitly. It is reproduced here because it is the actual specification the
+suite was built against.
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabular}{p{6.2cm} p{7.4cm}}
+\hline
+\textbf{Objection} & \textbf{Baseline that answers it} \\
+\hline
+``A simpler model would do as well'' & DLinear, MLP, persistence family \\
+``The gain is just from covariates'' & CoRA, TFT, LightGBM (all covariate-rich, no vision) \\
+``Retrieval would give you the same thing'' & TS-RAG, Cross-RAG \\
+``The result is specific to your backbone'' & TimesFM 2.5, TiRex, TTM-R2 (three other
+families) \\
+``You never showed the model reads the images'' & Shuffled-frames and mismatched-plant
+controls (Chapter~\ref{cha:expdesign}) \\
+``Domain-specific models already do this'' & Solar-VLM, CrossViVit, SUNSET \\
+``Fusion depth does not matter'' & Late-fusion arm; UniCast as published shallow prompting \\
+``Pseudo-images would be cheaper'' & Time-VLM, VisionTS++ \\
+\hline
+\end{tabular}
+\caption{Objection-to-evidence mapping. Every cell must be occupied before the multimodal
+claim can be defended.}
+\label{tab:rebuttal}
+\end{table}
+
+\section{Tier 0 --- reference models}
+\label{sec:tier0}
+
+Reference models establish the floor and calibrate the reader's sense of how much of the
+signal is trivially predictable. On solar data this matters more than in most domains,
+because the diurnal cycle alone accounts for a very large fraction of the variance
+(Figure~\ref{fig:diurnal}), and a metric that rewards predicting the sun's position is
+uninformative about forecasting skill.
+
+\paragraph{Persistence.} The last observed value is carried flat across the horizon. This is
+the absolute floor. At very short lead times it is surprisingly hard to beat --- power
+changes slowly under stable conditions --- and its failure mode is exactly the diurnal
+ramp: at 08:00 it predicts that 08:00 output will persist until 14:00.
+
+\paragraph{Smart persistence.} The clearness index --- the ratio of observed power to a
+clear-sky model --- is carried forward instead of the power itself, and the forecast is
+reconstructed by multiplying that index by the clear-sky curve over the horizon. This
+respects the deterministic solar geometry and assumes only that \emph{cloud conditions}
+persist. It is dramatically stronger than naive persistence and is the community's standard
+reference; it is the denominator of the skill score in Section~\ref{sec:metrics}. It is also
+the only model in the study permitted to use clear-sky physics, because it is the physics
+reference.
+
+\paragraph{Hourly climatology.} The mean normalised power for each month, hour and minute
+bin, computed on training plants. It carries no information about the current day at all,
+so it detects two pathologies: a model that fails to beat it is not using its inputs, and a
+suspiciously strong climatology result indicates that the evaluation windows are dominated
+by average conditions rather than by the transitions that matter.
+
+\paragraph{Seasonal naive.} The value observed at the same clock time on the previous day.
+This is the standard reference in general-purpose forecasting benchmarks and is included so
+that results here can be positioned against that literature.
+
+\section{Tier 1 --- classical machine learning}
+\label{sec:tier1}
+
+\paragraph{LightGBM.} Gradient-boosted decision trees~\cite{lightgbm} over a flattened
+feature vector of lagged power and covariates. A separate model is fitted per quantile with
+the pinball objective, which yields a genuine probabilistic forecast rather than a point
+estimate with error bars bolted on. Gradient boosting is the honest strong baseline for
+tabular problems, and a deep model that cannot beat it has not justified its cost. In the
+cross-plant setting it has a specific advantage: trees are insensitive to feature scaling
+and therefore transfer across plants of different capacity without any special handling.
+
+\paragraph{TabPFN-3.} A tabular foundation model~\cite{tabpfn3} in its time-series mode:
+prior-fitted, performing inference in a single forward pass with no gradient-based fitting
+on the target task. It is the tabular counterpart to the time-series foundation models of
+Tier~3, and it tests whether the ``foundation model'' advantage, if any, is specific to
+sequence architectures or is a property of large-scale prior fitting in general.
+
+\section{Tier 2 --- supervised deep learning}
+\label{sec:tier2}
+
+All Tier-2 models are trained from scratch on the training plants and must generalise to
+disjoint test plants. This is the strongest form of the ``do you actually need pretraining''
+question: these models see the same data as the fine-tuned foundation models and have no
+pretraining at all.
+
+\paragraph{MLP.} A multilayer perceptron over the flattened history window and covariates.
+The simplest learned baseline, present to bound how much of the achievable skill requires
+any temporal structure at all.
+
+\paragraph{DLinear.} A single linear layer applied to a trend/seasonal
+decomposition~\cite{dlinear}. This is the model that embarrassed a generation of
+forecasting transformers, and its presence is non-negotiable: reviewers ask for it, and on
+strongly periodic signals it is frequently competitive. It consumes the target only, no
+covariates, which makes it the cleanest measure of how much information is in the power
+history alone.
+
+\paragraph{PatchTST.} A channel-independent patch transformer~\cite{patchtst}: the series is
+divided into patches that act as tokens, and channels are processed independently with
+shared weights. It is the strongest conventional supervised patch transformer and is
+architecturally the closest supervised analogue to the Chronos-2 backbone, which makes the
+comparison between them informative about pretraining specifically rather than about
+architecture.
+
+\paragraph{iTransformer.} Attention is applied across \emph{variates} rather than across
+time: each channel becomes a token and the attention matrix models inter-variable
+structure~\cite{itransformer}. On a problem where the target is driven by a handful of
+strongly correlated exogenous quantities --- irradiance, cloud cover, temperature
+(Figure~\ref{fig:correlations}) --- this is an unusually well-matched inductive bias, and
+Chapter~\ref{cha:benchmark} shows the consequence.
+
+\paragraph{TFT.} The temporal fusion transformer~\cite{tft} combines gated residual
+processing, variable selection and a quantile output head. It is included because it is
+quantile-native, so it supplies a probabilistic comparison point outside the foundation-model
+tier. The implementation here is a reduced variant, described in
+Section~\ref{sec:implementation}.
+
+\section{Tier 3 --- time-series foundation models}
+\label{sec:tier3}
+
+\paragraph{Chronos-2, zero-shot.} The backbone of the proposed architecture, evaluated with
+no adaptation~\cite{chronos2}. This row is the anchor for hypothesis H0 and the honest
+starting point of the whole thesis: whatever MMTSFM achieves must be measured against what
+its own backbone does untouched.
+
+\paragraph{Chronos-2, fine-tuned.} The same model fine-tuned on the training plants. This is
+the single most important comparison row for the proposed architecture, because it holds the
+backbone, the data and the protocol fixed and varies only the adaptation strategy. A
+multimodal architecture that does not beat its own fine-tuned backbone has not demonstrated
+anything about multimodality.
+
+\paragraph{Chronos-2 oracle variants.} Two additional rows in which the model receives
+\emph{observed} future weather over the forecast horizon rather than only the deterministic
+covariates known in advance. These are not competitors and are labelled as such throughout;
+they quantify the headroom available from perfect conditioning, which turns out to be the
+largest single measurement in the study (Section~\ref{sec:bar}).
+
+\paragraph{TimesFM 2.5.} A decoder-only foundation model from an independent
+lineage~\cite{timesfm}, present so that any conclusion about zero-shot transfer is not an
+artefact of one pretraining corpus.
+
+\paragraph{TiRex.} Built on the xLSTM family rather than on attention~\cite{tirex}, and among
+the strongest zero-shot performers on general-purpose leaderboards. It is the third distinct
+architecture family, which is the threshold at which a negative zero-shot result becomes a
+statement about the task rather than about a model.
+
+\paragraph{TTM-R2, zero-shot and fine-tuned.} A compact mixer-based
+model~\cite{ttm} of a few million parameters. It probes the scale axis directly: if
+zero-shot performance is a function of capacity, a tiny model should fail and a large one
+should not. The fine-tuned variant additionally shows how much of a weak zero-shot result
+adaptation can recover.
+
+\section{Tier 4 --- frozen-backbone adaptation}
+\label{sec:tier4}
+
+This tier contains the methods that compete with the thesis directly. Each keeps a
+pretrained backbone frozen and adds an external mechanism for supplying task-specific
+information --- exactly the strategy of the proposed architecture, differing only in what is
+supplied and how deeply it is coupled.
+
+\paragraph{TS-RAG.} Retrieval-augmented forecasting on a frozen backbone~\cite{tsrag}:
+windows similar to the current context are retrieved from a datastore and fused into the
+forecast. Per Section~\ref{sec:parity} the datastore contains training-plant windows only,
+and the mixing weight is tuned on validation plants. This is the ``you did not need vision,
+you needed precedent'' objection in runnable form.
+
+\paragraph{Cross-RAG.} A stronger retrieval variant~\cite{crossrag} with clear-sky-aware
+retrieval keys and per-step mixing weights, retrieving across series rather than only within
+one. It is included so that the retrieval tier is represented by a tuned modern method
+rather than by a strawman.
+
+\paragraph{CoRA.} Covariate-aware adaptation of a frozen backbone through a zero-initialised
+residual adapter~\cite{cora}. This is the closest published competitor to the proposed
+architecture: same frozen-backbone premise, same idea of injecting external information
+through a learned interface, but coupling the modalities at a single insertion point rather
+than throughout the temporal operator. If deep token-level fusion cannot beat CoRA, the
+fusion-depth claim does not survive.
+
+\section{Tier 5 --- endogenous multimodal}
+\label{sec:tier5}
+
+Models whose second modality is synthesised from the numerical series or its covariates. No
+external sensor is consumed. Their presence is what allows the thesis to separate visual
+\emph{inductive bias} from visual \emph{information}.
+
+\paragraph{Time-VLM.} The series is rendered as an image and passed, with a textual
+description, to pretrained vision-language backbones~\cite{timevlm}. Nothing enters the
+model that was not already in the numerical track; what is exploited is the prior structure
+of a visual encoder --- locality, periodicity, multi-scale texture --- applied to a
+re-rendering of the input.
+
+\paragraph{VisionTS++.} A related approach mapping series to images to exploit a frozen
+masked autoencoder backbone~\cite{visiontspp}, included to show that the endogenous strategy
+is not a single lucky implementation.
+
+\paragraph{Aurora.} A multimodal foundation model evaluated zero-shot~\cite{aurora}, with
+weather text templated from the covariate track. It answers the question ``why not simply use
+an off-the-shelf multimodal foundation model''.
+
+\paragraph{UniCast.} Vision and text embeddings injected as soft prompts into a frozen
+time-series foundation model~\cite{unicast}. Architecturally this is the shallowest point on
+the fusion-depth axis while still being a genuine multimodal method, which makes it the
+natural contrast for the interleaving hypothesis. It is placed in this tier because in the
+configuration run here no external text encoder is available and the visual path operates on
+generic features.
+
+\section{Tier 6 --- exogenous multimodal, photovoltaic domain}
+\label{sec:tier6}
+
+Models that consume genuine satellite imagery, all of them from the photovoltaic
+forecasting literature.
+
+\paragraph{Solar-VLM.} The primary domain state of the art~\cite{solarvlm}: satellite
+imagery, covariates and generated weather text combined through a vision-language backbone.
+Per the parity rules its text is generated only from covariates available to every other
+model; no external weather service is consulted.
+
+\paragraph{CrossViVit.} The reference deep satellite-plus-series architecture, cross-attending
+video tokens into a temporal transformer~\cite{crossvivit}. It is the strongest non-foundation
+multimodal competitor and the closest published relative of the proposed fusion mechanism ---
+both couple modalities inside the encoder rather than at a readout, differing in whether the
+coupling is cross-attention or token interleaving.
+
+\paragraph{SUNSET.} The canonical convolutional solar baseline~\cite{sunset}, a hybrid of an
+image branch and a power branch. Nearly every paper in the domain compares against it, so its
+presence anchors this benchmark to that literature.
+
+\section{What was deliberately excluded}
+\label{sec:exclusions}
+
+A benchmark's exclusions are as much a design decision as its inclusions, and leaving them
+unstated invites the suspicion that they were chosen after the results were known. The
+following were considered and left out, each for a stated reason.
+
+\paragraph{SPIRIT and PV-VLM.} Both are photovoltaic-domain multimodal methods that would
+have strengthened Tier~6. They were excluded for effort budget rather than on principle:
+Tier~6 already contains three domain models spanning convolutional, cross-attention and
+vision-language designs, and a fourth would have added breadth without opening a new axis.
+They remain the first additions a follow-up should make.
+
+\paragraph{FusionSF and M3S-Net.} Non-foundation photovoltaic fusion architectures. Both are
+released against corpora structured for different tasks (hourly day-ahead windows), and
+porting them to this protocol would have required changes substantial enough that the
+resulting row would measure the port rather than the method.
+
+\paragraph{MEMTS and parametric-memory adapters.} These occupy the same niche as the
+retrieval baselines --- external information supplied to a frozen backbone --- which is
+already represented by two tuned methods. The marginal information from a third mechanism in
+the same family was judged low.
+
+\paragraph{Additional foundation-model families.} Toto and Moirai were available and were not
+run. The methodological requirement was three distinct architectural families evaluated
+zero-shot, which Chronos-2, TimesFM, TiRex and TTM already satisfy; a fifth transformer would
+not have changed the conclusion of Section~\ref{sec:finding2}.
+
+\paragraph{Few-shot in-context adaptation curves.} Accuracy as a function of $K$ support days
+per test plant is a different protocol --- context matching rather than zero-shot transfer ---
+and mixing the two in one table would obscure both. The harness supports it, and it is
+available as an appendix experiment on request, with $K \in \{0,1,3,7\}$ days used either as a
+retrieval datastore or as a linear-probe update.
+
+\paragraph{Post-hoc recalibration.} Several models exhibit systematic scale bias
+(Section~\ref{sec:qualitative}) that an affine correction would substantially repair. It was
+not applied, because the correction would have to be fitted somewhere --- on validation plants
+at best --- and the resulting table would compare forecasters-plus-post-processing rather than
+forecasters. The bias is reported instead.
+
+\section{Implementation and deviations}
+\label{sec:implementation}
+
+Third-party models were vendored and adapted to the tensor contract of
+Section~\ref{sec:contract} rather than reimplemented from their papers. The deviations
+below are recorded because they bound how strongly the corresponding rows may be read; a
+benchmark that hides its integration compromises is not reproducible.
+
+\begin{itemize}
+  \item \textbf{Tier 2} is served by a single port of a common deep time-series
+    library~\cite{tslib}, so PatchTST, iTransformer, DLinear and MLP share one trainer and
+    differ only in architecture. This is a deliberate fairness choice: differences between
+    those four rows cannot be attributed to training-loop details.
+  \item \textbf{TFT} is a reduced variant retaining the quantile head and gated residual
+    processing but not the full variable-selection stack. Its row should be read as a
+    quantile-native supervised reference rather than as a faithful reproduction.
+  \item \textbf{TTM} uses the R2 checkpoint, not R3. The R3 release is a trend-plus-residual
+    decomposition model whose parameter keys do not load into the available library version;
+    loading it silently produces a randomly initialised network that trains and evaluates
+    without error. Histories shorter than the model's context are edge-padded with an
+    observed mask rather than zero-padded, since zero is a meaningful power value; fine-tuned
+    variants receive a frequency token.
+  \item \textbf{CrossViVit} runs with single-channel imagery and synthesised coordinate
+    encodings, because the \texttt{uk\_pv} product is greyscale and the original model expects
+    multi-channel input with precise geospatial coordinates. Its row is a conservative
+    estimate of the published architecture.
+  \item \textbf{Time-VLM} runs on evaluation windows not bit-aligned with the rest of the
+    suite. The number is reported and flagged rather than omitted; an aligned re-run is
+    required before it is used as a precise comparison point.
+  \item \textbf{Retrieval baselines} populate datastores from training plants only, with
+    mixing weights tuned on validation plants.
+  \item \textbf{Foundation models with fixed maximum context} consume their most recent
+    supported window rather than the full fourteen days. This is stated rather than silently
+    tolerated, because context length is a fairness variable
+    (Section~\ref{sec:fairness}).
+\end{itemize}
+
+\section{On tuning budgets}
+\label{sec:tuning}
+
+The hardest fairness question in a benchmark of this kind is not which inputs a model
+receives --- that is settled by the parity matrix --- but how much effort went into making
+each one work. A model can lose because its architecture is unsuited to the task or because
+nobody tuned it, and no protocol fully separates the two.
+
+Three practices bound the problem here without solving it. Within Tier~2, four models share a
+single trainer and a single hyperparameter search procedure, so differences \emph{within} that
+tier are architectural rather than effort-driven --- which is what makes the iTransformer
+against PatchTST comparison in Chapter~\ref{cha:benchmark} interpretable. Across tiers,
+vendored models retain their authors' published defaults wherever those defaults are
+applicable, on the principle that a method's own authors are better placed to configure it
+than a third party with a different dataset. And the methods most threatening to the thesis
+--- the retrieval baselines and the covariate adapter --- were tuned rather than accepted at
+defaults, because a benchmark whose strongest competitors are strawmen proves nothing.
+
+The residual risk runs in a specific direction, and it should be stated: the proposed
+architecture received far more attention from its author than any baseline did. Where that
+asymmetry would matter most --- the comparison against the same backbone fine-tuned, and
+against the vision-free arm of the same model --- the comparisons are internal, sharing the
+recipe, the schedule and the data, which is precisely why those two rows and not an external
+baseline are treated as the decisive ones in Chapter~\ref{cha:expdesign}.
+
+\paragraph{A correction that changed a conclusion.} One row in an earlier revision of this
+benchmark reported a catastrophic score for Time-VLM. The cause was a stale artefact: the
+prediction file had been re-saved after inverse scaling, but the metric file was never
+regenerated, so the table showed an error computed on standardised rather than physical
+units. Re-scoring from the corrected predictions --- with no retraining --- moved the model
+from last place to second. All other externally integrated models re-score bit-identically to
+their recorded rows, so the defect was isolated; but the episode is recorded here because it
+is the reason every row in Chapter~\ref{cha:benchmark} was re-derived from saved predictions
+rather than trusted from its original metric file.
+
+\par
+

@@ -1,0 +1,270 @@
+\chapter{Conclusions}
+\label{cha:conclusion}
+
+\section{Summary}
+\label{sec:summary}
+
+This thesis set out to determine whether frozen multimodal foundation models, fused deeply,
+can forecast photovoltaic plants they have never observed. Answering that required building
+three things: a dataset, a protocol, and a model.
+
+The \textbf{dataset} fuses four public sources into $1{,}337{,}654$ rows over 110 sites in
+two regions, pairing measured power and fourteen covariates with co-registered satellite
+imagery on one timestamp grid, addressed by a single verified frame pointer, split by plant
+identity with disjointness asserted at load time. The \textbf{protocol} fixes windows in
+physical time, normalises by nameplate capacity so that no test-plant statistic enters any
+fitted component, forbids domain physics inside models, and constrains retrieval datastores
+to training plants. The \textbf{benchmark} runs 28 forecasters under that protocol, spanning
+statistical references, classical machine learning, supervised deep networks, four
+time-series foundation-model families, retrieval and adapter adaptation, and both endogenous
+and exogenous multimodal systems. The \textbf{model}, MMTSFM, fuses frozen Chronos-2 and
+frozen V-JEPA~2.1 through selective temporal interleaving and causal Grassmann mixing, under
+a four-stage curriculum designed to keep randomly initialised modules from corrupting
+pretrained residual streams.
+
+\section{Answering the research question}
+\label{sec:answer}
+
+The research question asked whether deep token-level fusion of frozen foundation models
+achieves cross-plant forecasting better than late fusion or domain-specific architectures.
+The evidence currently available supports a partial answer, and the parts differ in how firm
+they are.
+
+\paragraph{H3 --- cross-plant transfer --- is established as a workable evaluation regime.}
+Models trained on 69 plants forecast fourteen unseen plants from two weeks of history at
+skill levels up to 0.552. The protocol discriminates sharply: the spread between the best and
+worst models is far larger than any plausible measurement noise, so the benchmark is
+informative rather than saturated.
+
+\paragraph{H0 --- foundation models as anchors --- resolves negatively in its strong form.}
+Zero-shot time-series foundation models do not merely underperform; three of four fall below
+hourly climatology, and one falls below the naive floor. The result replicates across three
+architecture families, so it is a property of photovoltaic dynamics rather than of a
+particular pretraining corpus. Adaptation is mandatory on this task.
+
+\paragraph{H4 --- retrieval --- is supported, and strongly.} Retrieval over a frozen backbone
+reaches 0.478 against 0.331 for fine-tuning the same backbone: 0.147 skill, with no weight
+updates. Among the frozen-backbone strategies tested, supplying relevant precedent beats both
+re-fitting the model and injecting covariates through an adapter.
+
+\paragraph{H1 and H2 --- vision, and fusion depth --- remain open, and the benchmark makes
+them harder rather than easier.} The proposed model's own arms had not completed at the time
+of writing, so the direct tests are pending. But the surrounding evidence is not neutral. The
+best multimodal model in the suite consumes no external imagery, and every system that does
+consume genuine satellite frames sits mid-pack. Any claim that deep fusion of real imagery
+helps must now clear a bar set by a model that renders its own input as a picture.
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabular}{l p{6.6cm} p{4.6cm}}
+\hline
+\textbf{Hypothesis} & \textbf{Claim} & \textbf{Verdict} \\
+\hline
+H0 & A time-series foundation model applied zero-shot is a meaningful reference &
+\textbf{Rejected in its strong form}: three of four fall below climatology \\
+H1 & A visual stream improves over an identical time-series-only model & \textbf{Open};
+the direct control was still running \\
+H2 & Selective interleaving improves over late fusion & \textbf{Open}; same reason \\
+H3 & Cross-plant zero-shot forecasting from a short history is achievable &
+\textbf{Supported}: up to 0.552 skill on disjoint plants \\
+H4 & Retrieval on a frozen backbone closes the gap to fine-tuning & \textbf{Supported, and
+then some}: 0.478 against 0.331 \\
+\hline
+\end{tabular}
+\caption{The hypothesis ladder of Section~\ref{sec:rq} against the evidence obtained.}
+\label{tab:verdicts}
+\end{table}
+
+\section{What the benchmark teaches}
+\label{sec:lessons}
+
+Three conclusions generalise beyond this application.
+
+\paragraph{Visual inductive bias and visual information are different resources, and the
+literature conflates them.} Endogenous multimodal methods --- those that render a series as
+an image --- exploit the \emph{priors} of a visual backbone: locality, periodicity, texture
+sensitivity, multi-scale structure. Exogenous methods supply genuinely new observations. On
+this benchmark the first converts into skill and the second, so far, does not. Reporting them
+in one table, as is standard, obscures the finding entirely. At minimum, multimodal
+forecasting results should state which resource is being exploited.
+
+\paragraph{The modality-off arm is not optional.} A multimodal model that beats an external
+unimodal baseline has demonstrated nothing about its second modality, because the comparison
+confounds modality with training recipe, normalisation, horizon head and a dozen other
+choices. Only an arm that is identical except for the modality isolates the contribution.
+This thesis treats that arm as the primary result rather than as an appendix ablation, and
+the design of Chapter~\ref{cha:expdesign} is built around it.
+
+\paragraph{Conditioning may matter more than architecture.} The single largest measured
+quantity in the entire study is not an architectural difference. It is the 0.173 skill gap
+between a Chronos-2 variant that sees observed future weather and the same model that does
+not. No pair of architectures in the 28-model suite differs by that much. If a fraction of
+that gap can be recovered by better conditioning --- improved covariate forecasts, retrieved
+analogous regimes, or a visual stream that actually informs the horizon --- it would exceed
+what any architectural change in this study achieved.
+
+\paragraph{Negative and null results carry the information here.} Three of the most useful
+outputs of this work are things that did not happen: zero-shot foundation models did not
+transfer, exogenous imagery did not convert into skill, and pretraining did not beat a
+well-matched supervised architecture. None of these would have appeared in a study designed
+only to demonstrate a proposed model, because none of them requires the proposed model to
+observe. They required a benchmark with the alternatives in it. That is an argument for
+building the instrument before building the method, and it is the methodological position
+this thesis ended up defending.
+
+\paragraph{A note on what ``foundation model'' bought.} It is worth separating two claims that
+are often merged. Pretraining did not give zero-shot competence on this task --- that is
+settled by Section~\ref{sec:finding2}. But pretraining did give a usable
+\emph{initialisation}: fine-tuned Chronos-2 reaches 0.331 and adapted TTM-R2 0.364, both well
+above their zero-shot counterparts and above the naive references. The honest summary is that
+on photovoltaic data these models are good starting points and poor finished products, which
+is a considerably weaker claim than the one the term ``foundation model'' invites.
+
+\section{Limitations}
+\label{sec:limitations}
+
+\begin{itemize}
+  \item \textbf{One dataset.} All results are \texttt{uk\_pv}: one region, one sensor, one
+    capacity class, two years. Cross-dataset transfer is untested.
+  \item \textbf{One seed per configuration}, no significance testing, and no measured
+    seed-to-seed variance; small differences must be read as ties.
+  \item \textbf{Half the control battery unexecuted}, including the two controls
+    (shuffled frames, modality grid) that would most directly settle the vision question.
+  \item \textbf{An open checkpoint-integrity defect} that blocks all post-hoc analysis of
+    trained models (Section~\ref{sec:integrity}).
+  \item \textbf{Random rather than region-based plant splits}, which allows spatially
+    adjacent plants to straddle the split boundary.
+  \item \textbf{An inconsistent \texttt{goes\_pvdaq} split} that predates the bad-site flags
+    and must be regenerated before that track is used.
+  \item \textbf{Two harness-limited baseline rows} whose numbers are indicative rather than
+    precise.
+\end{itemize}
+
+\subsection{Which limitations actually threaten the conclusions}
+
+The list above is not uniformly serious, and treating it as such would be its own form of
+dishonesty. Ranked by how much they threaten what this thesis claims:
+
+\emph{The single dataset is the real threat.} Every conclusion in
+Chapter~\ref{cha:benchmark} is a conclusion about a fleet of 98 UK residential rooftops
+observed through one satellite product over two years. The finding that supervised training
+beats pretraining is exactly the kind of finding that could invert on a fleet with fewer
+training plants or greater heterogeneity --- and the sample-efficiency scenario that would
+test it was not run. This limitation bounds the scope of every headline in the thesis.
+
+\emph{The missing significance testing is moderate.} It affects the reading of small
+differences --- whether TS-RAG genuinely beats Cross-RAG --- but not the reading of large
+ones. A 0.221 gap between iTransformer and fine-tuned Chronos-2 is not a statistical artefact
+under any plausible variance estimate.
+
+\emph{The checkpoint defect is severe but narrow.} It forecloses post-hoc analysis of trained
+models entirely, which is a serious methodological handicap for the architecture work. It
+does not affect any baseline number, since those were re-derived from saved predictions.
+
+\emph{Random rather than region-based splits inflate all models roughly equally.} The concern
+is real for the absolute values and weak for the ordering, which is what the thesis argues
+from.
+
+\emph{The unexecuted controls do not threaten a conclusion --- they withhold one.} Nothing
+claimed here depends on them; they are what would be needed to claim more.
+
+\section{Future work}
+\label{sec:future}
+
+The following are ordered by expected information gained per unit of compute, which is not
+the order in which they are most tempting.
+
+\begin{enumerate}
+  \item \textbf{Run the two decisive controls.} Shuffled frames and the four-way modality
+    grid are cheap relative to a training run and would determine whether the visual path is
+    uninformative or merely mis-interfaced. Every subsequent decision about the vision branch
+    depends on that answer, so it should be bought first.
+  \item \textbf{Attack conditioning rather than architecture.} The 0.173 skill oracle gap is
+    the largest measured headroom in this work. Concretely: better future-covariate
+    estimates, regime retrieval as conditioning, or a visual stream whose output is injected
+    at the horizon rather than only in the context.
+  \item \textbf{Combine retrieval with fusion.} The two most effective levers identified ---
+    retrieval over a frozen backbone, and multimodal conditioning --- have never been tested
+    together. Retrieval supplies precedent, vision supplies the current state of the sky, and
+    there is no obvious reason the two should be redundant.
+  \item \textbf{Close the checkpoint-integrity defect} by activation-fingerprint bisection.
+    Until this is fixed, no trained model in this line of work can be analysed after the fact,
+    which forecloses interpretability work entirely.
+  \item \textbf{Extend to the second dataset and to region-based splits.} Cross-dataset
+    transfer (scenario S3) is the standard evidence a foundation-model claim is expected to
+    provide, and region-based splits would remove the spatial-leakage concern in one step.
+  \item \textbf{Reconsider the visual interface.} If the controls show that the frames carry
+    signal the current encoder does not transmit, the summariser --- not the fusion operator
+    --- is the component to redesign. A structured state formulation, in which the visual
+    stream updates an explicit latent state rather than contributing tokens, is the natural
+    next design and exists in draft.
+\end{enumerate}
+
+\subsection{The three experiments a follow-up should run first}
+
+The list above is ordered by expected information per unit of compute. The top three deserve
+concrete specification, because ``future work'' that is not specified does not get done.
+
+\paragraph{Experiment 1: shuffled frames, one training run.} Take the interleaved arm, apply a
+random temporal permutation to the visual window at evaluation only, and re-score. No
+retraining is required, so the cost is one evaluation pass. Under the interpretation table of
+Chapter~\ref{cha:expdesign}, an unchanged score is decisive: the model is not reading temporal
+structure in the frames, and every downstream design decision about the visual branch changes.
+
+\paragraph{Experiment 2: the modality grid, four training runs.} Target only; target plus
+covariates; target plus vision; all three. Identical recipe, identical schedule, one seed each
+--- ideally three. This is the experiment that attributes any gain to a specific input rather
+than to their combination, and it subsumes several of the single zero-out ablations that would
+otherwise be run separately. Four runs is the largest single item on this list and the one most
+worth paying for.
+
+\paragraph{Experiment 3: retrieval on top of the fusion model.} Add a TS-RAG-style retrieval
+head over the frozen backbone of the interleaved arm, with the datastore restricted to
+training plants. The two most effective levers identified in this work --- retrieval, worth
+0.147 skill over fine-tuning, and multimodal conditioning --- have never been tested together,
+and there is no obvious reason they should be redundant: retrieval supplies precedent, vision
+supplies the current state of the sky. If they compose additively, the combination would clear
+the 0.55 bar.
+
+\subsection{If the visual interface is the problem}
+
+Should the controls show that the frames carry signal the current encoder does not transmit,
+the component to redesign is the summariser, not the fusion operator --- and three directions
+are worth naming.
+
+\emph{Widen the bottleneck before redesigning it.} A single 768-dimensional token stands in
+for $4 \times 196$ patch embeddings (Table~\ref{tab:shapes}). Increasing the budget is the
+cheapest possible test and should precede any architectural change.
+
+\emph{Give the visual stream a task.} The summariser is currently trained only by the
+forecasting loss, which is a weak and distant signal for learning what to extract from a
+satellite crop. An auxiliary objective with a direct target --- predicting the next frame's
+representation, or the observed clearness index at the site --- would supervise the interface
+directly rather than through twelve encoder blocks and a quantile head.
+
+\emph{Condition the horizon, not just the context.} Visual tokens currently enter only the
+context region, so their influence on a horizon step is mediated entirely by the temporal
+operator. Since cloud advection is a statement about the \emph{future} --- what is upwind now
+will be overhead in two hours --- injecting a visual-derived representation at the future
+positions is arguably the more natural design, and it is closer to how the oracle-covariate
+variants achieve their 0.173 skill advantage. A structured state formulation, in which the
+visual stream updates an explicit latent state carried forward across the horizon rather than
+contributing context tokens, is the systematic version of this idea and exists in draft.
+
+\section{Closing remark}
+\label{sec:closing}
+
+A thesis is expected to end with the model it proposed. This one ends somewhere else, and the
+displacement is the honest summary of what was learned.
+
+The most useful output of this work is not the proposed architecture but the instrument built
+to evaluate it. A benchmark that ranks 28 forecasters under one protocol on disjoint plants
+makes several comfortable assumptions in the multimodal forecasting literature testable, and
+two of them do not survive contact: that pretrained foundation models transfer better than
+supervised training on a well-matched architecture, and that consuming real imagery is what
+makes a multimodal forecaster work. Whichever way the proposed model's own arms fall, those
+two results stand, and they are what a subsequent effort should be designed around.
+
+\par
+

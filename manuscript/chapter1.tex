@@ -1,23 +1,251 @@
-\chapter{In ante nulla, vestibulum a}
+\chapter{Introduction}
 \label{cha:intro}
 
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec sed nunc orci. Aliquam nec nisl vitae sapien pulvinar dictum quis non urna. Suspendisse at dui a erat aliquam vestibulum. Quisque ultrices pellentesque pellentesque. Pellentesque egestas quam sed blandit tempus. Sed congue nec risus posuere euismod. Maecenas ut lacus id mauris sagittis egestas a eu dui. Class aptent taciti sociosqu ad litora torquent per conubia nostra, per inceptos himenaeos. Pellentesque at ultrices tellus. Ut eu purus eget sem iaculis ultricies sed non lorem. Curabitur gravida dui eget ex vestibulum venenatis. Phasellus gravida tellus velit, non eleifend justo lobortis eget. 
-\cite{coulouris}
+\section{Forecasting a plant you have never seen}
+\label{sec:motivation}
 
-Donec eu ipsum id lorem consectetur luctus ac a nisi. Curabitur volutpat, metus id porta ultrices, felis lacus consectetur justo, ut gravida arcu ex in purus. Pellentesque vitae sapien ac nisl porttitor pellentesque eu sed elit. Sed maximus lectus eu eros ultricies accumsan. Quisque congue, nisi in dictum cursus, ante nisl molestie eros, in ultrices eros tellus sit amet augue. Interdum et malesuada fames ac ante ipsum primis in faucibus. Nam finibus leo sit amet purus vehicula, eget facilisis turpis convallis. Vivamus varius tincidunt turpis, id venenatis arcu maximus ut. Aenean euismod eros ac nibh facilisis, nec imperdiet ex suscipit.
-\cite{dalal}
+A photovoltaic installation converts a stochastic, weather-driven input into an
+electrical output that a grid operator has to schedule around. The forecasting problem
+that follows is a short-horizon regression: given the recent power history of a plant and
+whatever exogenous information is available, predict the next few hours of generation.
+Framed that way it looks like a solved family of problems, and for a \emph{single,
+instrumented, long-lived} plant it very nearly is --- a gradient-boosted model over lagged
+power and weather covariates is a strong forecaster, and a supervised transformer trained
+on years of that plant's own history is stronger still.
 
+The formulation breaks down at the point where it matters operationally. Photovoltaic
+capacity is added continuously and in small increments: rooftop systems, community
+installations, new inverters on an existing site. A plant that was energised last month has
+no multi-year history to fit a model to. If every installation requires its own training
+run, the forecasting stack scales linearly in the number of assets and degrades exactly
+where the fleet is growing fastest. The deployment-realistic question is therefore not
+``how well can we forecast a plant we have studied'' but
 
-\section{Pellentesque habitant morbi tristique senectus}
-\label{sec:context}
+\begin{quote}
+  \emph{how well can we forecast a plant we have never seen, given two weeks of its history
+  and nothing else?}
+\end{quote}
 
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec sed nunc orci. Aliquam nec nisl vitae sapien pulvinar dictum quis non urna. Suspendisse at dui a erat aliquam vestibulum. Quisque ultrices pellentesque pellentesque. Pellentesque egestas quam sed blandit tempus. Sed congue nec risus posuere euismod. Maecenas ut lacus id mauris sagittis egestas a eu dui. Class aptent taciti sociosqu ad litora torquent per conubia nostra, per inceptos himenaeos. Pellentesque at ultrices tellus. Ut eu purus eget sem iaculis ultricies sed non lorem. Curabitur gravida dui eget ex vestibulum venenatis. Phasellus gravida tellus velit, non eleifend justo lobortis eget.
-\cite{ictbusiness}
-\cite{donoho}
+This is a generalisation question, not a photovoltaic-engineering question, and it is the
+question this thesis is built around. The distinction matters for how the work is
+evaluated. Under the usual protocol a model is trained and tested on the same plants,
+separated only in time, and reported accuracy conflates two very different abilities:
+learning the idiosyncrasies of a specific installation, and learning something transferable
+about how irradiance, cloud cover and time of day map onto power. Splitting by \emph{plant
+identity} rather than by time isolates the second ability, and it is the only split under
+which the deployment question can be answered honestly. Throughout this thesis, train,
+validation and test sets are disjoint sets of \emph{plants}; no test plant contributes a
+single row, a single frame or a single normalisation statistic to anything that is fitted.
 
-\section{Nullam et justo vitae nisi}
-\label{sec:problem}
+\subsection{What makes the signal hard}
 
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec sed nunc orci. Aliquam nec nisl vitae sapien pulvinar dictum quis non urna. Suspendisse at dui a erat aliquam vestibulum. Quisque ultrices pellentesque pellentesque. Pellentesque egestas quam sed blandit tempus. Sed congue nec risus posuere euismod. Maecenas ut lacus id mauris sagittis egestas a eu dui. Class aptent taciti sociosqu ad litora torquent per conubia nostra, per inceptos himenaeos. Pellentesque at ultrices tellus. Ut eu purus eget sem iaculis ultricies sed non lorem. Curabitur gravida dui eget ex vestibulum venenatis. Phasellus gravida tellus velit, non eleifend justo lobortis eget.
+It is worth being precise about the difficulty, because ``predict solar power'' sounds easier
+than it is. The signal decomposes into two parts with completely different character.
 
+The first is deterministic: the position of the sun, and therefore the clear-sky irradiance
+reaching a fixed panel, is known analytically for all future time. Any model with a calendar
+and a latitude reproduces it. It also accounts for the majority of the raw variance, which
+means that a forecast evaluated against a reference that does not know it will look excellent
+while having learned nothing.
+
+The second is the modulation of that envelope by the atmosphere --- overwhelmingly by cloud.
+It is intermittent, spatially structured, advects at wind speed, and changes the output of an
+array by most of its range within minutes. It is not well captured by hourly reanalysis
+weather, which is what numerical covariates provide: an hourly areal cloud fraction says
+little about whether the sun is occluded at one rooftop at 14:20. This is the part a
+forecaster is actually paid to predict, and it is the part for which the numerical track is
+an impoverished description.
+
+That gap is the opening for a visual modality. Cloud fields are directly observable in
+satellite imagery, at a spatial and temporal resolution that reanalysis does not approach,
+and they advect predictably enough over a few hours that what is visible upwind now is
+overhead later. Chapter~\ref{cha:dataset} quantifies the residual information available:
+conditioning on cloud state changes median output by roughly 0.09 in normalised power
+\emph{after} conditioning on irradiance. Whether any current architecture converts that
+availability into forecast skill is, in the end, the question this thesis is about.
+
+\section{Why foundation models, and why multimodal}
+\label{sec:why-fm}
+
+Two developments make the cross-plant question tractable in a way it was not a few years
+ago.
+
+The first is the arrival of \emph{time-series foundation models}: transformers pretrained
+on large, heterogeneous corpora of time series that forecast unseen series zero-shot, with
+no per-series fitting~\cite{chronos2,timesfm,tirex}. Their promise is precisely the
+promise this problem needs --- transfer to a series that was not in the training set. The
+second is the maturation of \emph{video foundation models} trained by self-supervised
+prediction rather than reconstruction~\cite{vjepa2}. This matters because the dominant
+source of short-horizon photovoltaic uncertainty is cloud advection, a spatiotemporal
+process that is visible in satellite imagery hours before it registers in the power signal.
+A model that reads only the power history is, in the ramp regime, structurally blind: the
+information that would let it anticipate a cloud edge exists, but not in the modality it
+consumes.
+
+Combining the two is not novel in itself; a growing literature attaches visual encoders to
+time-series forecasters~\cite{timevlm,unicast,solarvlm,crossvivit}. What is contested is
+\emph{how deeply} the two modalities should be coupled. The prevailing designs are shallow:
+a visual encoder produces a summary vector which is concatenated to the series
+representation (late fusion), or injected as a soft prompt~\cite{unicast}, or used to
+condition an adapter on an otherwise frozen backbone~\cite{cora}. In each case the two
+modalities meet once, after each has been processed independently. The alternative
+investigated here is to let them meet \emph{inside} the temporal operator, as neighbouring
+tokens in one sequence, so that the model computes cross-modal interactions at every layer
+rather than a single cross-modal readout at the end.
+
+The claim under test is therefore:
+
+\begin{quote}
+  A frozen multimodal foundation model stack (Chronos-2 and V-JEPA~2.1) with deep
+  token-level fusion achieves cross-plant photovoltaic power forecasting on disjoint test
+  plants, beating late fusion, unimodal foundation models, and domain-specific
+  architectures.
+\end{quote}
+
+Every baseline in Chapter~\ref{cha:baselines} exists to falsify one part of that sentence.
+The design principle behind the benchmark is that a reader must not be able to say ``the
+gain could come from $X$, and $X$ was never tested''.
+
+\section{Research question and hypotheses}
+\label{sec:rq}
+
+The research question, stated in the terms the thesis is evaluated in:
+
+\begin{quote}
+  Can a frozen multimodal foundation model stack (a time-series foundation model and a
+  vision foundation model) achieve cross-plant photovoltaic power forecasting on disjoint
+  test plants by deep token-level fusion, rather than by late fusion or by domain-specific
+  architectures?
+\end{quote}
+
+It decomposes into a ladder of hypotheses, each of which is answered by a specific
+experiment, and each of which is falsifiable independently of the ones above it.
+
+\begin{itemize}
+  \item \textbf{H0 --- Foundation-model anchor.} A time-series foundation model applied
+    zero-shot is a meaningful reference point for this task. Tested in
+    Chapter~\ref{cha:baselines} against classical and supervised alternatives.
+  \item \textbf{H1 --- Vision helps.} Adding a visual stream through a late-fusion adapter
+    improves over an otherwise identical time-series-only model. Tested by the modality
+    ablation of Chapter~\ref{cha:expdesign}.
+  \item \textbf{H2 --- Fusion depth matters.} Selective temporal interleaving of visual
+    tokens improves over late fusion, with the same backbones and the same data. This is
+    the architectural contribution of Chapter~\ref{cha:method}.
+  \item \textbf{H3 --- Cross-plant transfer is achievable.} A model can forecast completely
+    disjoint plants from a short history, relying on structure learned from other plants.
+    This is the evaluation protocol of Chapter~\ref{cha:protocol}, not an ablation.
+  \item \textbf{H4 --- Retrieval is a competitive alternative.} Retrieval augmentation on a
+    frozen backbone closes the gap to full fine-tuning. Tested in
+    Chapter~\ref{cha:baselines}.
+\end{itemize}
+
+\section{Contributions}
+\label{sec:contributions}
+
+\paragraph{A dataset of record for multimodal cross-plant photovoltaic forecasting.}
+Four public sources --- UK domestic generation~\cite{ukpv}, EUMETSAT SEVIRI high-resolution
+visible imagery~\cite{eumetsat}, NREL PVDAQ systems with GOES-16 crops~\cite{pvdaq}, and
+Open-Meteo reanalysis covariates~\cite{openmeteo} --- are fused into one flat table of
+$1{,}337{,}654$ rows over 110 sites, plus a packed image archive addressed by a single
+timestamp-exact pointer. The construction, the quality flags and the exact plant partition
+are given in Chapter~\ref{cha:dataset}.
+
+\paragraph{A 28-model benchmark under one fairness contract.}
+All models consume the same tensor contract, the same 14-day history and 6-hour horizon
+defined in \emph{physical} time, the same plant-disjoint split, and the same
+capacity-normalised metrics. The suite spans seven tiers, from naive persistence to
+photovoltaic-specialised multimodal networks. To the best of this work's knowledge it is
+the largest single-protocol comparison of time-series foundation models,
+frozen-backbone adaptation methods and multimodal forecasters on photovoltaic data.
+
+\paragraph{MMTSFM, an architecture for deep multimodal fusion on frozen backbones.}
+Two mechanisms are contributed. \emph{Selective temporal interleaving} inserts visual
+summary tokens into the time-series sequence only inside a short refinement window, leaving
+the macro-context purely numerical; the token overhead is proportional to the number of
+visual tokens rather than to context length, on the order of two percent. \emph{Causal
+Grassmann mixing} replaces $O(L^2)$ temporal attention with an $O(L)$ operator that encodes
+the transition between hidden states as a two-dimensional subspace via a Pl\"ucker embedding,
+aggregated over multiple temporal offsets. A matched diagnostic twin using ordinary causal
+self-attention is retained so that any measured difference is attributable to the inductive
+bias and not to the training schedule.
+
+\paragraph{A diagnosis of where the headroom actually is.}
+Two measurements from the benchmark reorient the problem. The gap between a
+privileged-information oracle variant of Chronos-2 and its honest fine-tuned counterpart is
+$0.173$ skill --- larger than any architectural difference observed in the entire suite,
+and evidence that \emph{conditioning}, not architecture, is the binding constraint.
+Separately, the strongest multimodal model in the suite uses images synthesised from the
+series itself, while every model consuming real satellite frames ranks mid-pack; the
+distinction between visual \emph{inductive bias} and visual \emph{information} is developed
+in Chapters~\ref{cha:baselines} and~\ref{cha:conclusion}.
+
+\section{Scope and non-goals}
+\label{sec:scope}
+
+The framing is deliberately that of a machine-learning contribution with photovoltaics as
+the testbed, not a photovoltaic-engineering contribution. Several things are consequently
+out of scope, and are listed here so the reader does not go looking for them.
+
+\begin{itemize}
+  \item \textbf{No domain physics inside models.} Clear-sky-index conversions and
+    irradiance-to-power physical models are excluded from every learned model. The single
+    exception is smart persistence, which \emph{is} the physics reference and serves as the
+    denominator of the skill score.
+  \item \textbf{No few-shot in-context adaptation curves.} Accuracy as a function of $K$
+    support days per test plant is a different protocol --- context matching rather than
+    zero-shot transfer --- and was excluded by an explicit design decision. The evaluation
+    harness supports it as an appendix experiment should a reader require it.
+  \item \textbf{No grid-operations or electricity-market analysis.} The output of this work
+    is a forecast and its error, not a dispatch decision or an economic valuation.
+  \item \textbf{No pre-2025 methods as primary comparators.} Older architectures appear
+    only where they are still the community reference (persistence, gradient boosting,
+    DLinear as the simplicity check).
+  \item \textbf{No dataset construction beyond what is required.} The consolidated dataset
+    is treated as read-only once built; no result in this thesis depends on re-processing
+    it.
+\end{itemize}
+
+\section{A note on what this thesis reports}
+\label{sec:reporting-stance}
+
+Two editorial decisions shape how the results are presented, and both are worth declaring at
+the outset because they are unusual enough to be mistaken for omissions.
+
+\emph{Negative results are reported as results.} Several of the most informative measurements
+in this work are things that did not happen: foundation models did not transfer zero-shot,
+real satellite imagery did not outperform synthesised imagery, and pretraining did not beat a
+well-matched supervised architecture. Each is stated in the chapter where it was measured,
+with the control that establishes it, and none is relegated to a limitations paragraph.
+
+\emph{Provisional numbers are not reported at all.} The experimental campaign for the proposed
+architecture was still running at the time of writing. Chapter~\ref{cha:expdesign} therefore
+states the arms, the controls, the interpretation rules and the reporting template in full,
+and leaves the result cells empty. A number that later moves is worse than no number, because
+it propagates silently into every comparison that cites it --- and because a design whose
+interpretation is fixed only after the result is known is not a test of anything.
+
+The second decision has a consequence for how the thesis should be read: its empirical weight
+sits in Chapters~\ref{cha:dataset} through~\ref{cha:benchmark}, which are complete, rather
+than in Chapter~\ref{cha:expdesign}, which is a specification.
+
+\section{Structure of the thesis}
+\label{sec:structure}
+
+Chapter~\ref{cha:background} positions the work against the 2025--2026 literature on
+time-series foundation models, frozen-backbone adaptation, video foundation models and
+multimodal forecasting, and states the gap that motivates the benchmark.
+Chapter~\ref{cha:dataset} describes the construction of the dataset of record, its schema,
+its quality flags and its plant-disjoint splits. Chapter~\ref{cha:protocol} defines the
+evaluation protocol: the fairness rules, the physical-time windows, the metrics and the
+scenario battery. Chapter~\ref{cha:baselines} presents the baseline suite, its
+implementation, the full leaderboard and the four findings that follow from it.
+Chapter~\ref{cha:method} presents MMTSFM in full: both branches, the fusion mechanisms, the
+Grassmann operator, the output head and the four-stage training curriculum.
+Chapter~\ref{cha:expdesign} gives the experimental design for the model, its ablation and
+control battery, and the reporting protocol under which its numbers will be recorded; the
+campaign was still running at the time of writing and no provisional figures are stated.
+Chapter~\ref{cha:conclusion} answers the research question as far as the current evidence
+permits, states the limitations, and lays out the next experiments in priority order.
+
+\par
 

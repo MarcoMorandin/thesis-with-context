@@ -1,0 +1,195 @@
+<svg width="1150" height="1560" viewBox="0 0 1150 1560" xmlns="http://www.w3.org/2000/svg">
+  <!-- 
+    PORTRAIT LAYOUT FOR A4 THESIS PRINTING
+    Canvas: 1150 x 1560
+    Margins: 30px left/right
+    
+    COLOUR PALETTE:
+    - Frozen/Pretrained (Cool): #E1F5FE (Ice), #0288D1 (Deep Blue border)
+    - Trained (Warm): #FFF3E0 (Cream), #F57C00 (Orange border)
+    - Embedding (Greenish): #E8F5E9, #2E7D32
+    - Containers: #FAFAFA / #F5F5F5, border #CCCCCC
+  -->
+
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#333333" />
+    </marker>
+    <filter id="shadow" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="2" dy="2" stdDeviation="2" flood-opacity="0.1" />
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1150" height="1560" fill="#FFFFFF" />
+
+  <!-- Title Annotation -->
+  <text x="575" y="45" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="26" font-weight="bold" fill="#333333">MMTSFM: Multimodal Time-Series Foundation Model</text>
+
+  <!-- ================= STAGE 1: INPUTS ================= -->
+  <rect x="30" y="65" width="1090" height="425" rx="15" fill="#FAFAFA" stroke="#DDDDDD" stroke-width="1.5" />
+  <text x="50" y="95" font-family="Helvetica, Arial, sans-serif" font-size="26" font-weight="bold" fill="#666666" font-style="italic">Inputs &amp; Preprocessing</text>
+
+  <!-- Column 1: Y (PV Power History) -->
+  <g id="input_y">
+    <rect x="50" y="115" width="320" height="100" rx="8" fill="#E1F5FE" stroke="#0288D1" stroke-width="2.5" filter="url(#shadow)" />
+    <text x="210" y="155" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="22" font-weight="bold" fill="#0288D1">PV Power History (Y)</text>
+    <text x="210" y="185" text-anchor="middle" font-family="Times New Roman, serif" font-size="18" font-style="italic" fill="#333333">[B, 672]</text>
+    
+    <path d="M 210 215 L 210 255" stroke="#333333" stroke-width="2" marker-end="url(#arrow)" />
+    
+    <rect x="50" y="255" width="320" height="100" rx="8" fill="#E1F5FE" stroke="#0288D1" stroke-width="2.5" filter="url(#shadow)" />
+    <text x="210" y="295" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="18" font-weight="bold" fill="#333333">Chronos-2 Patch Embedding</text>
+    <text x="210" y="325" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="18" fill="#666666">(pretrained), patch 16</text>
+  </g>
+
+  <!-- Column 2: X_cov (Covariates) -->
+  <g id="input_cov">
+    <rect x="415" y="115" width="320" height="100" rx="8" fill="#E1F5FE" stroke="#0288D1" stroke-width="2.5" filter="url(#shadow)" />
+    <text x="575" y="155" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="22" font-weight="bold" fill="#0288D1">Covariates (X_cov)</text>
+    <text x="575" y="185" text-anchor="middle" font-family="Times New Roman, serif" font-size="18" font-style="italic" fill="#333333">[B, 684, 14]</text>
+
+    <path d="M 575 215 L 575 255" stroke="#333333" stroke-width="2" marker-end="url(#arrow)" />
+
+    <rect x="415" y="255" width="320" height="100" rx="8" fill="#E1F5FE" stroke="#0288D1" stroke-width="2.5" filter="url(#shadow)" />
+    <text x="575" y="295" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="18" font-weight="bold" fill="#333333">Known Future Alignment</text>
+    <text x="575" y="325" text-anchor="middle" font-family="Times New Roman, serif" font-size="18" font-style="italic" fill="#666666">14 x [B, 1, 768] tokens</text>
+  </g>
+
+  <!-- Column 3: V (Satellite Video) & V-JEPA -->
+  <g id="input_v">
+    <rect x="780" y="115" width="320" height="100" rx="8" fill="#E1F5FE" stroke="#0288D1" stroke-width="2.5" filter="url(#shadow)" />
+    <text x="940" y="155" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="22" font-weight="bold" fill="#0288D1">Satellite Video (V)</text>
+    <text x="940" y="185" text-anchor="middle" font-family="Times New Roman, serif" font-size="18" font-style="italic" fill="#333333">[B, 3, 8, 224, 224]</text>
+
+    <path d="M 940 215 L 940 255" stroke="#333333" stroke-width="2" marker-end="url(#arrow)" />
+
+    <rect x="780" y="255" width="320" height="100" rx="8" fill="#E1F5FE" stroke="#0288D1" stroke-width="2.5" filter="url(#shadow)" />
+    <text x="940" y="295" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="18" font-weight="bold" fill="#333333">V-JEPA 2.1</text>
+    <text x="940" y="325" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="18" font-style="italic" fill="#666666">Frozen ViT-L/16</text>
+  </g>
+
+  <!-- Latent Summariser (Widen to 340px to fit the new text) -->
+  <g id="latent_summariser">
+    <path d="M 940 355 L 940 395" stroke="#333333" stroke-width="2" marker-end="url(#arrow)" />
+    <!-- Tensor shape annotations on the arrow -->
+    <text x="955" y="372" text-anchor="start" font-family="Times New Roman, serif" font-size="16" font-style="italic" fill="#333333">[B, 4, 196, 1024]</text>
+    <text x="955" y="390" text-anchor="start" font-family="Helvetica, Arial, sans-serif" font-size="16" font-style="italic" fill="#666666">4 steps x 196 patches</text>
+
+    <rect x="770" y="395" width="340" height="80" rx="8" fill="#FFF3E0" stroke="#F57C00" stroke-width="2.5" filter="url(#shadow)" />
+    <text x="940" y="430" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="18" font-weight="bold" fill="#F57C00">Latent Summariser</text>
+    <text x="940" y="455" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="16" fill="#333333">Perceiver queries, causal, null token</text>
+  </g>
+
+
+  <!-- ================= STAGE 2: MULTIMODAL EMBEDDING ================= -->
+  <path d="M 210 355 L 210 515" stroke="#333333" stroke-width="2" marker-end="url(#arrow)" />
+  <text x="220" y="410" text-anchor="start" font-family="Times New Roman, serif" font-size="16" font-style="italic" fill="#666666">T_ctx = 42 context tokens</text>
+  <text x="220" y="435" text-anchor="start" font-family="Helvetica, Arial, sans-serif" font-size="16" font-style="italic" fill="#666666">+ 1 future token, width 768</text>
+
+  <path d="M 575 355 L 575 515" stroke="#333333" stroke-width="2" marker-end="url(#arrow)" />
+  <text x="585" y="435" text-anchor="start" font-family="Times New Roman, serif" font-size="16" font-style="italic" fill="#666666">14 x [B, 1, 768] tokens</text>
+
+  <path d="M 940 475 L 940 515" stroke="#333333" stroke-width="2" marker-end="url(#arrow)" />
+  <text x="955" y="498" text-anchor="start" font-family="Times New Roman, serif" font-size="16" font-style="italic" fill="#333333">[B, 1, 768] n_vis = 1</text>
+
+  <rect x="30" y="515" width="1090" height="110" rx="15" fill="#E8F5E9" stroke="#2E7D32" stroke-width="2.5" filter="url(#shadow)" />
+  <text x="575" y="550" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="22" font-weight="bold" fill="#2E7D32">Multimodal Embedding Layer</text>
+  <text x="575" y="580" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="18" fill="#333333">Modality + Segment + Type + Entity + RoPE</text>
+  <text x="575" y="605" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="16" font-style="italic" fill="#666666">Additively fused per token</text>
+
+
+  <!-- ================= STAGE 3: FUSION SWITCH ================= -->
+  <path d="M 575 625 L 575 655" stroke="#333333" stroke-width="2" marker-end="url(#arrow)" />
+
+  <rect x="30" y="655" width="1090" height="210" rx="15" fill="#F0F4C3" fill-opacity="0.2" stroke="#AFB42B" stroke-dasharray="5,5" stroke-width="2" />
+  <text x="50" y="685" font-family="Helvetica, Arial, sans-serif" font-size="22" font-weight="bold" fill="#827717" font-style="italic">Fusion Mechanism Switch</text>
+
+  <!-- Path A: Late Fusion -->
+  <rect x="50" y="700" width="1050" height="65" rx="8" fill="#EEEEEE" stroke="#999999" stroke-width="2" />
+  <text x="575" y="728" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="18" font-weight="bold" fill="#333333">LATE FUSION (Control Group)</text>
+  <text x="575" y="750" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="18" fill="#666666">Visual as extra BATCH rows</text>
+
+  <!-- Path B: Selective Temporal Interleaving -->
+  <rect x="50" y="780" width="1050" height="65" rx="8" fill="#FFF3E0" stroke="#F57C00" stroke-width="2.5" />
+  <text x="575" y="808" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="18" font-weight="bold" fill="#F57C00">SELECTIVE TEMPORAL INTERLEAVING (Proposed)</text>
+  <text x="575" y="830" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="18" fill="#333333">[ts_0 ... ts_M] || [ts_M, v_M, ...] (Refinement) || [fut_0]  (42 + 1 + 1 = 44 tokens, ~2% overhead)</text>
+
+
+  <!-- ================= STAGE 4: ENCODER STACK ================= -->
+  <path d="M 575 865 L 575 895" stroke="#333333" stroke-width="2" marker-end="url(#arrow)" />
+
+  <rect x="30" y="895" width="1090" height="420" rx="15" fill="#F5F5F5" stroke="#CCCCCC" stroke-width="1.5" />
+  <text x="50" y="925" font-family="Helvetica, Arial, sans-serif" font-size="26" font-weight="bold" fill="#444444" font-style="italic">Encoder Stage (12x Stacked Blocks)</text>
+
+  <!-- Layer 1: Temporal Mixing (Expanded height to 150px to fit alternative operator) -->
+  <g id="layer_temporal">
+    <rect x="50" y="940" width="1050" height="150" rx="8" fill="#FFF3E0" stroke="#F57C00" stroke-width="2.5" />
+    <text x="575" y="968" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="18" font-weight="bold" fill="#F57C00">1. Temporal Mixing (O(L)) - Causal Grassmann Mixer</text>
+    <text x="575" y="994" text-anchor="middle" font-family="Times New Roman, serif" font-size="18" font-style="italic" fill="#333333">p = z[i-delta] ^ z[i]</text>
+    <text x="575" y="1020" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="16" fill="#666666">Multi-scale G(2,32), offsets 1/2/4/8/12/16 | wedge-product Plucker embedding</text>
+    
+    <!-- Thin dashed separator line -->
+    <line x1="100" y1="1040" x2="1050" y2="1040" stroke="#F57C00" stroke-width="1" stroke-dasharray="4,4" />
+    
+    <!-- Alternative operator diagnostic twin -->
+    <text x="575" y="1070" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="16" fill="#777777">Alt (diagnostic twin): O(L^2) Time Self-Attention + RoPE</text>
+  </g>
+
+  <path d="M 575 1090 L 575 1115" stroke="#333333" stroke-width="2" marker-end="url(#arrow)" />
+
+  <!-- Layer 2: Group Attention -->
+  <g id="layer_group">
+    <rect x="50" y="1115" width="1050" height="80" rx="8" fill="#E1F5FE" stroke="#0288D1" stroke-width="2.5" />
+    <text x="575" y="1145" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="18" font-weight="bold" fill="#0288D1">2. Group Self-Attention (Across BATCH Axis - Pretrained)</text>
+    <text x="575" y="1172" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="18" fill="#333333">Fuses target with covariates</text>
+  </g>
+
+  <path d="M 575 1195 L 575 1220" stroke="#333333" stroke-width="2" marker-end="url(#arrow)" />
+
+  <!-- Layer 3: Feed Forward -->
+  <g id="layer_ffn">
+    <rect x="50" y="1220" width="1050" height="80" rx="8" fill="#E1F5FE" stroke="#0288D1" stroke-width="2.5" />
+    <text x="575" y="1250" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="18" font-weight="bold" fill="#0288D1">3. Feed-Forward Network (Pretrained MLPs)</text>
+    <text x="575" y="1277" text-anchor="middle" font-family="Times New Roman, serif" font-size="18" font-style="italic" fill="#666666">768 -> 3072 -> 768 (ReLU)</text>
+  </g>
+
+
+  <!-- ================= STAGE 5: CURRICULUM, FORECAST HEAD & LEGEND ================= -->
+  
+  <!-- Curriculum Strip (Left side, aligned to avoid touching the vertical arrow) -->
+  <g id="curriculum_strip">
+    <rect x="30" y="1315" width="510" height="90" rx="8" fill="#FFFDE7" stroke="#FBC02D" stroke-width="1.5" />
+    <text x="285" y="1350" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="16" font-weight="bold" fill="#F57F17">Curriculum: S1 TS-only -> S2a late fusion (V-JEPA unfrozen)</text>
+    <text x="285" y="1380" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="16" font-weight="bold" fill="#F57F17">-> S2b interleaved (mixer only) -> S3 full joint fine-tuning</text>
+  </g>
+
+  <!-- Legend (Right side, symmetric to Curriculum Strip) -->
+  <g id="legend_box">
+    <rect x="610" y="1315" width="510" height="90" rx="8" fill="#FFFFFF" stroke="#CCCCCC" stroke-width="1.5" />
+    <text x="630" y="1335" font-family="Helvetica, Arial, sans-serif" font-size="16" font-weight="bold" fill="#333333">Legend</text>
+    
+    <!-- Column 1 -->
+    <rect x="630" y="1348" width="20" height="14" rx="3" fill="#E1F5FE" stroke="#0288D1" stroke-width="1.5" />
+    <text x="660" y="1360" font-family="Helvetica, Arial, sans-serif" font-size="16" fill="#333333">Frozen / Pretrained</text>
+    
+    <rect x="630" y="1378" width="20" height="14" rx="3" fill="#FFF3E0" stroke="#F57C00" stroke-width="1.5" />
+    <text x="660" y="1390" font-family="Helvetica, Arial, sans-serif" font-size="16" fill="#333333">Trained from Scratch</text>
+
+    <!-- Column 2 -->
+    <line x1="880" y1="1355" x2="910" y2="1355" stroke="#333333" stroke-width="2" stroke-dasharray="4,3" />
+    <text x="920" y="1360" font-family="Helvetica, Arial, sans-serif" font-size="16" fill="#333333">Alternative Path</text>
+  </g>
+
+  <!-- Straight Vertical Arrow from Encoder to Forecast Head (Bypassing Curriculum and Legend with 35px clearance) -->
+  <path d="M 575 1315 L 575 1410" stroke="#333333" stroke-width="2.5" fill="none" marker-end="url(#arrow)" />
+
+  <!-- Quantile Forecast Head (Centered directly below the vertical arrow) -->
+  <g id="forecast_head">
+    <rect x="225" y="1410" width="700" height="130" rx="15" fill="#FFF3E0" stroke="#F57C00" stroke-width="2.5" filter="url(#shadow)" />
+    <text x="575" y="1445" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="22" font-weight="bold" fill="#F57C00">9-Quantile Forecast Head</text>
+    <text x="575" y="1475" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="18" fill="#333333">Non-Autoregressive Linear + Inv-Arcsinh</text>
+    <text x="575" y="1505" text-anchor="middle" font-family="Times New Roman, serif" font-size="18" font-weight="bold" font-style="italic" fill="#333333">Y_hat: [B, 12 steps, 9 quantiles]</text>
+  </g>
+
+</svg>

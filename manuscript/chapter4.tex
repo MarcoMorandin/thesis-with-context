@@ -1,0 +1,349 @@
+\chapter{Evaluation Protocol}
+\label{cha:protocol}
+
+This chapter is short and load-bearing. Every number in Chapters~\ref{cha:baselines}
+and~\ref{cha:expdesign} is only as credible as the protocol that produced it, and the
+protocol is where a multimodal cross-plant study is most easily compromised --- by a
+normaliser fitted on test plants, by a horizon that differs between models, by a retrieval
+datastore that quietly contains the answer.
+
+\section{Three fairness principles}
+\label{sec:fairness}
+
+\begin{enumerate}
+  \item \textbf{Same horizon and granularity for every model.} All models forecast the same
+    future window from the same history cadence. Context length is itself a fairness
+    variable: a model given more history is not a better model, so no comparison is made
+    across differing $T$.
+  \item \textbf{Disjoint test plants, with no statistic leakage.} No model may train on, or
+    derive statistics from, held-out plants. This includes normalisers --- hence
+    capacity normalisation (Section~\ref{sec:harmonisation}) rather than per-series
+    standardisation.
+  \item \textbf{No domain physics inside models.} Clear-sky-index conversions and
+    irradiance-to-power formulas are excluded from every learned model, so that measured
+    improvements are attributable to modelling rather than to a hand-coded solar prior. The
+    sole exemption is smart persistence, which is the physics reference itself.
+\end{enumerate}
+
+\subsection{The failure modes these principles prevent}
+
+Each principle exists because of a specific way a cross-plant multimodal benchmark can be
+compromised, usually without anyone noticing. Naming the failure mode makes the rule
+checkable.
+
+\paragraph{Normaliser leakage.} The most common and least visible failure. Standardising each
+series by its own mean and standard deviation is routine in forecasting, and under a
+cross-plant protocol it silently passes test-plant statistics into the model. The symptom is a
+benchmark on which every method looks unusually strong and no method generalises in
+deployment. Capacity normalisation eliminates the channel entirely, because nameplate capacity
+is metadata, not a measurement.
+
+\paragraph{Context-length mismatch.} If one model receives fourteen days and another six
+hours, the comparison measures history length rather than architecture. The failure is easy to
+introduce accidentally, because foundation models have fixed maximum contexts and quietly
+truncate. The rule here is that context length is a fairness variable: models that cannot
+consume the full window are documented as such rather than silently compared.
+
+\paragraph{Transductive retrieval.} A retrieval baseline whose datastore contains test-plant
+history is performing in-context memorisation of the evaluation target. The resulting number
+can be excellent and means nothing about zero-shot transfer. The datastore rule closes this,
+and the transductive condition --- which is a legitimate thing to study --- is reported
+separately if at all.
+
+\paragraph{Privileged covariates.} Supplying observed future weather over the horizon is not
+forecasting; it is forecasting given a perfect weather forecast. Because covariate arrays
+naturally span history and horizon, this is a single indexing decision away at all times. The
+protocol partitions covariates into deterministic and observed classes
+(Appendix~\ref{app:covariates}), and models receiving the observed class over the horizon are
+labelled oracle and excluded from competitive comparison.
+
+\paragraph{Physics smuggled into a model.} A clear-sky conversion inside a learned model
+converts a modelling result into a statement about how good the clear-sky model is. Since
+smart persistence --- which is that physics --- is the reference, a model that internalises it
+is partly competing against itself. The exemption is granted to exactly one model, and it is
+the reference.
+
+\paragraph{Metric-window mismatch.} If two models are scored on different evaluation windows,
+their metrics are not comparable even under an identical protocol. This is the defect behind
+the flagged Time-VLM row of Chapter~\ref{cha:baselines}, and it is the reason skill scores are
+always computed against the reference evaluated on the same windows as the model being
+scored, rather than against a single global reference value.
+
+\section{Windows in physical time}
+\label{sec:windows}
+
+Windows are defined in physical time and resolved to steps per dataset, rather than being
+defined in steps.
+
+\begin{itemize}
+  \item \textbf{History $T$ = 14 days} --- 672 steps at the \texttt{uk\_pv} 30-minute
+    cadence, 1344 at the \texttt{goes\_pvdaq} 15-minute cadence. Two weeks is
+    deployment-realistic (a newly connected plant will have that much history) and gives
+    every model multiple diurnal cycles, which shorter contexts denied the foundation
+    models in preliminary work. Foundation models with a fixed maximum context consume
+    their most recent supported window.
+  \item \textbf{Horizon $H$ = 6 hours} --- 12 and 24 steps respectively. Skill-decay curves
+    are additionally reported at 1, 6 and 24 hours, the last covering the day-ahead case.
+  \item \textbf{Visual window $T_v$ = 8 frames} over a short recent window of three to six
+    hours, \emph{decoupled} from the numerical history. Vision carries information only over
+    the cloud-advection horizon; widening the visual window past a few hours adds compute,
+    not signal. This asymmetry --- long numerical context, short visual context --- is a
+    design commitment of the architecture in Chapter~\ref{cha:method}, not merely a budget
+    decision.
+\end{itemize}
+
+\paragraph{The cadence rule.} Because windows are physical, step counts differ across
+datasets: 672 against 1344 for the same fourteen days. A step-horizon of 12 therefore means
+six hours in one dataset and three in the other. Two hard rules follow. Physical lead time
+is reported beside every per-dataset table; and metrics are never pooled across cadences in
+raw form --- cross-dataset aggregation uses only the scale-free statistics of
+Section~\ref{sec:aggregation}.
+
+\section{Metrics}
+\label{sec:metrics}
+
+All metrics are computed on the capacity-normalised target over daylight, valid steps, per
+plant, and then macro-averaged over plants so that large or data-rich plants do not
+dominate.
+
+\paragraph{Point accuracy.} With $M$ evaluation samples, horizon $H$ and plant capacity
+$C_i$:
+\[
+  \mathrm{NMAE} = \frac{1}{M H} \sum_{i=1}^{M} \sum_{h=1}^{H}
+  \frac{|\hat{y}_{i,h} - y_{i,h}|}{C_i},
+  \qquad
+  \mathrm{NRMSE} = \sqrt{\frac{1}{M H} \sum_{i=1}^{M} \sum_{h=1}^{H}
+  \left( \frac{\hat{y}_{i,h} - y_{i,h}}{C_i} \right)^{\!2}}.
+\]
+
+\paragraph{Skill score.} The headline number, defined against smart persistence and
+computed from NRMSE:
+\[
+  \mathrm{SS} = 1 - \frac{\mathrm{NRMSE}_{\text{model}}}
+                        {\mathrm{NRMSE}_{\text{smart persistence}}}.
+\]
+A score of zero means no better than the reference; one means perfect; negative means
+worse than a model that assumes cloud conditions persist. An NMAE-based variant may be
+reported as a secondary column but must be labelled as such, since the two rank models
+differently.
+
+\paragraph{Probabilistic accuracy.} For models with a distributional output, the continuous
+ranked probability score is approximated by the pinball loss averaged over the quantile
+grid~\cite{gneiting}. It rewards forecasts that are both accurate and honestly calibrated,
+and it is the only metric here that penalises overconfidence. Calibration is additionally
+reported as empirical coverage of the nominal 80\% interval.
+
+\paragraph{Variance tracking.} The squared Pearson correlation $R^2$ between prediction and
+truth measures how much of the \emph{shape} of the day a forecast tracks, independently of
+bias or scale.
+
+\paragraph{Reading $R^2$ and skill together.} These two must be read jointly, because their
+disagreement is diagnostic. A model with high $R^2$ and low skill tracks the timing of the
+day correctly but sits off the diagonal --- a bias or scale problem, fixable by
+recalibration. A model with low $R^2$ and moderate skill is doing the opposite. In
+Chapter~\ref{cha:baselines} several multimodal baselines exhibit exactly the first pattern,
+and the distinction changes the interpretation of their ranking entirely.
+
+\paragraph{Ramp regime.} Point metrics are additionally reported on a \emph{ramp subset}:
+the top decile of $|\Delta y|$ per site, that is, the cloud-transition periods. This is
+where a visual modality should earn its tokens --- clear-sky periods are won by persistence
+--- so the ramp columns, not the aggregate ones, are the sharpest test of the multimodal
+hypothesis.
+
+\subsection{Metrics considered and rejected}
+
+Three alternatives were considered and are recorded here with the reason for rejection,
+because a metric choice that is not justified is a metric choice a reader has to take on
+trust.
+
+\paragraph{Mean absolute percentage error.} Undefined at zero and unbounded near it. The
+target is exactly zero for roughly half of every day and arbitrarily close to it at dawn and
+dusk, so any percentage-of-actual metric is dominated by the least interesting observations
+in the dataset.
+
+\paragraph{Per-series standardised error.} Normalising each plant's series by its own mean and
+standard deviation is standard in general-purpose forecasting benchmarks. It is prohibited
+here: those statistics would have to be computed on test-plant data, which is precisely the
+leakage the cross-plant protocol exists to prevent. Capacity normalisation uses a quantity
+known at installation and is leak-free by construction.
+
+\paragraph{Energy-weighted error.} Weighting errors by absolute energy would emphasise
+high-output periods, which is arguably what a grid operator cares about. It was rejected
+because it would make the metric depend on the capacity mix of the test set, undermining
+comparability across the two datasets --- and because the ramp subset already isolates the
+high-consequence regime in a way that is transparent rather than baked into the headline
+number.
+
+\subsection{Aggregation order matters}
+
+Metrics are computed \emph{per plant and then averaged}, not pooled over all observations.
+The two differ whenever plants contribute unequal numbers of valid steps or have different
+capacity factors, which they do (Figure~\ref{fig:siteboxplot}, Figure~\ref{fig:availability}).
+Pooling would weight a data-rich, high-output plant more heavily than a sparse one, and the
+resulting number would answer ``how well does the model do on the average \emph{observation}''
+rather than ``how well does it transfer to the average \emph{plant}''. Since the research
+question is about generalisation across plants, each plant is one unit of evidence.
+
+The choice has a practical consequence worth noting: macro-averaged metrics are noisier than
+pooled ones, because a single difficult plant is not diluted. With fourteen test plants the
+standard error of the mean is not negligible, which is a further reason to treat small
+differences between models as ties.
+
+\section{Scale-free aggregation}
+\label{sec:aggregation}
+
+When results must be summarised across datasets of different cadence, or across scenarios,
+only rank-preserving and scale-free statistics are used: win rate against the reference,
+geometric-mean skill, and average rank. Raw step-horizon metrics are never pooled across
+cadences.
+
+\section{Scenario battery}
+\label{sec:scenarios}
+
+Seven scenarios were specified. Table~\ref{tab:scenarios} states each and, in the last
+column, whether it was executed for this thesis --- an honest accounting matters more than
+a complete-looking table.
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabular}{l p{5.4cm} p{4.4cm} l}
+\hline
+\textbf{ID} & \textbf{Split} & \textbf{Question} & \textbf{Run} \\
+\hline
+S1 & Train plants, held-out time range & Sanity / upper bound & no \\
+S2 & \textbf{Disjoint test plants (primary)} & Headline result (H3) & \textbf{yes} \\
+S3 & Train \texttt{uk\_pv}, test \texttt{goes\_pvdaq} and reverse & Distribution-shift
+generalisation & no \\
+S4 & S2 with $H \in \{1,6,24\}$\,h & Skill-decay curves & partial \\
+S5 & S2 with 10/25/50/100\% of train plants & Sample efficiency & no \\
+S6 & S2 restricted to top-decile $|\Delta y|$ windows & Where vision should win &
+\textbf{yes} \\
+S7 & Train on a month subset, test unseen season & Temporal shift & no \\
+\hline
+\end{tabular}
+\caption{Scenario battery. Everything reported in this thesis is S2 on \texttt{uk\_pv},
+plus the S6 ramp subset and a partial S4 decay profile.}
+\label{tab:scenarios}
+\end{table}
+
+\subsection{What each scenario is for}
+
+\paragraph{S1, in-domain.} Train plants, held-out time range. This is the protocol most of the
+literature reports, included here only as a sanity ceiling: the gap between S1 and S2 measures
+how much of a model's apparent accuracy is plant-specific memorisation.
+
+\paragraph{S2, cross-plant.} The headline. Disjoint test plants, short inference history, no
+test-plant statistic anywhere. Everything reported in this thesis is S2.
+
+\paragraph{S3, cross-dataset.} Train on one track, test on the other. This is the strongest
+generalisation test available in the data, because it shifts sensor, scale, climate, latitude
+and cadence at once (Section~\ref{sec:eda}). It also involves a cadence change, so results
+must be reported with the physical lead time attached and aggregated only through the
+scale-free statistics of Section~\ref{sec:aggregation}. A robustness variant resamples the
+faster track to the slower cadence so that step-horizon and physical horizon coincide.
+
+\paragraph{S4, long horizon.} The same protocol at one, six and twenty-four hours. Skill decay
+curves are how a forecaster's useful range is communicated, and they separate models that are
+good at short lead times from models that are good at persistence.
+
+\paragraph{S5, data efficiency.} S2 with 10, 25, 50 and 100 percent of training plants. This
+is the canonical foundation-model claim --- that pretraining buys sample efficiency --- and it
+is the scenario in which a pretrained backbone should beat a supervised one even if it does
+not at full data. Its absence is why the comparison in Chapter~\ref{cha:benchmark} between
+supervised and pretrained models must be read as holding \emph{at 69 training plants} and not
+in general.
+
+\paragraph{S6, ramp subset.} S2 restricted to the top decile of $|\Delta y|$. The regime where
+a visual modality should win, and therefore the sharpest test of the thesis.
+
+\paragraph{S7, seasonal transfer.} Train on a subset of months, test on an unseen season. A
+temporal analogue of the cross-plant shift, included for completeness and not executed.
+
+The unexecuted scenarios are not decoration. S3 and S5 are the standard evidence a
+foundation-model claim is expected to provide --- transfer under distribution shift, and
+accuracy as a function of training data --- and their absence is the principal limitation
+of this work, restated in Section~\ref{sec:limitations}.
+
+\section{Input parity}
+\label{sec:parity}
+
+Table~\ref{tab:parity} states which inputs each tier may consume. A baseline never receives
+information the models it is compared against cannot access.
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabular}{l c c c c c}
+\hline
+\textbf{Tier} & $\mathbf{Y}$ & $\mathbf{X}_{\text{cov}}$ & $\mathbf{V}$ &
+\textbf{Retrieval} & \textbf{Text} \\
+\hline
+T0 Reference & yes & clear-sky only & --- & --- & --- \\
+T1/T2 Supervised & yes & yes & --- & --- & --- \\
+T3 Foundation models & yes & where native & --- & --- & --- \\
+T4 Adaptation & yes & yes (CoRA) & --- & yes (RAG) & --- \\
+T5/T6 Multimodal & yes & yes & yes & model-specific & model-specific \\
+MMTSFM (ours) & yes & yes & yes & optional (H4) & --- \\
+\hline
+\end{tabular}
+\caption{Input-parity matrix.}
+\label{tab:parity}
+\end{table}
+
+Two rules within this matrix are the ones a critical reader attacks first, and both are
+enforced.
+
+\paragraph{The retrieval datastore rule.} Retrieval and memory baselines may populate their
+datastore with \emph{training-plant data only}. Allowing test-plant history into the
+datastore converts zero-shot forecasting into transduction, and would make the retrieval
+tier incomparable with everything else. Transductive retrieval is a legitimate but
+\emph{separate} condition and never enters the headline table.
+
+\paragraph{The oracle-covariate rule.} Two Chronos-2 variants are reported that consume
+\emph{observed future weather} over the forecast horizon --- temperature, cloud cover,
+irradiance that would not be known at forecast time. They are labelled \emph{oracle} and
+are upper bounds, not competitors. The honest variants receive only deterministic future
+covariates: solar geometry and calendar encodings. The gap between the two is one of the
+most informative measurements in this thesis (Section~\ref{sec:bar}), but it must
+never be read as a competitive result.
+
+Two further parity constraints apply to the multimodal tier. Models that natively want text
+(Solar-VLM) may generate weather descriptions only from covariates available to every other
+model --- no external weather service. And no model may consume a normaliser, calibration
+constant or context-selection heuristic derived from the test plants.
+
+\section{Reproducibility}
+\label{sec:reproducibility}
+
+Reproducibility here means something stronger than ``the code is available''. It means that a
+number in this thesis can be traced to the job that produced it, that the job can be
+re-specified exactly, and that the data it consumed cannot have changed underneath it. Three
+mechanisms enforce that.
+
+\emph{The data is immutable.} The dataset of record is treated as read-only, and no result
+depends on re-processing it. Splits are committed to version control rather than regenerated
+at run time, so a later run cannot silently receive a different partition; their disjointness
+is asserted at load, so a leak raises rather than quietly improving a score.
+
+\emph{The configuration is declarative and complete.} Every hyperparameter is composed by
+Hydra from configuration groups, and none is hardcoded in model code. Each baseline's
+configuration is self-contained in its own directory, so no model's behaviour depends on a
+global setting that another model also reads --- a failure mode that is invisible until two
+models disagree for reasons unrelated to their architectures.
+
+\emph{The experiment is registered before it runs.} Each experiment declares a one-sentence
+hypothesis, a configuration diff, a branch and a nominated comparison baseline before the job
+is submitted. This is a guard against a specific and common failure: reframing an experiment
+after the fact as a test of whatever it happened to show.
+
+A fixed global seed of 42 governs data loaders, weight initialisation and dropout.
+Configuration is Hydra-only~\cite{hydra}, with each baseline's hyperparameters
+self-contained in its own directory, so that no model's behaviour depends on a global
+setting another model also reads. Dependencies are managed with a single lockfile. Training
+runs on the Leonardo cluster under SLURM, with standard output and error retained per job,
+so that any reported number can be traced to the job that produced it. Splits are committed
+to version control rather than regenerated, and their disjointness is asserted at load time.
+
+\par
+

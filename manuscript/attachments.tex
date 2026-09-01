@@ -1,22 +1,572 @@
-\chapter{Title first appendix}
+\chapter{Notation and Glossary}
+\label{app:notation}
 
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec sed nunc orci. Aliquam nec nisl vitae sapien pulvinar dictum quis non urna. Suspendisse at dui a erat aliquam vestibulum. Quisque ultrices pellentesque pellentesque. Pellentesque egestas quam sed blandit tempus. Sed congue nec risus posuere euismod. Maecenas ut lacus id mauris sagittis egestas a eu dui. Class aptent taciti sociosqu ad litora torquent per conubia nostra, per inceptos himenaeos. Pellentesque at ultrices tellus. Ut eu purus eget sem iaculis ultricies sed non lorem. Curabitur gravida dui eget ex vestibulum venenatis. Phasellus gravida tellus velit, non eleifend justo lobortis eget. 
+\section{Symbols}
 
-\section{Title}
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec sed nunc orci. Aliquam nec nisl vitae sapien pulvinar dictum quis non urna. Suspendisse at dui a erat aliquam vestibulum. Quisque ultrices pellentesque pellentesque. Pellentesque egestas quam sed blandit tempus. Sed congue nec risus posuere euismod. Maecenas ut lacus id mauris sagittis egestas a eu dui. Class aptent taciti sociosqu ad litora torquent per conubia nostra, per inceptos himenaeos. Pellentesque at ultrices tellus. Ut eu purus eget sem iaculis ultricies sed non lorem. Curabitur gravida dui eget ex vestibulum venenatis. Phasellus gravida tellus velit, non eleifend justo lobortis eget. 
+\begin{table}[h!]
+\centering
+\small
+\begin{tabular}{l l}
+\hline
+\textbf{Symbol} & \textbf{Meaning} \\
+\hline
+$i$ & Plant (entity) index \\
+$N$ & Number of entities in a batch group \\
+$T$ & History window length in steps (672 for \texttt{uk\_pv}) \\
+$H$ & Forecast horizon in steps (12 for \texttt{uk\_pv}) \\
+$T_v$ & Number of visual frames in a window (8) \\
+$T_{\text{ctx}}$ & History length in \emph{tokens} after patching ($\lceil T/16 \rceil = 42$) \\
+$T_{\text{fut}}$ & Horizon length in tokens ($\lceil H/16 \rceil = 1$) \\
+$T_M$ & Length of the pure-numerical macro region, $T_{\text{ctx}} - n_{\text{vis}}$ \\
+$n_{\text{vis}}$ & Visual summary tokens per sample (1 for \texttt{uk\_pv}) \\
+$L$ & Generic sequence length in tokens \\
+$Q$ & Number of output quantiles (9) \\
+$C_i$ & Installed capacity of plant $i$ \\
+$d$ & Model width (768) \\
+$r$ & Grassmann reduced dimension (32) \\
+$\delta$ & Grassmann temporal offset, $\delta \in \{1,2,4,8,12,16\}$ \\
+$\mathbf{Y}$ & Historical normalised power, $(N,T,1)$ \\
+$\mathbf{X}_{\text{cov}}$ & Covariates over history and horizon, $(N,T+H,C)$ \\
+$\mathbf{V}$ & Satellite frames, $(N,T_v,C_{\text{img}},H_{\text{img}},W_{\text{img}})$ \\
+$\hat{\mathbf{Y}}_{\text{fut}}$ & Predicted quantiles, $(N,H,Q)$ \\
+$\mathbf{z}_i$ & Reduced hidden state at position $i$ \\
+$\mathbf{p}_{i,\delta}$ & Normalised Pl\"ucker coordinates of the pair $(i-\delta, i)$ \\
+$\alpha_i$ & Grassmann fusion gate at position $i$ \\
+$\mathcal{P}_{\ast}$ & Plant sets: $\mathcal{P}_{\text{train}}$,
+$\mathcal{P}_{\text{val}}$, $\mathcal{P}_{\text{test}}$ \\
+\hline
+\end{tabular}
+\caption{Symbols used throughout. Numerical values in parentheses are the
+\texttt{uk\_pv} configuration of record.}
+\label{tab:notation}
+\end{table}
 
-\subsection{Sub-title}
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec sed nunc orci. Aliquam nec nisl vitae sapien pulvinar dictum quis non urna. Suspendisse at dui a erat aliquam vestibulum. Quisque ultrices pellentesque pellentesque. Pellentesque egestas quam sed blandit tempus. Sed congue nec risus posuere euismod. Maecenas ut lacus id mauris sagittis egestas a eu dui. Class aptent taciti sociosqu ad litora torquent per conubia nostra, per inceptos himenaeos. Pellentesque at ultrices tellus. Ut eu purus eget sem iaculis ultricies sed non lorem. Curabitur gravida dui eget ex vestibulum venenatis. Phasellus gravida tellus velit, non eleifend justo lobortis eget. 
+\section{Terms}
+
+\begin{description}
+  \item[Capacity factor] Mean output as a fraction of nameplate capacity. Differs across
+    plants even after normalisation, because of orientation, shading and climate.
+  \item[Clearness index ($k_t$)] Ratio of observed to clear-sky irradiance. The quantity
+    smart persistence carries forward.
+  \item[Cross-plant] An evaluation protocol in which test plants contribute nothing --- not a
+    row, not a frame, not a normalisation statistic --- to anything fitted.
+  \item[Endogenous multimodal] A method whose second modality is synthesised from the
+    numerical series or its covariates; no external sensor.
+  \item[Exogenous multimodal] A method that consumes a genuine external observation, here
+    satellite imagery.
+  \item[Group attention] Attention across the batch axis over token rows sharing a group
+    identifier; the mechanism by which Chronos-2 ingests covariates.
+  \item[In-process metric] A metric computed inside the training process that produced the
+    model, as opposed to one derived by reloading a checkpoint.
+  \item[Macro region] The portion of the token sequence that remains purely numerical under
+    selective interleaving.
+  \item[Oracle variant] A model given observed future weather over the horizon. An upper
+    bound, never a competitor.
+  \item[Ramp] A large step-to-step change in power, operationally the top decile of
+    $|\Delta y|$ per site.
+  \item[Refinement window] The recent portion of the sequence into which visual tokens are
+    interleaved.
+  \item[Skill score] $1 - \mathrm{NRMSE}_{\text{model}}/\mathrm{NRMSE}_{\text{ref}}$ with
+    smart persistence as the reference.
+  \item[Smart persistence] Persistence of the clearness index rather than of power. The
+    reference model of the solar forecasting community.
+  \item[Transductive retrieval] Retrieval whose datastore contains test-entity history.
+    Prohibited in the headline protocol.
+\end{description}
 
 
-\chapter{Title first appendix}
+\chapter{Plant Splits}
+\label{app:splits}
 
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec sed nunc orci. Aliquam nec nisl vitae sapien pulvinar dictum quis non urna. Suspendisse at dui a erat aliquam vestibulum. Quisque ultrices pellentesque pellentesque. Pellentesque egestas quam sed blandit tempus. Sed congue nec risus posuere euismod. Maecenas ut lacus id mauris sagittis egestas a eu dui. Class aptent taciti sociosqu ad litora torquent per conubia nostra, per inceptos himenaeos. Pellentesque at ultrices tellus. Ut eu purus eget sem iaculis ultricies sed non lorem. Curabitur gravida dui eget ex vestibulum venenatis. Phasellus gravida tellus velit, non eleifend justo lobortis eget. 
+The \texttt{uk\_pv} partition is generated once with seed 42 at a per-dataset 70/15/15
+ratio, excludes sites carrying \texttt{bad\_site\_flag}, and is committed to version control
+as the source of truth. Disjointness is asserted programmatically at every data load.
 
-\section{Title}
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec sed nunc orci. Aliquam nec nisl vitae sapien pulvinar dictum quis non urna. Suspendisse at dui a erat aliquam vestibulum. Quisque ultrices pellentesque pellentesque. Pellentesque egestas quam sed blandit tempus. Sed congue nec risus posuere euismod. Maecenas ut lacus id mauris sagittis egestas a eu dui. Class aptent taciti sociosqu ad litora torquent per conubia nostra, per inceptos himenaeos. Pellentesque at ultrices tellus. Ut eu purus eget sem iaculis ultricies sed non lorem. Curabitur gravida dui eget ex vestibulum venenatis. Phasellus gravida tellus velit, non eleifend justo lobortis eget. 
+\section{Train (69 plants)}
+\begin{quote}\small\ttfamily
+10048, 10367, 10512, 10589, 10630, 10702, 10840, 10843, 11042, 11287, 12495, 12642, 13309,
+13311, 13390, 13773, 14394, 14467, 14531, 14649, 14859, 14924, 16216, 16921, 18161, 26811,
+26831, 26844, 26846, 26848, 26869, 26879, 26904, 26919, 27054, 3149, 3175, 3333, 3770, 3872,
+4090, 6427, 6493, 6618, 6669, 6675, 6827, 6838, 6892, 6966, 6975, 7017, 7051, 7088, 7338,
+7359, 7378, 7401, 7412, 7498, 7521, 7533, 7547, 7608, 7651, 7674, 7834, 7836, 9153
+\end{quote}
 
-\subsection{Sub-title}
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec sed nunc orci. Aliquam nec nisl vitae sapien pulvinar dictum quis non urna. Suspendisse at dui a erat aliquam vestibulum. Quisque ultrices pellentesque pellentesque. Pellentesque egestas quam sed blandit tempus. Sed congue nec risus posuere euismod. Maecenas ut lacus id mauris sagittis egestas a eu dui. Class aptent taciti sociosqu ad litora torquent per conubia nostra, per inceptos himenaeos. Pellentesque at ultrices tellus. Ut eu purus eget sem iaculis ultricies sed non lorem. Curabitur gravida dui eget ex vestibulum venenatis. Phasellus gravida tellus velit, non eleifend justo lobortis eget. 
+\section{Validation (15 plants)}
+\begin{quote}\small\ttfamily
+6075, 6481, 6498, 6732, 7019, 7356, 7648, 10973, 12826, 13057, 16474, 16769, 18249, 26901,
+26970
+\end{quote}
 
+\section{Test (14 plants)}
+\begin{quote}\small\ttfamily
+3432, 6648, 7315, 7756, 8066, 9191, 10793, 11176, 13388, 13817, 18989, 26854, 26933, 27020
+\end{quote}
+
+\section{Excluded}
+Sites \texttt{7239} and \texttt{8587} carry \texttt{bad\_site\_flag} and are dropped,
+leaving 98 usable plants of 100.
+
+\section{The \texttt{goes\_pvdaq} companion split}
+The committed partition is 7 train (\texttt{1202, 1277, 1278, 1283, 1289, 1367, 1420}),
+2 validation (\texttt{1203, 51}) and 1 test (\texttt{36}), additionally rotated
+leave-one-plant-out. As noted in Section~\ref{sec:quality}, this split predates the
+\texttt{bad\_site\_flag} annotation and still assigns flagged sites \texttt{1283} and
+\texttt{51}; it must be regenerated over the eight usable plants before the track is run.
+
+
+\chapter{Scale-Free Aggregation}
+\label{app:aggregation}
+
+Cross-plant results are additionally summarised with the rank-preserving statistics of
+Section~\ref{sec:aggregation}: win rate against smart persistence over the fourteen test
+plants, geometric-mean skill, and average rank. These are the only statistics permitted for
+aggregation across datasets of differing cadence.
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabular}{l l c c c}
+\hline
+\textbf{Group} & \textbf{Model} & \textbf{Win rate} $\uparrow$ &
+\textbf{SS$_{\text{geo}}$} $\uparrow$ & \textbf{Avg.\ rank} $\downarrow$ \\
+\hline
+Reference & Hourly climatology & 1.000 & 0.225 & 2.07 \\
+          & Seasonal naive & 0.714 & 0.100 & 3.50 \\
+          & Persistence & 0.429 & 0.004 & 4.29 \\
+          & Smart persistence & 0.000 & 0.000 & 4.14 \\
+          & LightGBM & 1.000 & 0.379 & 1.00 \\
+\hline
+Foundation & Chronos-2 zero-shot & 0.929 & 0.179 & 1.07 \\
+           & Chronos-2 fine-tuned & 1.000 & 0.324 & 1.00 \\
+           & Chronos-2 oracle & 1.000 & 0.469 & 1.00 \\
+           & Chronos-2 oracle FT & 1.000 & 0.498 & 1.00 \\
+           & TimesFM 2.5 zero-shot & 1.000 & 0.265 & 1.00 \\
+           & TiRex zero-shot & 1.000 & 0.282 & 1.00 \\
+           & TTM-R2 fine-tuned & 1.000 & 0.358 & 1.00 \\
+           & TTM-R2 zero-shot & 0.286 & $-0.095$ & 1.71 \\
+\hline
+Supervised & iTransformer & 1.000 & 0.550 & 1.00 \\
+           & PatchTST & 1.000 & 0.453 & 1.00 \\
+           & TFT & 1.000 & 0.419 & 1.00 \\
+           & MLP & 1.000 & 0.407 & 1.00 \\
+           & DLinear & 1.000 & 0.318 & 1.00 \\
+           & TabPFN-3 & 1.000 & 0.332 & 1.00 \\
+           & CoRA & 1.000 & 0.368 & 1.00 \\
+\hline
+Multimodal & Time-VLM & 1.000 & 0.562 & 1.00 \\
+           & Solar-VLM & 1.000 & 0.435 & 1.07 \\
+           & CrossViVit & 1.000 & 0.349 & 1.87 \\
+           & SUNSET & 1.000 & 0.236 & 3.07 \\
+           & Aurora & 1.000 & 0.223 & 2.00 \\
+           & UniCast & 0.786 & 0.114 & 4.00 \\
+           & VisionTS++ & 0.429 & 0.004 & 3.57 \\
+\hline
+\end{tabular}
+\caption{Win rate, geometric-mean skill and average rank against smart persistence over the
+fourteen \texttt{uk\_pv} test plants. Ranks are computed within each model's own comparison
+group, so they are comparable within a block and not across blocks.}
+\label{tab:aggregation}
+\end{table}
+
+A win rate of 1.000 with a modest geometric-mean skill --- Chronos-2 fine-tuned, for
+instance --- indicates a model that beats the reference on \emph{every} plant by a moderate
+margin, which is a different and more trustworthy profile than a high mean driven by a few
+easy plants. TTM-R2 zero-shot is the only model to lose to the reference on a majority of
+plants.
+
+
+\chapter{Ramp-Regime Results}
+\label{app:ramp}
+
+Ramp metrics restrict evaluation to the top decile of $|\Delta y|$ per site --- the
+cloud-transition periods where a multimodal model should have its advantage. As noted in
+Section~\ref{sec:threats}, the ramp mask for externally integrated baselines is recomputed
+from saved predictions on their native windows and is therefore not bit-aligned with the
+tier~0--3 subset; read within-tier or by rank.
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabular}{l l c c}
+\hline
+\textbf{Tier} & \textbf{Model} & \textbf{Ramp NMAE} $\downarrow$ &
+\textbf{Ramp NRMSE} $\downarrow$ \\
+\hline
+T5 & Time-VLM & 0.1374 & \textbf{0.1720} \\
+T2 & iTransformer & 0.1432 & 0.1769 \\
+T3 & Chronos-2 oracle FT & 0.1494 & 0.1824 \\
+T6 & Solar-VLM & 0.1512 & 0.1849 \\
+T2 & PatchTST & 0.1543 & 0.1888 \\
+T3 & Chronos-2 oracle & 0.1544 & 0.1915 \\
+T4 & Cross-RAG & 0.1545 & 0.1969 \\
+T4 & TS-RAG & 0.1568 & 0.2004 \\
+T2 & TFT & 0.1620 & 0.2001 \\
+T2 & MLP & 0.1627 & 0.1981 \\
+T4 & CoRA & 0.1653 & 0.2021 \\
+T0 & Hourly climatology & 0.1665 & 0.2037 \\
+T1 & LightGBM & 0.1668 & 0.2024 \\
+T1 & TabPFN-3 & 0.1694 & 0.2050 \\
+T3 & TTM-R2 fine-tuned & 0.1702 & 0.2062 \\
+T6 & CrossViVit & 0.1720 & 0.2100 \\
+T2 & DLinear & 0.1740 & 0.2092 \\
+T3 & Chronos-2 fine-tuned & 0.1759 & 0.2115 \\
+T6 & SUNSET & 0.1757 & 0.2177 \\
+T3 & TiRex zero-shot & 0.1826 & 0.2233 \\
+T3 & Chronos-2 zero-shot & 0.1902 & 0.2335 \\
+T3 & TimesFM 2.5 zero-shot & 0.1902 & 0.2319 \\
+T5 & VisionTS++ & 0.2008 & 0.2515 \\
+T5 & Aurora & 0.2091 & 0.2516 \\
+T0 & Seasonal naive & 0.2056 & 0.2575 \\
+T5 & UniCast & 0.2302 & 0.2814 \\
+T0 & Smart persistence & 0.2317 & 0.2806 \\
+T0 & Persistence & 0.2550 & 0.2990 \\
+\hline
+\end{tabular}
+\caption{Ramp-subset accuracy, sorted by ramp NMAE. Time-VLM --- which consumes no external
+imagery --- attains the best ramp NRMSE in the suite.}
+\label{tab:ramp}
+\end{table}
+
+
+\chapter{Configuration of Record}
+\label{app:config}
+
+All hyperparameters are composed by Hydra from four groups --- \texttt{model}, \texttt{data},
+\texttt{trainer} and \texttt{stage} --- and none is hardcoded in model code. The following are
+the settings that define the reported configuration.
+
+\section{Backbone}
+Chronos-2 at native checkpoint size: $d_{\text{model}}=768$, twelve layers, twelve heads,
+head dimension 64, feed-forward width 3072, input patch size 16, nine quantiles
+$[0.1, 0.2, \ldots, 0.9]$, inverse-hyperbolic-sine normalisation. As stated in
+Section~\ref{sec:numeric-branch}, configured dimensions smaller than the checkpoint's are
+silently ignored on load.
+
+\section{Grassmann mixer}
+Reduced dimension 32 (must be even for rotary embedding); offsets $\{1,2,4,8,12,16\}$;
+Pl\"ucker normalisation epsilon $10^{-8}$; modality-pair bias enabled by default when the
+fusion mode is interleaved.
+
+\section{Vision}
+V-JEPA~2.1 ViT-L/16, frozen; eight frames per window; tubelet temporal stride two, giving
+four latent time steps of 196 patches at width 1024; latent summariser output
+$n_{\text{vis}}=1$ token for \texttt{uk\_pv} and 2 for \texttt{goes\_pvdaq}, derived from
+cadence and asserted at model initialisation to be bounded by the context length.
+
+\section{Windows}
+History fourteen days; horizon six hours; decay horizons reported at one, six and
+twenty-four hours; visual window six hours ending at the forecast origin.
+
+\section{Optimisation}
+Masked pinball loss over the nine quantiles; asymmetric Bernoulli modality dropout; global
+seed 42; bfloat16 mixed precision; distributed data parallel; early stopping on validation
+loss. The vision-free arm uses batch size 2 with gradient accumulation 8 for the reason given
+in Section~\ref{sec:impl}.
+
+
+\chapter{Baseline Integration Notes}
+\label{app:integration}
+
+Third-party models were vendored and adapted to the tensor contract of
+Section~\ref{sec:contract}. The deviations below bound how strongly each row of
+Table~\ref{tab:leaderboard} may be read.
+
+\begin{itemize}
+  \item \textbf{Tier 2} (MLP, DLinear, PatchTST, iTransformer, TFT) is served by one port of
+    a common deep time-series library~\cite{tslib}; the four transformer-family models share
+    a trainer and differ only in architecture. TFT is a reduced variant retaining the
+    quantile head and gating but not the full variable-selection stack.
+  \item \textbf{TTM} uses the R2 checkpoint. The R3 release is a trend-plus-residual
+    decomposition model whose parameter keys do not load into the available library version,
+    yielding silently randomised weights. Histories shorter than the model's context are
+    edge-padded with an observed mask; fine-tuned variants receive a frequency token.
+  \item \textbf{Chronos-2 oracle variants} differ from the honest variants only in which
+    covariates are exposed over the horizon: the honest variants receive deterministic
+    quantities (solar geometry, calendar), the oracle variants additionally receive observed
+    future weather. They are upper bounds.
+  \item \textbf{Retrieval baselines} (TS-RAG, Cross-RAG) populate their datastores with
+    training-plant windows only; mixing weights are tuned on validation plants. Cross-RAG
+    additionally uses clear-sky-aware retrieval keys and per-step mixing.
+  \item \textbf{CoRA} is implemented as a zero-initialised residual adapter over the frozen
+    backbone.
+  \item \textbf{CrossViVit} runs with single-channel imagery and synthesised coordinate
+    encodings, since \texttt{uk\_pv} frames are greyscale and the original model expects
+    multi-channel input with precise geospatial coordinates.
+  \item \textbf{SUNSET} is run from the public implementation against the packed frame
+    archive.
+  \item \textbf{Solar-VLM} generates its weather text only from covariates available to every
+    other model; no external weather service is consulted.
+  \item \textbf{Time-VLM} runs on evaluation windows not bit-aligned with the rest of the
+    suite. An earlier reported catastrophic score for this model was traced to a stale
+    artefact --- de-standardised predictions saved without regenerating the metric file ---
+    and corrected by re-scoring, without retraining. The other externally integrated models
+    re-score bit-identically to their recorded rows, so the correction is isolated.
+  \item \textbf{UniCast} re-scores bit-identically to its record. Its weakness is genuine:
+    amplitude under-prediction of approximately $0.61\,y + 0.063$ with correlation 0.61, plus
+    a late-day skew in its native evaluation windows. Neither is recoverable without
+    retraining or an illegitimate recalibration fitted on targets.
+\end{itemize}
+
+
+\chapter{Experiment Registry}
+\label{app:registry}
+
+Every experiment is registered before it launches, with a one-sentence hypothesis, a
+configuration diff, a branch and a nominated comparison baseline. The registry is the
+authoritative record of what was run; training logs are never used to reconstruct history.
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabular}{l p{7.6cm} l}
+\hline
+\textbf{ID} & \textbf{Hypothesis} & \textbf{Status} \\
+\hline
+A00 & Chronos-2 zero-shot establishes the foundation-model anchor & done \\
+A01 & Late fusion improves over time-series only (H1) & done \\
+A02 & Interleaved fusion improves over late fusion (H2) & in progress \\
+A03 & Grassmann mixing improves over matched self-attention & in progress \\
+A04 & Visual window length: 3 vs 6 vs 12 hours & specified \\
+A05 & Cross-plant held-out --- folded into the protocol, not an ablation & folded \\
+A06 & Few-shot context matching & deprecated by design decision \\
+A07 & TS-RAG on a frozen backbone (H4) & done \\
+A08 & Cross-RAG against TS-RAG & done \\
+A09 & Shuffled-frames control: the frames are read temporally & specified \\
+A10 & Mismatched-plant frames control: spatial grounding & specified \\
+A11 & Vision-only upper bound & specified \\
+A12 & Modality-contribution grid (target / +covariates / +vision / all) & specified \\
+A13 & Visual token budget sweep & specified \\
+A14 & Frozen against partially unfrozen backbone & specified \\
+A15 & Retrieval datastore size and top-$k$ sweep & specified \\
+W4 & Cross-plant group batching activates group attention at train time & code complete \\
+W5 & Bounding the visual window and supplying true frame intervals improves sub-hourly skill
+& code complete \\
+W6 & Dual-pass marginal-gain measurement confirms the visual stream is used & code complete \\
+W7 & The visual token count is derived from cadence and bounded by context length & done \\
+\hline
+\end{tabular}
+\caption{Experiment registry. ``Specified'' means designed and registered but not executed.}
+\label{tab:registry}
+\end{table}
+
+
+\chapter{Covariate Reference}
+\label{app:covariates}
+
+The fourteen covariate channels supplied to models fall into two classes with very different
+status at forecast time. \emph{Observed} covariates are measurements or reanalysis products
+that are known only up to the forecast origin; over the horizon they must themselves be
+forecast, and supplying their true future values constitutes privileged information.
+\emph{Deterministic} covariates are computable analytically for arbitrary future times from
+coordinates and a calendar, and may therefore be supplied over the horizon without
+compromising the protocol.
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabular}{l l p{6.4cm} l}
+\hline
+\textbf{Channel} & \textbf{Unit} & \textbf{Meaning} & \textbf{Class} \\
+\hline
+\texttt{temperature\_2m} & $^\circ$C & Air temperature at 2\,m; affects module efficiency &
+observed \\
+\texttt{shortwave\_radiation} & W/m$^2$ & Global horizontal irradiance at the surface &
+observed \\
+\texttt{direct\_radiation} & W/m$^2$ & Beam component of surface irradiance & observed \\
+\texttt{diffuse\_radiation} & W/m$^2$ & Scattered component & observed \\
+\texttt{direct\_normal\_irradiance} & W/m$^2$ & Beam irradiance normal to the sun &
+observed \\
+\texttt{cloudcover} & \% & Total areal cloud fraction & observed \\
+\texttt{windspeed\_10m} & m/s & Wind at 10\,m; module cooling and advection speed &
+observed \\
+\texttt{precipitation} & mm & Accumulated precipitation & observed \\
+\texttt{solar\_zenith} & deg & Angle between the sun and the vertical & deterministic \\
+\texttt{solar\_azimuth} & deg & Compass bearing of the sun & deterministic \\
+\texttt{clearsky\_ghi} & W/m$^2$ & Haurwitz clear-sky global horizontal
+irradiance~\cite{haurwitz} & deterministic \\
+\texttt{doy\_sin}, \texttt{doy\_cos} & --- & Cyclic day-of-year encoding & deterministic \\
+\texttt{solar\_time} & h & Local apparent solar time & deterministic \\
+\hline
+\end{tabular}
+\caption{The covariate track. Only the deterministic class may be supplied over the forecast
+horizon; the honest and oracle variants of the foundation-model baselines differ precisely in
+whether the observed class is also supplied.}
+\label{tab:covariates}
+\end{table}
+
+Two derived quantities appear in the table but are not fed to models as covariates. The
+clearness index $k_t$ is the ratio of observed to clear-sky irradiance, and the clear-sky
+index is its power analogue; both are used by smart persistence, which is the physics
+reference and is exempt from the no-domain-physics rule, and by Cross-RAG for retrieval keys.
+The clear-sky index is left undefined below 50\,W/m$^2$ of clear-sky irradiance, where the
+ratio is numerically unstable.
+
+
+\chapter{Metric Definitions}
+\label{app:metrics}
+
+All metrics are computed on the capacity-normalised target over daylight, valid steps, per
+plant, then macro-averaged. Let $y_{i,h}$ and $\hat{y}_{i,h}$ be truth and prediction for
+sample $i$ at horizon step $h$, $C_i$ the plant capacity, $M$ the number of samples and $H$
+the horizon.
+
+\paragraph{Normalised mean absolute error.}
+\[
+  \mathrm{NMAE} = \frac{1}{MH} \sum_{i=1}^{M}\sum_{h=1}^{H}
+  \frac{\lvert \hat{y}_{i,h} - y_{i,h} \rvert}{C_i}.
+\]
+
+\paragraph{Normalised root mean squared error.}
+\[
+  \mathrm{NRMSE} = \sqrt{\frac{1}{MH}\sum_{i=1}^{M}\sum_{h=1}^{H}
+  \left(\frac{\hat{y}_{i,h}-y_{i,h}}{C_i}\right)^{\!2}}.
+\]
+
+\paragraph{Skill score.}
+\[
+  \mathrm{SS} = 1 - \frac{\mathrm{NRMSE}_{\text{model}}}
+                        {\mathrm{NRMSE}_{\text{smart persistence}}},
+\]
+computed within the same scenario tag, so that a model is always compared against the
+reference evaluated on exactly the windows it was itself evaluated on.
+
+\paragraph{Pinball loss and CRPS.} For quantile level $\tau$ and prediction
+$\hat{y}^{(\tau)}$,
+\[
+  \mathcal{L}_\tau(y, \hat{y}^{(\tau)}) =
+  \begin{cases}
+    \tau\,(y - \hat{y}^{(\tau)}) & \text{if } y \ge \hat{y}^{(\tau)},\\[2pt]
+    (1-\tau)\,(\hat{y}^{(\tau)} - y) & \text{otherwise.}
+  \end{cases}
+\]
+The continuous ranked probability score is approximated by averaging over the nine-point
+quantile grid $\tau \in \{0.1, \ldots, 0.9\}$. This is a strictly proper scoring
+rule~\cite{gneiting} up to the discretisation of the grid.
+
+\paragraph{Coverage.} The empirical fraction of observations falling inside the nominal
+central 80\% interval $[\hat{y}^{(0.1)}, \hat{y}^{(0.9)}]$. A well-calibrated model reports
+0.80; below indicates overconfidence, above indicates excessive width.
+
+\paragraph{Variance tracking.} $R^2 = \mathrm{corr}(y, \hat{y})^2$ pooled over daylight,
+valid steps. Note that this is the squared correlation, not the coefficient of
+determination: it is invariant to affine rescaling of the forecast and therefore isolates
+\emph{shape} tracking from bias and scale, which is exactly the separation
+Section~\ref{sec:qualitative} relies on.
+
+\paragraph{Ramp metrics.} NMAE and NRMSE restricted to the top decile of $\lvert \Delta y
+\rvert$ per site, computed on the site's native windows.
+
+\paragraph{Scale-free aggregates.} Win rate is the fraction of test plants on which a model
+beats the reference. Geometric-mean skill is
+$1 - \left(\prod_j \mathrm{NRMSE}_{\text{model},j} / \mathrm{NRMSE}_{\text{ref},j}
+\right)^{1/J}$ over $J$ plants. Average rank is the mean position across plants within a
+comparison group.
+
+
+\chapter{Compute Environment}
+\label{app:compute}
+
+\section{Hardware and scheduling}
+
+Training and evaluation run on the Leonardo supercomputer under SLURM. Jobs request GPU nodes;
+standard output and error are redirected per job and retained, so that every number in this
+thesis traces to a job identifier. Long training runs are checkpointed and resumed on
+walltime expiry, a practice that interacts with the integrity defect of
+Section~\ref{sec:integrity} and is discussed there.
+
+Data lives on the project's fast scratch filesystem as a single Parquet table plus a single
+27\,GB HDF5 archive. The choice of one packed archive over per-frame files is not incidental:
+a shared parallel filesystem degrades badly under millions of small-file opens, and a
+per-frame layout made the visual data loader the training bottleneck in early experiments.
+
+\section{Practices imposed by the environment}
+
+\begin{itemize}
+  \item \textbf{Storage discipline.} Project scratch is quota-bound, and an unattended
+    cache can exhaust it. Visual feature caches are written once and reused across runs
+    rather than regenerated per job, and intermediate artefacts are pruned on a schedule.
+  \item \textbf{Stride subsampling.} Training windows are drawn at a stride rather than at
+    every timestep. Consecutive origins share almost all of their context, so the marginal
+    information of a stride-1 sample is small while its cost is not.
+  \item \textbf{Gradient accumulation over batch size.} Where the memory profile forbids a
+    useful batch --- notably the vision-free arm, for the reason given in
+    Section~\ref{sec:impl} --- the effective batch is recovered by accumulation rather than
+    by reducing the token budget.
+  \item \textbf{Mixed precision.} Training uses bfloat16 with distributed data parallelism.
+  \item \textbf{No data in version control.} The repository contains code, configuration and
+    prose; datasets, checkpoints and logs live outside it and are referenced by path.
+\end{itemize}
+
+\section{Software}
+
+Dependencies are managed with a single lockfile and a single resolver, so that an environment
+can be reconstructed exactly. Configuration is composed by Hydra~\cite{hydra}; the training
+lifecycle is handled by PyTorch Lightning~\cite{lightning}, which supplies distributed
+training, mixed precision and checkpointing without entangling them with the model definition.
+Tier-2 baselines derive from a common deep time-series library~\cite{tslib}; all other
+third-party models are vendored at a pinned revision.
+
+
+\chapter{Reproducibility Checklist}
+\label{app:repro}
+
+\section{Data}
+
+\begin{itemize}
+  \item The dataset of record is a single Parquet table plus a single HDF5 archive,
+    treated as read-only. No result depends on re-processing it.
+  \item Splits are generated once with seed 42 and \emph{committed to version control};
+    they are never regenerated at run time.
+  \item Plant disjointness between train, validation and test is asserted
+    programmatically at every data load. A leak raises rather than silently improving a
+    score.
+  \item Frames are addressed exclusively through \texttt{image\_h5\_index}, a group-local,
+    timestamp-exact pointer verified row by row.
+  \item The target is normalised by audited nameplate capacity --- a quantity known at
+    installation --- so no normalisation statistic is estimated from evaluation data.
+\end{itemize}
+
+\section{Models}
+
+\begin{itemize}
+  \item Global seed 42 for data loaders, weight initialisation and dropout.
+  \item Configuration is Hydra-only; each baseline's hyperparameters are self-contained in
+    its own directory, so no model's behaviour depends on a global setting another model
+    also reads.
+  \item Third-party models are vendored at a pinned revision and adapted to the tensor
+    contract rather than reimplemented. Every deviation from the published method is
+    recorded in Appendix~\ref{app:integration}.
+  \item Foundation models with a fixed maximum context consume their most recent supported
+    window; this is stated per model rather than silently tolerated.
+\end{itemize}
+
+\section{Experiments}
+
+\begin{itemize}
+  \item Every experiment is registered before it launches, with a one-sentence hypothesis,
+    a configuration diff, a branch and a nominated comparison baseline
+    (Appendix~\ref{app:registry}).
+  \item Training runs under SLURM with per-job logs retained, so any reported number traces
+    to the job that produced it.
+  \item Only in-process metrics are reported. Post-hoc re-scoring from checkpoints is
+    blocked by the defect of Section~\ref{sec:integrity} and no number in this thesis is
+    derived that way.
+  \item Interpretations of control outcomes are fixed in advance
+    (Table~\ref{tab:control-logic}).
+\end{itemize}
+
+\section{Known gaps}
+
+\begin{itemize}
+  \item One seed per configuration; seed-to-seed variance is unmeasured.
+  \item No Diebold--Mariano or equivalent significance testing.
+  \item The \texttt{goes\_pvdaq} split predates the bad-site flags and must be regenerated
+    before that track is run.
+  \item Ramp masks for externally integrated baselines are recomputed on their native
+    windows and are not bit-aligned with the tier~0--3 subset.
+  \item Two baseline rows are harness-limited and flagged as indicative
+    (Appendix~\ref{app:integration}).
+\end{itemize}
+
+\par
 

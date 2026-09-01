@@ -40,6 +40,23 @@ Legend — **Priority**: `P0` = mandatory for submission; `P1` = strongly expect
 | **iTransformer** | `Y, X_cov` | Channel-attention SOTA, covariate-friendly | ✅ P1 `baselines/tslib/` |
 | TFT | `Y, X_cov` | Quantile-native; gives CRPS comparison for free | ✅ `baselines/tslib/` (TFT-lite; deviations in baselines/README) |
 | **iTransformer (library)** | `Y, X_cov` incl. future weather | Like-for-like control: pre-built [`neuralforecast`](https://github.com/Nixtla/neuralforecast) model on MMTSFM's windows, recipe and scorer | ✅ **P0** `baselines/tier2/`, tag `itransformer_nf_s2_ukpv` |
+| **TabFM v1.0.0** (ZS) — *tabular FM, not deep TS* | flattened `Y, X_cov` | Second tabular FM beside TabPFN-3, on the identical feature table: turns "TabPFN doesn't close the gap" into a claim about the tabular-FM class | ✅ `baselines/tier2/tabfm_model.py` (optional dep group `tabfm`), arms `tabfm` / `tabfm_ens` |
+
+**TabFM is filed in tier 2 but is not a tier-2 model.** It is zero-shot and
+tabular — the sibling of the tier-1 `tabpfn` row, fed by the same
+`tier1/features.py` table as LightGBM and TabPFN. It is listed here for filing
+reasons only; report it as a tabular FM, never as evidence about supervised
+deep-TS architectures. Two arms mirror Google's own TabArena reporting: `tabfm`
+(default estimator) and `tabfm_ens` (`TabFMRegressor.ensemble()` — feature
+crosses, SVD features, NNLS-blended members). **Point predictions only**: there
+is no regression quantile head upstream, so NMAE / NRMSE / Skill-Score are
+reported and CRPS / coverage / ECE are N/A (same handling as `itransformer_nf`
+and `ttm_zs`). Context is subsampled to 10 000 rows by default (vs TabPFN's
+100 000) because TabFM re-reads the context through 32 transformed views;
+`max_context_rows` and `n_estimators` are reported protocol parameters. Weights
+(`google/tabfm-1.0.0-pytorch`) are ungated but licensed
+`tabfm-non-commercial-v1.0` — research use only. Runner:
+`baselines/scripts/slurm_tabfm.sh` (`CONFIG=plain|ens`).
 
 All Tier-2 models come essentially free via the [Time-Series-Library](https://github.com/thuml/Time-Series-Library) (PatchTST, iTransformer, DLinear share one trainer). One `baselines/tslib/` port covers the whole tier.
 
@@ -79,7 +96,7 @@ Runner: `baselines/scripts/slurm_itransformer_nf.sh` (seeds 42/43/44).
 
 | Model | Real images? | Why | Status |
 |---|---|---|---|
-| **Time-VLM** | ❌ (renders TS as image) | Must show that *real* satellite frames beat TS-rendered pseudo-images | ✅ **P0** vendored `tier5/vendor/time_vlm` — numerical track (uk_pv), runnable (TIER5_INTEGRATION.md) |
+| **Time-VLM** | ❌ (renders TS as image) | Must show that *real* satellite frames beat TS-rendered pseudo-images | ✅ **P0** vendored `tier5/vendor/time_vlm` — numerical track (uk_pv), runnable. Runs through the added `Dataset_UKPV` (`--data ukpv`), **not** upstream `Dataset_Custom`: the latter cuts its own 70/10/20 split out of each CSV, which trains on ~48 of the 69 train plants, early-stops on those same plants, and scores only the last 20 % (winter) of each test plant — making SS invalid against the full-series SP reference. |
 | **UniCast** ([arXiv:2508.11954](https://arxiv.org/abs/2508.11954)) | ✅ soft-prompt vision+text into TSFM | Frozen-FM multimodal prompting — same design space as ours, weaker fusion. Ideal contrast for H2 (deep fusion > prompting). | ✅ P1 vendored `tier5/vendor/unicast` — runs on the uk_pv multimodal track (CLIP vision; text path skipped when no text encoder). |
 | **Aurora** ([arXiv:2509.22295](https://arxiv.org/abs/2509.22295)) | ✅ multimodal TSFM, ZS probabilistic | Generative multimodal TSFM; covers the "why not just use a multimodal TSFM" question | ✅ P2 vendored `tier5/vendor/aurora` — runs zero-shot on uk_pv. |
 | VisionTS++ | ❌ (TS→image) | Cite + position; run only if reviewers demand | ✅ P2 vendored `tier5/vendor/visionts_pp` — numerical track (uk_pv) |
@@ -214,6 +231,7 @@ Computed per plant, then macro-averaged over plants (prevents large plants domin
 - **Per-horizon breakdown** — report NMAE(h) for h ∈ {1, …, H}; plot decay curves for S4.
 - **TEMPLATE transferability scores** (P1, per RESEARCH_SCOPE): DLS / PLS / TAS on frozen representations — ranks backbones and fusion variants without fine-tuning.
 - Daylight-only masking: all metrics computed where `mask_future · daylight = 1`; report the mask convention once, use everywhere.
+- Vendored harnesses (Tiers 4-6) consume the flat `date,OT` CSV bridge, which fills gaps with `0.0` and carries no `clearsky_ghi` — so `scripts/import_predictions.py` must be run with `--ukpv_dir <export dir> --data <parquet>` to rebuild that same mask from the dataset of record. Without the flag it falls back to the proxy `true > 0`, which scores outages as night and drops overcast daytime steps; the mask actually used is written to `manifest.config.daylight_mask`, so any result JSON saying `proxy true>0` is not mask-comparable with Tiers 0-3.
 
 ### 4.3 Probabilistic metrics (P0 — the scope marks CRPS as primary)
 
@@ -363,6 +381,7 @@ prefer `graphify query "<question>"` over reading a PDF.
 |---|---|---|---|
 | **[NEXUS](https://arxiv.org/abs/2605.14389)** | Google | May 2026 | LLM multi-agent framework decomposing predictions to reason over numerical series *and* unstructured textual context. |
 | **[TabPFN-3](https://arxiv.org/abs/2605.13986)** | Prior Labs | May 2026 | Tabular FM pretrained on synthetic data; supports classification, regression, time-series, tabular-text. |
+| **[TabFM v1.0.0](https://research.google/blog/introducing-tabfm-a-zero-shot-foundation-model-for-tabular-data/)** ([code](https://github.com/google-research/tabfm)) | Google Research | 2026 | Zero-shot tabular FM: alternating row/column attention → row compression → in-context learning over the compressed embeddings (TabICL-style). No technical report at time of writing — blog + source only. Regression head is **point-only** (no predictive quantiles). Code Apache-2.0; weights `tabfm-non-commercial-v1.0`. |
 
 **TS + covariates**
 

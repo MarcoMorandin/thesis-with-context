@@ -3,9 +3,45 @@
 
 \addcontentsline{toc}{chapter}{Abstract} % add to index
 
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec sed nunc orci. Aliquam nec nisl vitae sapien pulvinar dictum quis non urna. Suspendisse at dui a erat aliquam vestibulum. Quisque ultrices pellentesque pellentesque. Pellentesque egestas quam sed blandit tempus. Sed congue nec risus posuere euismod. Maecenas ut lacus id mauris sagittis egestas a eu dui. Class aptent taciti sociosqu ad litora torquent per conubia nostra, per inceptos himenaeos. Pellentesque at ultrices tellus. Ut eu purus eget sem iaculis ultricies sed non lorem. Curabitur gravida dui eget ex vestibulum venenatis. Phasellus gravida tellus velit, non eleifend justo lobortis eget.
+Photovoltaic power forecasting is usually posed as a per-plant supervised problem: one
+model is fitted to the history of one installation. That formulation does not survive
+contact with deployment, where a newly connected plant arrives with a couple of weeks of
+measurements and no training set of its own. This thesis studies the alternative
+formulation --- \emph{cross-plant zero-shot forecasting}, in which a model trained on one
+fleet must forecast plants it has never observed --- and asks whether frozen foundation
+models, fused across modalities, are the right instrument for it.
 
+The work makes three contributions. First, it constructs a dataset of record for the
+problem: 1.34 million rows over 110 photovoltaic sites in two regions, pairing measured
+power and fourteen weather and solar-geometry covariates with co-registered satellite
+imagery on a single timestamp grid, together with a plant-disjoint split and a tensor
+contract that every model in the study consumes unchanged. Second, it defines a fairness
+protocol --- identical physical-time windows, identical splits, identical
+capacity-normalised metrics, no domain physics inside models --- and runs \emph{28}
+forecasters under it, spanning statistical references, classical machine learning,
+supervised deep networks, four families of time-series foundation model, retrieval and
+adapter-based adaptation of frozen backbones, and both endogenous and exogenous multimodal
+systems. Third, it proposes MMTSFM, an architecture that fuses a frozen Chronos-2
+time-series backbone with a frozen V-JEPA~2.1 video encoder through two mechanisms:
+\emph{selective temporal interleaving}, which weaves visual tokens into the time-series
+sequence only inside a short refinement window at roughly two percent token overhead, and
+\emph{causal Grassmann mixing}, an $O(L)$ temporal operator that encodes the transition
+between consecutive hidden states as a subspace on a Grassmann manifold rather than as a
+dot-product similarity.
 
+The benchmark yields four findings that reframe the problem. A well-tuned supervised
+transformer (iTransformer, skill score $0.552$) remains the model to beat, ahead of every
+foundation model evaluated. Zero-shot time-series foundation models underdeliver on
+photovoltaic dynamics, one of them falling below the naive reference. Retrieval over a
+frozen backbone reaches skill $0.478$ against $0.331$ for fine-tuning the same backbone,
+making it the most effective and cheapest adaptation tested. And the best multimodal model
+in the suite synthesises its images \emph{from the series itself}, while every system
+consuming genuine satellite frames sits mid-pack --- evidence that visual inductive bias,
+not visual information, is what currently converts into forecast skill. MMTSFM is presented
+in full, with its training curriculum, its controls and its evaluation plan; the
+experimental campaign for the model was still running at the time of writing, and the
+chapter that reports it states the measurement protocol and the placeholders rather than
+provisional numbers.
 
-
+\par
 

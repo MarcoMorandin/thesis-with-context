@@ -1,51 +1,298 @@
-% book
-% Required fields: author or editor, title, publisher, year. 
-% Optional fields: volume or number, series, address, edition, month, note.
-@book{coulouris,
-  author = {Coulouris  G.  F.,  Dollimore J. e  Kindberg T},
-  title = {Distributed Systems: concepts and Design},
-  publisher = {Addison-Wesley},
-  year = {1994},
-  edition = "second edition"
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Bibliography -- MSc thesis, Marco Morandin
+%%
+%% NOTE: entries whose author list is not stated below are recorded with
+%% title + arXiv identifier only, deliberately: the author strings were not
+%% available from the project's literature corpus at drafting time and were
+%% not guessed. Complete them from the PDFs in knowledge/papers/ before
+%% final submission.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+%%---------------------------------------------------------------- TSFM ---
+
+@misc{chronos2,
+  title = {Chronos-2: A Foundation Model for Universal Time Series Forecasting},
+  howpublished = {arXiv:2510.15821},
+  year = {2025}
 }
 
-% article
-% Required fields: author, title, journal, year. 
-% Optional fields: volume, number, pages, month, note.
-@article{donoho,
-  author = {Donoho D. L.},
-  title = {Compressed Sensing},
-  journal = {IEEE Trans. Inf. Theory},
-  volume = {52},
+@misc{timesfm,
+  title = {TimesFM 2.5: A Decoder-Only Foundation Model for Time-Series Forecasting},
+  howpublished = {google/timesfm-2.5-200m-pytorch, Hugging Face},
+  year = {2025}
+}
+
+@misc{tirex,
+  title = {TiRex: Zero-Shot Forecasting Across Long and Short Horizons with Enhanced In-Context Learning},
+  howpublished = {arXiv:2505.23719},
+  year = {2025}
+}
+
+@misc{ttm,
+  title = {Tiny Time Mixers (TTM): Fast Pre-trained Models for Enhanced Zero/Few-Shot Forecasting of Multivariate Time Series},
+  howpublished = {ibm-granite/granite-timeseries-ttm-r2, Hugging Face},
+  year = {2024}
+}
+
+@misc{moirai2,
+  title = {Moirai 2.0: A Decoder-Only Time Series Foundation Model},
+  howpublished = {Salesforce AI Research},
+  year = {2025}
+}
+
+%%----------------------------------------------- frozen-FM adaptation ---
+
+@misc{tsrag,
+  title = {TS-RAG: Retrieval-Augmented Generation Based Time Series Foundation Models are Stronger Zero-Shot Forecasters},
+  howpublished = {arXiv:2503.07649},
+  year = {2025}
+}
+
+@misc{crossrag,
+  title = {Cross-RAG: Cross-Series Retrieval Augmentation for Time Series Foundation Models},
+  howpublished = {arXiv:2603.14709},
+  year = {2026}
+}
+
+@misc{cora,
+  title = {CoRA: Covariate-Aware Adaptation of Time Series Foundation Models},
+  howpublished = {arXiv:2510.12681},
+  year = {2025}
+}
+
+@misc{memts,
+  title = {MEMTS: Parametric Memory Adapters for Time Series Foundation Models},
+  howpublished = {knowledge/papers/baselines/MEMTS.pdf},
+  year = {2025}
+}
+
+@misc{template,
+  title = {TEMPLATE: Transferable Representation Learning for Cross-Domain Time Series},
+  howpublished = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year = {2025}
+}
+
+%%------------------------------------------------------ supervised DL ---
+
+@inproceedings{itransformer,
+  author = {Liu, Yong and Hu, Tengge and Zhang, Haoran and Wu, Haixu and Wang, Shiyu and Ma, Lintao and Long, Mingsheng},
+  title = {iTransformer: Inverted Transformers Are Effective for Time Series Forecasting},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year = {2024}
+}
+
+@inproceedings{patchtst,
+  author = {Nie, Yuqi and Nguyen, Nam H. and Sinthong, Phanwadee and Kalagnanam, Jayant},
+  title = {A Time Series is Worth 64 Words: Long-Term Forecasting with Transformers},
+  booktitle = {International Conference on Learning Representations (ICLR)},
+  year = {2023}
+}
+
+@inproceedings{dlinear,
+  author = {Zeng, Ailing and Chen, Muxi and Zhang, Lei and Xu, Qiang},
+  title = {Are Transformers Effective for Time Series Forecasting?},
+  booktitle = {AAAI Conference on Artificial Intelligence},
+  year = {2023}
+}
+
+@article{tft,
+  author = {Lim, Bryan and Arik, Sercan O. and Loeff, Nicolas and Pfister, Tomas},
+  title = {Temporal Fusion Transformers for Interpretable Multi-Horizon Time Series Forecasting},
+  journal = {International Journal of Forecasting},
+  volume = {37},
   number = {4},
-  pages = {1289-1306},
-  year = {2006}
+  pages = {1748--1764},
+  year = {2021}
 }
 
-% conference
-% same as inproceedings
-% Required fields: author, title, booktitle, year. 
-% Optional fields: editor, volume or number, series, pages, address, month, organization, publisher, note
-@conference{dalal,
-  author = {Dalal N., Triggs B.},
-  title = {Histograms of Oriented Gradients for Human Detection},
-  booktitle = {Computer Vision and Pattern Recognition (CVPR)},
-  address = {San Diego, USA},
-  year = {2005},
-  month = {20-26 June},
-  pages = {886-893}
+@inproceedings{lightgbm,
+  author = {Ke, Guolin and Meng, Qi and Finley, Thomas and Wang, Taifeng and Chen, Wei and Ma, Weidong and Ye, Qiwei and Liu, Tie-Yan},
+  title = {LightGBM: A Highly Efficient Gradient Boosting Decision Tree},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year = {2017}
 }
 
-% website
-% as misc
-% Required fields: none. 
-% Optional fields: author, title, howpublished, month, year, note.
-@misc{ictbusiness,
-  title = {ICT business},
-  howpublished = {http://www.ictbusiness.it/},
-  note = {ultimo accesso 15/06/2015}
+@misc{tabpfn3,
+  title = {TabPFN-3: A Foundation Model for Tabular and Time-Series Prediction},
+  howpublished = {arXiv:2605.13986},
+  year = {2026}
 }
 
+%%------------------------------------------------------------- vision ---
 
+@misc{vjepa2,
+  author = {Assran, Mahmoud and Bardes, Adrien and Fan, David and Garrido, Quentin and Howes, Russell and Muckley, Matthew and Rizvi, Ammar and Roberts, Claire and Sinha, Koustuv and Zholus, Artem and Others},
+  title = {V-JEPA 2: Self-Supervised Video Models Enable Understanding, Prediction and Planning},
+  howpublished = {arXiv:2506.09985},
+  year = {2025}
+}
 
+@inproceedings{perceiver,
+  author = {Jaegle, Andrew and Gimeno, Felix and Brock, Andy and Zisserman, Andrew and Vinyals, Oriol and Carreira, Joao},
+  title = {Perceiver: General Perception with Iterative Attention},
+  booktitle = {International Conference on Machine Learning (ICML)},
+  year = {2021}
+}
+
+@article{rope,
+  author = {Su, Jianlin and Lu, Yu and Pan, Shengfeng and Murtadha, Ahmed and Wen, Bo and Liu, Yunfeng},
+  title = {RoFormer: Enhanced Transformer with Rotary Position Embedding},
+  journal = {Neurocomputing},
+  volume = {568},
+  year = {2024}
+}
+
+%%------------------------------------------- multimodal time series ---
+
+@misc{timevlm,
+  title = {Time-VLM: Exploring Multimodal Vision-Language Models for Augmented Time Series Forecasting},
+  howpublished = {arXiv:2502.04395},
+  year = {2025}
+}
+
+@misc{visiontspp,
+  title = {VisionTS++: Cross-Modal Time Series Foundation Model with Continual Pre-trained Visual Backbones},
+  howpublished = {arXiv:2508.04379},
+  year = {2025}
+}
+
+@misc{aurora,
+  title = {Aurora: Are Multimodal Foundation Models Ready for Zero-Shot Probabilistic Time Series Forecasting?},
+  howpublished = {arXiv:2509.22295},
+  year = {2025}
+}
+
+@misc{unicast,
+  title = {UniCast: A Unified Multimodal Prompting Framework for Time Series Forecasting},
+  howpublished = {arXiv:2508.11954},
+  year = {2025}
+}
+
+%%---------------------------------------------------- PV forecasting ---
+
+@misc{solarvlm,
+  title = {Solar-VLM: A Vision-Language Model for Multimodal Solar Power Forecasting},
+  howpublished = {arXiv:2604.04145},
+  year = {2026}
+}
+
+@inproceedings{crossvivit,
+  author = {Boussif, Oussama and Boukachab, Ghait and Assouline, Dan and Massaroli, Stefano and Yuan, Tianle and Benabbou, Loubna and Bengio, Yoshua},
+  title = {Improving Day-Ahead Solar Irradiance Time Series Forecasting by Leveraging Spatio-Temporal Context},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
+  year = {2023}
+}
+
+@misc{sunset,
+  title = {SUNSET: A Hybrid Deep Learning Model for Short-Term Solar Power Forecasting from Sky Images},
+  howpublished = {https://github.com/YuchiSun/SUNSET},
+  note = {Accessed 2026-08-06}
+}
+
+@misc{pvvlm,
+  title = {PV-VLM: A Multimodal Vision-Language Approach Incorporating Sky Images for Intra-Hour Photovoltaic Power Forecasting},
+  howpublished = {arXiv:2504.13624},
+  year = {2025}
+}
+
+@misc{fusionsf,
+  title = {FusionSF: Fuse Heterogeneous Modalities in a Vector Quantized Framework for Robust Solar Power Forecasting},
+  howpublished = {arXiv:2402.05823},
+  year = {2024}
+}
+
+@misc{m3snet,
+  title = {M3S-Net: Multi-Modal Multi-Scale Fusion for Photovoltaic Power Forecasting},
+  howpublished = {arXiv:2602.19832},
+  year = {2026}
+}
+
+@misc{spirit,
+  title = {SPIRIT: Zero-Shot Transfer of Vision Foundation Model Features for Solar Forecasting},
+  howpublished = {knowledge/papers/baselines/SPIRIT.pdf},
+  year = {2025}
+}
+
+%%----------------------------------------------------------- data ---
+
+@misc{ukpv,
+  title = {UK PV: Domestic Photovoltaic Generation Dataset},
+  howpublished = {openclimatefix/uk\_pv, Hugging Face},
+  note = {Accessed 2026-08-06}
+}
+
+@misc{eumetsat,
+  title = {EUMETSAT SEVIRI Rapid Scanning Service, High-Resolution Visible Channel (v4)},
+  howpublished = {gs://public-datasets-eumetsat-solar-forecasting, Open Climate Fix public bucket},
+  note = {Accessed 2026-08-06}
+}
+
+@misc{pvdaq,
+  title = {PVDAQ: Photovoltaic Data Acquisition Systems},
+  howpublished = {National Renewable Energy Laboratory, OEDI data lake, https://oedi-data-lake.s3.amazonaws.com/pvdaq/},
+  note = {Accessed 2026-08-06}
+}
+
+@misc{openmeteo,
+  title = {Open-Meteo Historical Weather API},
+  howpublished = {https://open-meteo.com/en/docs/historical-weather-api},
+  note = {Accessed 2026-08-06}
+}
+
+@misc{climatehackai,
+  title = {ClimateHack.AI 2023 Competition Dataset},
+  howpublished = {https://doxaai.com/competition/climatehackai-2023},
+  note = {Accessed 2026-08-06; no accompanying peer-reviewed publication}
+}
+
+@article{haurwitz,
+  author = {Haurwitz, Bernhard},
+  title = {Insolation in Relation to Cloudiness and Cloud Density},
+  journal = {Journal of Meteorology},
+  volume = {2},
+  number = {3},
+  pages = {154--166},
+  year = {1945}
+}
+
+%%------------------------------------------------------- infrastructure ---
+
+@misc{lightning,
+  author = {Falcon, William and {The PyTorch Lightning team}},
+  title = {PyTorch Lightning},
+  howpublished = {https://github.com/Lightning-AI/pytorch-lightning},
+  year = {2019}
+}
+
+@misc{hydra,
+  author = {Yadan, Omry},
+  title = {Hydra: A Framework for Elegantly Configuring Complex Applications},
+  howpublished = {https://github.com/facebookresearch/hydra},
+  year = {2019}
+}
+
+@misc{tslib,
+  title = {Time-Series-Library: A Library for Deep Time Series Analysis},
+  howpublished = {https://github.com/thuml/Time-Series-Library},
+  note = {Accessed 2026-08-06}
+}
+
+@article{diebold,
+  author = {Diebold, Francis X. and Mariano, Roberto S.},
+  title = {Comparing Predictive Accuracy},
+  journal = {Journal of Business and Economic Statistics},
+  volume = {13},
+  number = {3},
+  pages = {253--263},
+  year = {1995}
+}
+
+@article{gneiting,
+  author = {Gneiting, Tilmann and Raftery, Adrian E.},
+  title = {Strictly Proper Scoring Rules, Prediction, and Estimation},
+  journal = {Journal of the American Statistical Association},
+  volume = {102},
+  number = {477},
+  pages = {359--378},
+  year = {2007}
+}

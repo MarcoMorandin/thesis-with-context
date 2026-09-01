@@ -1,20 +1,572 @@
-\chapter{Proin rhoncus a sapien in.}
-\label{cha:789}
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec sed nunc orci. Aliquam nec nisl vitae sapien pulvinar dictum quis non urna. Suspendisse at dui a erat aliquam vestibulum. Quisque ultrices pellentesque pellentesque. Pellentesque egestas quam sed blandit tempus. Sed congue nec risus posuere euismod. Maecenas ut lacus id mauris sagittis egestas a eu dui. Class aptent taciti sociosqu ad litora torquent per conubia nostra, per inceptos himenaeos. Pellentesque at ultrices tellus. Ut eu purus eget sem iaculis ultricies sed non lorem. Curabitur gravida dui eget ex vestibulum venenatis. Phasellus gravida tellus velit, non eleifend justo lobortis eget. 
+\chapter{Background and Related Work}
+\label{cha:background}
 
+This chapter fixes the notation used throughout the thesis, then surveys the four
+literatures the work sits between: time-series foundation models, methods for adapting
+frozen backbones, video foundation models, and multimodal time-series forecasting. It
+closes with the photovoltaic-specific literature, a comparison against the two other public
+multimodal photovoltaic corpora, and the gap statement that motivates
+Chapters~\ref{cha:dataset}--\ref{cha:baselines}.
 
-\section{Cras in aliquam quam, et}
-\label{sec:456}
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec sed nunc orci. Aliquam nec nisl vitae sapien pulvinar dictum quis non urna. Suspendisse at dui a erat aliquam vestibulum. Quisque ultrices pellentesque pellentesque. Pellentesque egestas quam sed blandit tempus. Sed congue nec risus posuere euismod. Maecenas ut lacus id mauris sagittis egestas a eu dui. Class aptent taciti sociosqu ad litora torquent per conubia nostra, per inceptos himenaeos. Pellentesque at ultrices tellus. Ut eu purus eget sem iaculis ultricies sed non lorem. Curabitur gravida dui eget ex vestibulum venenatis. Phasellus gravida tellus velit, non eleifend justo lobortis eget.
+\section{Problem formalisation and notation}
+\label{sec:formalisation}
 
+Let a \emph{plant} (equivalently, an \emph{entity}) be indexed by $i$, and let time be
+discretised on the plant's native cadence. At forecast origin $t_0$ a model observes a
+history window of length $T$ and must produce a horizon of length $H$.
 
-\subsection{Sed pulvinar placerat enim, a}
-\label{sec:00456}
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec sed nunc orci. Aliquam nec nisl vitae sapien pulvinar dictum quis non urna. Suspendisse at dui a erat aliquam vestibulum. Quisque ultrices pellentesque pellentesque. Pellentesque egestas quam sed blandit tempus. Sed congue nec risus posuere euismod. Maecenas ut lacus id mauris sagittis egestas a eu dui. Class aptent taciti sociosqu ad litora torquent per conubia nostra, per inceptos himenaeos. Pellentesque at ultrices tellus. Ut eu purus eget sem iaculis ultricies sed non lorem. Curabitur gravida dui eget ex vestibulum venenatis. Phasellus gravida tellus velit, non eleifend justo lobortis eget.
+\begin{itemize}
+  \item $\mathbf{Y} \in \mathbb{R}^{N \times T \times 1}$ --- normalised historical power
+    for $N$ entities. The target is \emph{capacity-normalised} power, $y = P /
+    P_{\text{installed}} \in [0,1]$, so that plants of different nameplate size are
+    directly comparable.
+  \item $\mathbf{X}_{\text{cov}} \in \mathbb{R}^{N \times (T+H) \times C}$ --- covariates
+    over history \emph{and} horizon. The horizon portion contains only quantities that are
+    genuinely known ahead of time (solar geometry, calendar encodings) unless a variant is
+    explicitly labelled as using privileged information.
+  \item $\mathbf{V} \in \mathbb{R}^{N \times T_v \times C_{\text{img}} \times H_{\text{img}}
+    \times W_{\text{img}}}$ --- $T_v$ satellite frames over a short window ending at $t_0$.
+  \item $\hat{\mathbf{Y}}_{\text{fut}} \in \mathbb{R}^{N \times H \times Q}$ --- the
+    prediction, as $Q$ quantiles per horizon step rather than a point estimate.
+\end{itemize}
 
+The \emph{cross-plant} constraint is a property of the index set, not of the tensors: if
+$\mathcal{P}_{\text{train}}$, $\mathcal{P}_{\text{val}}$ and $\mathcal{P}_{\text{test}}$ are
+the plant sets, then $\mathcal{P}_{\text{train}} \cap \mathcal{P}_{\text{test}} =
+\emptyset$, and no statistic computed on $\mathcal{P}_{\text{test}}$ --- including
+normalisation constants --- may enter any fitted component. This rules out the standard
+practice of per-series standardisation using test-series statistics, which is why the
+target is normalised by nameplate capacity, a quantity known at installation time and
+independent of the measured signal.
 
-\section{Vivamus hendrerit imperdiet ex. Vivamus}
-\label{sec:123}
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Donec sed nunc orci. Aliquam nec nisl vitae sapien pulvinar dictum quis non urna. Suspendisse at dui a erat aliquam vestibulum. Quisque ultrices pellentesque pellentesque. Pellentesque egestas quam sed blandit tempus. Sed congue nec risus posuere euismod. Maecenas ut lacus id mauris sagittis egestas a eu dui. Class aptent taciti sociosqu ad litora torquent per conubia nostra, per inceptos himenaeos. Pellentesque at ultrices tellus. Ut eu purus eget sem iaculis ultricies sed non lorem. Curabitur gravida dui eget ex vestibulum venenatis. Phasellus gravida tellus velit, non eleifend justo lobortis eget.
+\subsection{A taxonomy of the forecasting task}
+\label{sec:taxonomy}
 
+Solar forecasting is not one problem but a family indexed by lead time, and the dominant
+information source changes with it. Table~\ref{tab:leadtime} states the regimes and where
+this thesis sits.
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabular}{p{2.6cm} p{3.0cm} p{7.6cm}}
+\hline
+\textbf{Regime} & \textbf{Lead time} & \textbf{Dominant information source} \\
+\hline
+Nowcasting & 0--30 min & Sky-camera imagery; cloud advection within the local field of view \\
+Intra-hour & 30 min -- 2 h & Satellite imagery; advection at mesoscale \\
+\textbf{Intra-day} & \textbf{2--6 h} & \textbf{Satellite imagery plus numerical weather; this
+thesis} \\
+Day-ahead & 6--48 h & Numerical weather prediction; imagery is stale \\
+Seasonal & weeks--months & Climatology; individual weather is irrelevant \\
+\hline
+\end{tabular}
+\caption{Forecasting regimes by lead time. The six-hour horizon studied here spans the
+boundary at which satellite imagery ceases to dominate and numerical weather takes over,
+which is why the visual window is short and the numerical context long.}
+\label{tab:leadtime}
+\end{table}
+
+The six-hour horizon is a deliberate choice of the hardest interesting regime. Below two
+hours the problem is largely advection and a good image model wins; beyond twelve hours the
+observed cloud field has left the domain and only numerical weather matters. Between them
+both sources are partially informative and neither is sufficient, which is exactly the
+setting in which a fusion architecture should earn its complexity. It is also the regime that
+matters operationally for intra-day market participation and reserve scheduling.
+
+\subsection{Why cross-plant differs from cross-time}
+\label{sec:cross-plant-theory}
+
+The distinction between splitting by time and splitting by entity is worth stating precisely,
+because it determines what a reported number means.
+
+Under a \emph{temporal} split, a model is fitted on $\{(x_t, y_t) : t < t_0\}$ for plant $i$
+and evaluated on later observations of the same plant. The model may --- and in practice
+does --- absorb plant-specific constants into its parameters: panel orientation, local
+shading geometry, inverter clipping thresholds, the systematic bias of the nearest weather
+grid cell. These are genuine, stable, exploitable regularities, and learning them is not
+cheating. But they are not \emph{transferable}, and a benchmark that rewards them measures
+memorisation of a plant alongside understanding of the physics.
+
+Under a \emph{cross-plant} split, plants in the test set contribute nothing to fitting. The
+model receives, at inference, a short history from which everything plant-specific must be
+inferred on the fly. Formally the model must learn a mapping conditioned on context rather
+than a per-entity parameter vector: $\hat{y}_{i,t+h} = f(\mathbf{Y}_{i,<t},
+\mathbf{X}_{i}, \mathbf{V}_{i,<t})$ with $f$ shared across all $i$ and no $i$-indexed
+parameters anywhere. This is the same requirement that in-context learning imposes on
+language models, and it is why foundation models are a natural hypothesis for the problem.
+
+Figure~\ref{fig:siteboxplot} quantifies what has to be inferred: after capacity
+normalisation, median daytime output still ranges from below 0.10 to above 0.55 across
+plants. That residual spread is exactly the per-plant information a temporal split would hand
+the model for free.
+
+\section{Time-series foundation models}
+\label{sec:tsfm}
+
+A time-series foundation model is a sequence model pretrained on a large corpus of
+heterogeneous series and applied to unseen series without per-series fitting. The design
+space has converged on a few recurring choices: patch-based tokenisation, in which
+contiguous blocks of timesteps become tokens; a normalisation scheme that makes series of
+arbitrary scale comparable; and a probabilistic output head, either quantile-based or
+sampling-based.
+
+\textbf{Chronos-2}~\cite{chronos2} is the backbone used in this thesis. It is an
+encoder-only transformer operating on patches of size 16, with an arcsinh-based
+normalisation, a nine-quantile output head, and --- the property that matters most here ---
+a \emph{group attention} mechanism that attends across the batch axis over rows sharing a
+group identifier. This is what allows covariates, and in principle other entities, to be
+supplied as additional token rows rather than as extra channels, and it is the hook that
+the multimodal design of Chapter~\ref{cha:method} exploits.
+
+\textbf{TimesFM~2.5}~\cite{timesfm} is a decoder-only model from an independent lineage.
+\textbf{TiRex}~\cite{tirex} is built on the xLSTM family rather than on attention and is
+among the strongest zero-shot performers on general-purpose leaderboards. \textbf{Tiny Time
+Mixers}~\cite{ttm} occupy the opposite end of the scale axis: a few million parameters,
+mixer-based rather than attention-based, intended to test whether size is what matters.
+
+\subsection{Shared design elements}
+
+Four design choices recur across the families and are worth stating once, because they
+determine what these models can and cannot do on photovoltaic data.
+
+\paragraph{Patch tokenisation.} Rather than one token per timestep, contiguous blocks of $p$
+steps become one token. This buys a factor of $p$ in sequence length --- decisive when the
+context is 672 steps --- and imposes a mild smoothing prior, since sub-patch structure must
+survive a linear projection to be represented at all. For photovoltaic data with $p=16$ at a
+30-minute cadence, one token spans eight hours: an entire daylight period is roughly one and
+a half tokens. Fine-grained ramp structure is therefore compressed aggressively, which is one
+plausible mechanism behind the zero-shot results of Chapter~\ref{cha:benchmark}.
+
+\paragraph{Scale-free normalisation.} A model pretrained across corpora cannot assume a
+scale. Solutions range from instance normalisation with stored statistics to
+inverse-hyperbolic-sine transforms that compress large magnitudes while remaining
+approximately linear near zero. The choice interacts badly with a target that is exactly zero
+for half of every day: a bounded, heavily zero-inflated signal is not what these transforms
+were designed for.
+
+\paragraph{Probabilistic heads.} Output is a predictive distribution, most commonly a fixed
+quantile grid trained with pinball loss, occasionally a sampling-based head. Quantile heads
+are cheap and directly scoreable but cannot represent multi-modality --- and a forecast under
+broken cloud is genuinely bimodal (the sun is either occluded at the array or it is not).
+
+\paragraph{Covariate handling.} This is where the families differ most, and it matters for
+this task more than any other design axis. Chronos-2 admits covariates as additional token
+rows fused by attention across the batch axis; TimesFM and TiRex in the configurations
+evaluated here are target-only; TTM accepts exogenous channels. Given that the covariate
+track carries most of the exploitable signal (Figure~\ref{fig:correlations}), a model that
+cannot ingest it is competing with one hand tied --- a caveat that must be attached to the
+zero-shot comparison.
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabular}{l l l c l}
+\hline
+\textbf{Model} & \textbf{Family} & \textbf{Backbone} & \textbf{Covariates} &
+\textbf{Output} \\
+\hline
+Chronos-2 & encoder transformer & attention + group attention & yes & 9 quantiles \\
+TimesFM 2.5 & decoder transformer & causal attention & no & point / quantile \\
+TiRex & xLSTM & recurrent state & no & quantile \\
+TTM-R2 & mixer & MLP-mixer blocks & yes & point \\
+\hline
+\end{tabular}
+\caption{The four time-series foundation model families evaluated, in the configurations used
+here. Covering three distinct architectural paradigms is what makes a negative zero-shot
+result a statement about the task rather than about a model.}
+\label{tab:tsfm-families}
+\end{table}
+
+Including at least three distinct families is a methodological requirement rather than a
+completeness gesture. A result obtained with one backbone can always be attributed to that
+backbone's pretraining corpus; a result that replicates across an encoder transformer, a
+decoder transformer and an xLSTM is a property of the \emph{task}. Chapter~\ref{cha:baselines}
+reports all four families under one protocol, and the conclusion --- that zero-shot
+time-series foundation models underdeliver on photovoltaic dynamics --- is consistent
+across them.
+
+\section{Adapting frozen backbones}
+\label{sec:adaptation}
+
+If a pretrained backbone is not good enough zero-shot, three strategies are available that
+do not require training a new model from scratch.
+
+\paragraph{Fine-tuning.} Update some or all backbone weights on in-domain data. Effective,
+but it produces a task-specific copy of a large model and forfeits the generality that
+motivated pretraining.
+
+\paragraph{Retrieval augmentation.} Keep the backbone frozen and condition it on similar
+windows retrieved from a datastore. \textbf{TS-RAG}~\cite{tsrag} retrieves analogous
+historical windows and fuses them into the forecast; \textbf{Cross-RAG}~\cite{crossrag}
+extends this across series with clear-sky-aware keys and per-step mixing weights. The
+appeal is that adaptation cost is a nearest-neighbour lookup rather than a gradient step.
+The fairness question it raises is central to this thesis and is answered in
+Section~\ref{sec:parity}: the datastore may contain training plants only, since populating
+it with test-plant history is transduction, not zero-shot forecasting.
+
+\paragraph{Adapters and covariate injection.} \textbf{CoRA}~\cite{cora} injects exogenous
+covariates --- of any modality, in principle including image features --- into a frozen
+time-series backbone through a zero-initialised residual adapter. CoRA is the closest
+published competitor to the architecture proposed here: it occupies the same design space
+(frozen backbone, external information injected through a learned interface) but couples
+the modalities once, at a single insertion point, rather than throughout the temporal
+operator. If deep token-level fusion cannot beat CoRA supplied with image features, the
+fusion-depth claim of this thesis does not survive. Parametric-memory
+alternatives~\cite{memts} occupy the same niche and are positioned but not run.
+
+\section{Video foundation models}
+\label{sec:vision-fm}
+
+The visual branch of the proposed model uses \textbf{V-JEPA~2.1}~\cite{vjepa2}, a
+ViT-L/16 video encoder trained by joint-embedding predictive self-supervision: it learns to
+predict the \emph{representation} of masked spatiotemporal regions rather than their pixels.
+Three properties motivate the choice over reconstruction-based alternatives such as
+VQ-VAE video tokenisers.
+
+First, the objective is predictive rather than reconstructive. A reconstruction loss spends
+capacity on pixel-level detail that is irrelevant --- and, for satellite imagery, largely
+sensor noise. A predictive objective in representation space yields spatially structured,
+semantically coherent features, which is what cloud-structure detection requires. Second,
+temporal modelling is native: V-JEPA consumes an entire clip and encodes motion internally
+through tubelet embedding with temporal stride, so a downstream summariser only needs to
+perform \emph{spatial} compression. A per-frame image encoder would force the temporal
+modelling back onto the fusion layer. Third, the model is built for frozen use, remaining
+strong under linear probing and adapter tuning --- the operating regime of the staged
+curriculum in Section~\ref{sec:curriculum}.
+
+\subsection{The joint-embedding predictive objective}
+
+The distinction between predictive and reconstructive self-supervision is worth stating
+concretely, because it is the reason this branch of the architecture uses a video model
+rather than an image tokeniser.
+
+A reconstructive objective --- a masked autoencoder, or a vector-quantised autoencoder ---
+asks the network to output the missing \emph{pixels}. The loss is therefore computed in pixel
+space, and every source of pixel variance contributes to it, including sensor noise, sub-pixel
+registration error and radiometric calibration drift. For satellite crops these are
+substantial and carry no meteorological content whatsoever.
+
+A joint-embedding predictive objective asks the network to output the missing
+\emph{representation}, as computed by a slowly updated copy of itself. The loss lives in
+representation space, so any variation the encoder chooses not to represent costs nothing.
+The network is free to discard exactly the nuisance variance a reconstruction loss forces it
+to model. What survives is structure that is predictable across space and time --- which, in a
+sequence of satellite crops, is cloud morphology and its motion.
+
+Two properties follow that matter for this application. The representation is spatially
+structured rather than globally pooled, so downstream modules can attend to regions rather
+than to a single vector. And the model is robust under frozen use: because the objective never
+required the encoder to serve a decoder, its features are not entangled with a reconstruction
+head, and linear probes and light adapters recover most of their utility. That is precisely
+the operating regime of the curriculum in Section~\ref{sec:curriculum}.
+
+\subsection{What retrieval augmentation actually does}
+
+Since retrieval turns out to be the strongest frozen-backbone strategy in
+Chapter~\ref{cha:benchmark}, its mechanism deserves more than a citation.
+
+Given a query context $\mathbf{Y}_{i,<t}$, a retrieval-augmented forecaster embeds it, finds
+the $k$ nearest neighbours in a datastore of historical windows under some key function, and
+combines the neighbours' \emph{continuations} with the backbone's own forecast --- typically
+as a convex combination whose weight $\alpha$ is tuned on held-out data, sometimes per horizon
+step. The backbone is untouched.
+
+Two design choices distinguish the variants. The \emph{key} determines what counts as
+similar: raw values, a learned embedding, or --- in the clear-sky-aware variant --- a
+representation that has already divided out the deterministic diurnal component, so that
+neighbours match on cloud regime rather than on time of day. The \emph{scope} determines
+where neighbours may come from: within the same series, or across series. Cross-series
+retrieval is the more powerful option and is exactly what a cross-plant protocol makes
+legitimate --- a test plant with two weeks of history has no useful within-series precedent
+for an unusual regime, but the training fleet does.
+
+This also makes the fairness rule of Section~\ref{sec:parity} non-negotiable. If the datastore
+contained test-plant history, retrieval would be doing in-context memorisation of the target
+plant, and the resulting number would not be a zero-shot result at all.
+
+\section{Multimodal time-series forecasting}
+\label{sec:multimodal}
+
+The multimodal forecasting literature divides along an axis that turns out to be
+empirically decisive, and this thesis adopts the distinction as a reporting category.
+
+\paragraph{Endogenous multimodal.} The second modality is \emph{synthesised from the
+numerical series itself}. \textbf{Time-VLM}~\cite{timevlm} renders the series as an image
+and feeds it, with a text description, to pretrained vision-language backbones.
+\textbf{VisionTS++}~\cite{visiontspp} maps series to images to exploit a frozen masked
+autoencoder. \textbf{Aurora}~\cite{aurora} templates weather text from covariates. No
+external sensor is involved; what these methods exploit is the \emph{inductive bias} of a
+visual backbone --- its priors over locality, periodicity and texture --- applied to a
+re-rendering of data the model already had.
+
+\paragraph{Exogenous multimodal.} The second modality is a genuine external observation.
+\textbf{UniCast}~\cite{unicast} prompts a frozen time-series foundation model with vision
+and text embeddings. \textbf{CrossViVit}~\cite{crossvivit} is the reference deep
+satellite-plus-series model, cross-attending video tokens into a temporal transformer, and
+remains the strongest non-foundation-model multimodal competitor.
+\textbf{Solar-VLM}~\cite{solarvlm} and \textbf{SUNSET}~\cite{sunset} are the
+photovoltaic-domain instances.
+
+The proposed architecture is exogenous by construction, and the benchmark of
+Chapter~\ref{cha:baselines} evaluates both classes side by side. The result --- that the
+best endogenous model outperforms every exogenous one --- is the sharpest empirical finding
+in this thesis and is what Chapter~\ref{cha:conclusion} argues should reorient the design.
+
+\section{Photovoltaic forecasting and its conventions}
+\label{sec:pv-lit}
+
+The solar forecasting community has its own reference model and its own headline metric,
+and both are adopted here to keep the results legible to that community.
+
+\emph{Smart persistence} carries the last observed \emph{clearness index} --- the ratio of
+measured power to a clear-sky model~\cite{haurwitz} --- forward across the horizon, rather
+than carrying power itself forward. It therefore respects the deterministic diurnal shape
+and only assumes that cloud conditions persist. It is a much harder reference than naive
+persistence, and it is the denominator of the \emph{skill score}
+$\mathrm{SS} = 1 - \mathrm{NRMSE}_{\text{model}} / \mathrm{NRMSE}_{\text{smart persistence}}$,
+the number by which the field reports progress.
+
+Domain-specific architectures follow a common pattern: a convolutional or transformer
+encoder over sky or satellite imagery, fused with a recurrent or attention-based encoder
+over the power series. SUNSET~\cite{sunset} is the canonical convolutional instance;
+CrossViVit~\cite{crossvivit} the deep attention-based one; Solar-VLM~\cite{solarvlm} and
+PV-VLM~\cite{pvvlm} add a language backbone; FusionSF~\cite{fusionsf} and
+M3S-Net~\cite{m3snet} pursue vector-quantised and multi-scale fusion respectively.
+
+\subsection{Four generations of method}
+
+The domain literature has moved through four broad phases, and the assumptions of each are
+still visible in the baselines that survive from it.
+
+\emph{Physical and statistical models} came first: clear-sky models with empirical cloud
+attenuation, persistence of the clearness index, and autoregressive corrections. They are
+interpretable, require no training data, and remain the reference against which everything
+else is measured --- smart persistence in this benchmark is a direct descendant.
+
+\emph{Feature-engineered machine learning} followed: gradient boosting and support-vector
+regression over lagged power and numerical weather. This generation established that
+exogenous weather is worth more than a longer power history, a finding this benchmark
+reproduces in the gap between DLinear (target only) and every covariate-consuming model.
+
+\emph{Deep sequence and image models} came next: convolutional encoders over sky or satellite
+imagery combined with recurrent power encoders, of which SUNSET is the canonical example, and
+later attention-based spatiotemporal architectures such as CrossViVit. This is the generation
+that established the multimodal premise --- that imagery should help --- largely on
+nowcasting horizons where it demonstrably does.
+
+\emph{Foundation-model adaptation} is the current phase: frozen pretrained backbones adapted
+by fine-tuning, retrieval, adapters or prompting, with vision-language models entering the
+domain through Solar-VLM and PV-VLM. The premise inherited from the previous generation ---
+that real imagery is the payload --- has not been re-tested under the new one, which is part
+of what this thesis does.
+
+What these works do not share is a protocol. Horizons range from minutes to a day ahead,
+history windows from one hour to a year, splits are usually temporal rather than
+plant-disjoint, and normalisation conventions differ enough that reported errors are not
+comparable across papers. This is the practical reason a new benchmark was necessary:
+without one, the question of whether foundation-model fusion beats domain-specific fusion
+cannot be answered from the published numbers.
+
+\section{Public multimodal photovoltaic datasets}
+\label{sec:other-datasets}
+
+Two public corpora pair photovoltaic generation with imagery, and both were considered
+before the dataset of Chapter~\ref{cha:dataset} was built.
+
+\textbf{ClimateHack.AI 2023}~\cite{climatehackai} covers Great Britain at 5-minute
+resolution with generation as a fraction of installed capacity, two EUMETSAT satellite
+streams (high-resolution visible and an 11-channel non-HRV product) as
+$[12,128,128]$ crops, DWD ICON-EU numerical weather forecasts over 38 variables, and ECMWF
+CAMS air-quality forecasts. It is organised as a \emph{nowcasting} task: one hour of
+history in, four hours out at 5-minute granularity. The layout is per-window tensors rather
+than a tall table, which targets minutes-to-hours nowcasting and would require complete
+re-windowing to serve a 14-day-history cross-plant protocol. It is also a competition
+release with no accompanying peer-reviewed publication, so there is no citable account of
+its construction.
+
+\textbf{MMSP}, released with FusionSF~\cite{fusionsf}, covers 88 plants across a Chinese
+province at hourly resolution from January 2021 to June 2022, fusing power, Himawari-8/9
+crops at $64 \times 64$ pixels (one channel in the 10-plant subset, four in the full set)
+and 17 ECMWF weather variables. The task is day-ahead: 24 hours in, 24 hours out. Again the
+structure --- hourly cadence, fixed day-ahead windows, per-window forecast tensors --- is a
+poor fit for a longer-history intra-day cross-plant protocol.
+
+Neither corpus is deficient; they are built for different questions. But neither supports
+the combination this thesis requires: a long numerical history, a short high-cadence visual
+window, native per-plant cadences, plant-disjoint splits across two regions, and real
+satellite frames rather than nowcast tensors.
+
+\section{Fusion depth as a design axis}
+\label{sec:fusion-depth}
+
+The multimodal methods above differ along an axis that the literature rarely names
+explicitly: \emph{where}, in the computation, the two modalities first interact.
+Table~\ref{tab:fusion-depth} orders the design space by that criterion.
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabular}{p{2.9cm} p{4.3cm} p{3.0cm} p{3.0cm}}
+\hline
+\textbf{Depth} & \textbf{Mechanism} & \textbf{Interactions} & \textbf{Examples} \\
+\hline
+Post-hoc & Average or stack two independent forecasts & 0 & Ensembles \\
+Late / readout & Concatenate encoder outputs before the head & 1, at the end &
+SUNSET, adapter-style fusion \\
+Prompt & Project visual features into the input embedding space & 1, at the input &
+UniCast \\
+Adapter & Residual injection at one or more insertion points & few &
+CoRA \\
+Cross-attention & Visual tokens attended from the temporal stream at every layer & $L$ &
+CrossViVit, Solar-VLM \\
+\textbf{Token interleaving} & Visual tokens placed \emph{inside} the temporal sequence &
+$L$, and inside the temporal operator itself & \textbf{this work} \\
+\hline
+\end{tabular}
+\caption{Fusion depth, ordered by where the modalities first interact and how many times.
+The proposed mechanism differs from cross-attention in that visual tokens are not a separate
+stream being attended \emph{to}; they occupy positions in the sequence the temporal operator
+runs over, so cross-modal pairs are formed by the same mechanism that forms temporal pairs.}
+\label{tab:fusion-depth}
+\end{table}
+
+The implicit assumption in most of this literature is that deeper is better --- more
+interaction points give the model more opportunity to condition one modality on the other.
+That assumption is rarely tested, because comparisons across the rows of
+Table~\ref{tab:fusion-depth} are almost always confounded: different papers, different
+backbones, different data, different horizons. Isolating the axis requires holding everything
+else fixed, which is what the late-fusion and interleaved arms of
+Chapter~\ref{cha:expdesign} are constructed to do.
+
+There is also a cost argument that cuts the other way. Cross-attention between a temporal
+sequence of length $L_t$ and a visual sequence of length $L_v$ costs $O(L_t L_v)$ per layer.
+For a long numerical context this becomes the dominant term, which is why cross-attention
+multimodal forecasters typically use short numerical contexts --- and short contexts are
+precisely what harmed the foundation models in preliminary experiments. Interleaving, by
+contrast, costs $O(L_t + L_v)$ under a linear temporal operator, which is what makes a
+fourteen-day context and deep fusion simultaneously affordable.
+
+\section{Evaluation methodology}
+\label{sec:eval-lit}
+
+A forecasting result is a claim about a metric, and the metrics used here carry assumptions
+worth making explicit.
+
+\paragraph{The skill score and its reference.} Skill scores of the form
+$1 - \mathcal{L}_{\text{model}} / \mathcal{L}_{\text{ref}}$ are standard in the atmospheric
+sciences, and their interpretation depends entirely on the reference. A skill score against
+climatology answers ``does the model know anything about today''; against persistence, ``does
+it know anything beyond the present''; against smart persistence, ``does it know anything
+beyond the present that is not implied by solar geometry''. Only the third is a statement
+about forecasting skill in the sense this thesis cares about, and it is a substantially
+harder bar --- the difference is visible in Chapter~\ref{cha:benchmark}, where several models
+that comfortably beat naive persistence sit near zero against the smart variant.
+
+\paragraph{Proper scoring for distributions.} The continuous ranked probability score is a
+strictly proper scoring rule~\cite{gneiting}: its expectation is uniquely minimised by the
+true predictive distribution, so a model cannot improve it by misrepresenting its own
+uncertainty. Approximating it by pinball loss over a finite quantile grid preserves
+propriety up to discretisation. Reporting it alongside point metrics is what distinguishes a
+forecast that is useful for decision-making from one that is merely accurate on average.
+
+\paragraph{Significance.} Comparing forecast accuracy on overlapping windows violates the
+independence assumptions of naive tests, since consecutive forecast origins share most of
+their context. The standard remedy is the Diebold--Mariano test~\cite{diebold} on the loss
+differential series with an autocorrelation-consistent variance estimator. This thesis does
+not report such tests --- a limitation stated plainly in Section~\ref{sec:limitations} --- and
+consequently treats small differences between models as ties rather than as orderings.
+
+\paragraph{Macro-averaging.} Metrics are computed per plant and then averaged, rather than
+pooled over all observations. Pooling would weight plants by their number of valid steps and
+by their capacity factor, letting a few data-rich, high-output sites dominate. Since the
+research question is about generalisation \emph{across} plants, each plant is one unit of
+evidence.
+
+\section{Positioning}
+\label{sec:positioning}
+
+Table~\ref{tab:positioning} places this work against its closest neighbours on the four axes
+that matter: whether the backbone is frozen, whether real external imagery is consumed, how
+deeply the modalities are fused, and whether evaluation is cross-plant.
+
+\begin{table}[h!]
+\centering
+\small
+\begin{tabular}{l c c l c}
+\hline
+\textbf{Work} & \textbf{Frozen} & \textbf{Real imagery} & \textbf{Fusion depth} &
+\textbf{Cross-plant} \\
+\hline
+Chronos-2~\cite{chronos2} & --- & no & --- (unimodal) & n/a \\
+TS-RAG~\cite{tsrag} & yes & no & --- (retrieval) & varies \\
+CoRA~\cite{cora} & yes & optional & adapter & no \\
+UniCast~\cite{unicast} & yes & yes & prompt & no \\
+Time-VLM~\cite{timevlm} & yes & no (rendered) & readout & no \\
+CrossViVit~\cite{crossvivit} & no & yes & cross-attention & partial \\
+Solar-VLM~\cite{solarvlm} & partly & yes & cross-attention & no \\
+\textbf{This work} & \textbf{yes} & \textbf{yes} & \textbf{token interleaving} &
+\textbf{yes} \\
+\hline
+\end{tabular}
+\caption{Positioning against the closest published methods. No prior work occupies all four
+columns simultaneously, and --- more importantly --- no prior work evaluates these
+alternatives against each other under one protocol.}
+\label{tab:positioning}
+\end{table}
+
+The last column is the one most often left empty. Cross-plant evaluation is expensive: it
+requires a multi-plant corpus, disjoint splits and a normalisation scheme that does not leak,
+and it produces worse numbers than a temporal split on the same data. That combination is a
+strong incentive to report the easier protocol, and it is why the benchmark of
+Chapter~\ref{cha:benchmark} is a contribution independent of the architecture it was built to
+evaluate.
+
+\section{Gap statement}
+\label{sec:gap}
+
+Three gaps follow from the survey above.
+
+\begin{enumerate}
+  \item \textbf{No single-protocol comparison exists} across time-series foundation models,
+    frozen-backbone adaptation methods and multimodal forecasters on photovoltaic data.
+    Published numbers are not comparable, so the relative merit of the three strategies is
+    unknown.
+  \item \textbf{Fusion depth has not been isolated.} Late fusion, prompting, adapters and
+    deep cross-attention have each been proposed, but rarely against each other with the
+    same backbones, the same data and the same schedule --- so ``deep fusion is better'' is
+    an assumption rather than a measurement.
+  \item \textbf{The endogenous/exogenous distinction is not controlled for.} Methods that
+    render the series as an image and methods that consume real imagery are reported in the
+    same tables, although they exploit entirely different resources.
+\end{enumerate}
+
+Chapters~\ref{cha:dataset} and~\ref{cha:protocol} build the instrument that closes the
+first gap, Chapter~\ref{cha:baselines} runs it, and Chapters~\ref{cha:method}
+and~\ref{cha:expdesign} address the second and third.
+
+\subsection{Why these gaps have persisted}
+
+It is worth asking why, given how active this literature is, the gaps above are still open.
+Three structural reasons, none of them a criticism of any individual paper.
+
+\emph{Protocols are expensive and unrewarded.} Building a cross-plant benchmark requires a
+multi-plant corpus, a leak-free normalisation scheme, disjoint splits and a fairness contract
+that every model must be ported to. The work is substantial, it produces worse headline
+numbers than an easier protocol on the same data, and it is not what a methods paper is
+reviewed on. The incentives favour reporting a new architecture under a convenient protocol.
+
+\emph{Comparisons cross paper boundaries.} Fusion depth, adaptation strategy and modality
+type are each explored within papers, but the comparison that matters --- late against deep,
+retrieval against fine-tuning, endogenous against exogenous --- falls between them. Nobody
+owns the cross-cutting question, and citation-based comparison cannot answer it because the
+protocols differ.
+
+\emph{Negative controls are not publication-shaped.} A modality-off arm run under an
+identical recipe is the single most informative experiment a multimodal paper can report, and
+it is the one most likely to weaken the paper's headline. That asymmetry is enough to explain
+its rarity, and it is the reason this thesis treats that arm as the primary result rather than
+as an appendix.
+
+\par
 
