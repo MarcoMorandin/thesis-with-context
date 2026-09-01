@@ -12,11 +12,16 @@
 # `sbatch --mail-type/--mail-user` when MAIL_USER is set — the CINECA-recommended
 # alternative to polling squeue. Never run `watch -n N squeue` against the controller.
 # =============================================================================
-# ONE curriculum stage. Driven entirely by environment (exported by the
-# submitter scripts/slurm_curriculum.sh via `sbatch --export`). Never run this
-# directly — walltime/QoS and the STAGE/DS/PREV_CKPT wiring come from the
-# submitter. Writes a stable best.ckpt (train.py) so the next stage can resume,
-# and a tagged protocol JSON (mmtsfm_<STAGE>_<DS>) into RESULTS_DIR.
+# ONE curriculum stage on ONE GPU (a quarter of a Leonardo Booster node).
+# Driven entirely by environment (exported by the submitter
+# scripts/slurm_curriculum.sh via `sbatch --export`). Never run this directly —
+# walltime/QoS and the STAGE/DS/PREV_CKPT wiring come from the submitter. Writes
+# a stable best.ckpt (train.py) so the next stage can resume, and a tagged
+# protocol JSON (mmtsfm_<STAGE>_<DS>) into RESULTS_DIR.
+#
+# For a BATCH of ablations, use scripts/ablation_sweep.sh instead: it packs four
+# runs onto one whole node, which is the same node-hours but one scheduling
+# decision and one queue wait instead of four.
 # =============================================================================
 set -uo pipefail
 
@@ -30,93 +35,13 @@ export UV_OFFLINE=1 UV_NO_SYNC=1 TOKENIZERS_PARALLELISM=false
 export WANDB_MODE="${WANDB_MODE:-offline}" HYDRA_FULL_ERROR=1
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
-: "${STAGE:?STAGE not set}" "${DS:?DS not set}" "${DCFG:?DCFG not set}" "${TAG:?TAG not set}"
-: "${MODEL_CFG:=vision_chronos2_grassmann}"
-: "${DATA_DIR:?DATA_DIR not set}" "${CKPT_DIR:?CKPT_DIR not set}" "${RESULTS_DIR:?RESULTS_DIR not set}"
-: "${MAX_EPOCHS:=50}" "${BATCH_SIZE:=8}" "${ACCUM:=2}" "${NUM_WORKERS:=8}" "${SEED:=42}"
+# The Hydra command is built by the shared library so this launcher and the
+# node-packing one (ablation_pack.sbatch) cannot drift apart.
+# shellcheck source=lib/stage_cmd.sh
+source scripts/lib/stage_cmd.sh
 
-# The submitter owns arm identity (MODEL_CFG + SEED) and exports the resolved
-# STAGE_DIR. Recomputing it here would drop the arm suffix and put every chain of
-# a wave back in one checkpoint directory — the collision the tag fix exists to
-# prevent. Fall back only for a hand-run stage with no submitter.
-STAGE_DIR="${STAGE_DIR:-${CKPT_DIR}/${DS}_${STAGE}}"
-mkdir -p "$STAGE_DIR" logs/slurm
-
-declare -a CMD=(
-  python -m mmtsfm.train
-  "+stage=${STAGE}" "model=${MODEL_CFG}" "data=${DCFG}"
-  trainer=slurm trainer.devices=1 trainer.strategy=auto
-  "seed=${SEED}" "trainer.max_epochs=${MAX_EPOCHS}"
-  "trainer.default_root_dir=${STAGE_DIR}"
-  # GroupSelfAttention is O((BS*num_entities*(1+covariates))^2) in activations —
-  # keep the micro-batch small and recover the effective batch via accumulation.
-  "data.batch_size=${BATCH_SIZE}" "trainer.accumulate_grad_batches=${ACCUM}"
-  "data.num_workers=${NUM_WORKERS}"
-  "model.results_dir=${RESULTS_DIR}" "model.results_tag=${TAG}"
-  'hydra.run.dir=logs/experiments/runs/${now:%Y-%m-%d_%H-%M-%S}_'"${TAG}"
-)
-
-# Cross-stage: WEIGHTS-ONLY warm start from the previous stage's best.ckpt (fresh
-# optimizer + epoch 0 — the freezing/param-groups differ per stage). S1 has none.
-[[ -n "${PREV_CKPT:-}" && -f "${PREV_CKPT}" ]] && CMD+=("init_ckpt=${PREV_CKPT}")
-# Requeue-safety: FULL-STATE resume of THIS same stage from its own last.ckpt.
-# Takes precedence — a mid-stage requeue continues where it left off.
-[[ "${RESUME:-1}" == "1" && -f "${STAGE_DIR}/last.ckpt" ]] && CMD+=("ckpt_path=${STAGE_DIR}/last.ckpt")
-# DATA_DIR was required by this script but never reached Hydra, so `data=ukpv`'s
-# default won and every run read the same directory regardless. Harmless while
-# one dataset existed; wrong the moment a second did. The latents would come
-# from the requested cache while mask_visual and video_delta_t -- still computed
-# live from the frame grid -- came from whatever h5 the default pointed at. For
-# a dawn origin against a daylight-only h5 that yields mask_visual = 0: the
-# model is told vision is invalid on exactly the windows whose latents carry the
-# most information, and nothing errors.
-CMD+=("data.data_dir=${DATA_DIR}")
-# Pre-extracted V-JEPA latents (skipped for S1, which sets emit_vision=false so
-# VJEPA_CACHE is never exported for it). When a cache IS requested, every failure
-# below is fatal: silently continuing costs either 10x the compute or, worse, a
-# whole wave trained on the wrong imagery.
-if [[ -n "${VJEPA_CACHE:-}" ]]; then
-  # 1. Requested but absent. The old code dropped the override and logged a WARN,
-  #    so a typo'd VJEPA_CACHE_VER re-encoded V-JEPA live for every batch and the
-  #    only evidence was one line in a log read after the fact.
-  if [[ ! -d "${VJEPA_CACHE}" ]]; then
-    echo "FATAL: no V-JEPA latent cache at '${VJEPA_CACHE}'." >&2
-    echo "  Refusing to fall back to live encoding, which is ~10x the cost." >&2
-    echo "  Check VJEPA_CACHE_ROOT / VJEPA_CACHE_VER, or extract it first." >&2
-    exit 1
-  fi
-  # 2. Present but with no provenance record. Unknown imagery is not a cache we
-  #    are willing to train on: caches built before the extractor wrote
-  #    _extract_meta.txt cannot be checked by (3) at all, so an obsolete one
-  #    sitting at the default path would be consumed without a word.
-  if [[ ! -f "${VJEPA_CACHE}/_extract_meta.txt" ]]; then
-    echo "FATAL: '${VJEPA_CACHE}' has no _extract_meta.txt, so the imagery it was" >&2
-    echo "  built from cannot be established. Re-extract it, or delete it so the" >&2
-    echo "  wrong cache cannot be picked up by a default path." >&2
-    exit 1
-  fi
-  # 3. Present, with provenance that disagrees with DATA_DIR. Frames and latents
-  #    must come from the same place or mask_visual/video_delta_t -- computed live
-  #    from the frame grid -- describe a different frame set than the latents encode.
-  _cache_data_dir="$(sed -n 's/.*data_dir=\([^|]*\).*/\1/p' "${VJEPA_CACHE}/_extract_meta.txt")"
-  if [[ -n "$_cache_data_dir" && "$_cache_data_dir" != "$DATA_DIR" ]]; then
-    echo "FATAL: latent cache was built from '${_cache_data_dir}' but DATA_DIR is" >&2
-    echo "  '${DATA_DIR}'. mask_visual/video_delta_t would describe a different" >&2
-    echo "  frame set than the latents encode. Point both at the same data." >&2
-    exit 1
-  fi
-  CMD+=("data.vjepa_cache_dir=${VJEPA_CACHE}")
-fi
-# Forced vision-off pass at test time -> dNMAE/dNRMSE incl. ramp, beside the
-# normal metrics. Wave runs set this on every arm; without it the on/off ramp
-# decomposition is simply absent from the results JSON.
-[[ "${MARGINAL_GAIN:-0}" == "1" ]] && CMD+=("model.compute_marginal_gain=true")
-# n_visual_context_steps per dataset (patch=16 alignment) — see slurm_curriculum.sh:nvis_for.
-[[ -n "${N_VIS:-}" ]] && CMD+=("model.vision_cfg.n_visual_context_steps=${N_VIS}")
-[[ -n "${SP_REF:-}" ]] && CMD+=("model.sp_reference_path=${SP_REF}")
-[[ -n "${TRAIN_STRIDE:-}" ]] && CMD+=("+data.train_stride=${TRAIN_STRIDE}")
-[[ -n "${LIMIT_TRAIN_BATCHES:-}" ]] && CMD+=("+trainer.limit_train_batches=${LIMIT_TRAIN_BATCHES}")
-[[ -n "${EXTRA_OVERRIDES:-}" ]] && CMD+=(${EXTRA_OVERRIDES})
+declare -a CMD=()
+build_stage_cmd || exit 1
 
 echo ">>> [$TAG] stage=$STAGE ds=$DS prev=${PREV_CKPT:-<none>}"
 echo "    uv run ${CMD[*]}"
