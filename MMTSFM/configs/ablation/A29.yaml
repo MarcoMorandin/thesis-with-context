@@ -1,0 +1,60 @@
+# @package _global_
+# A29 — s2b with a spatially resolved payload. The missing cell of the 2x2.
+#
+# The registry currently attributes s2c's gain to "spatial arrangement", but no
+# run has ever combined a spatially resolved visual payload with FIXED latent
+# queries. Two variables move together in every s2c-vs-s2b comparison:
+#
+#                     | pooled to a blob     | resolved 4x4 grid
+#   fixed queries     | s2b  (A02)           | A29   <-- this run
+#   forecast queries  | A17 (s2c, grid=1)    | s2c   (A16)
+#
+# A13 tried to widen s2b and found nothing, but that null was guaranteed by
+# construction: CrossModalAdapter sits DOWNSTREAM of the LatentSummarizer
+# bottleneck, so n_soft_tokens=16 fans one pooled d_model vector into 16 copies.
+# No new information can enter there. A29 widens the bottleneck ITSELF: the
+# summarizer emits summarizer_time_slices x summarizer_spatial_grid^2 = 4 x 16 =
+# 64 tokens per visual step, each masked to its own (temporal slice, spatial
+# block) of the V-JEPA field. Same payload size and same 4x4x4 decomposition as
+# s2c's KV set, so the ONLY thing that differs from s2c is who issues the query.
+#
+# Held fixed against s2c: use_grassmann=false, output_patch_size=4, the s1 warm
+# start, visual_dropout_prob=0.5 (from +stage=s2b), freeze policy. Changed:
+# fusion_mode future_query -> interleaved, and visual_cross_attn_blocks 4 -> 0
+# because the interleaved path never calls those modules and leaving them built
+# would add parameters the arm cannot train.
+#
+# Reads:
+#   Delta_ramp ~ 0 again  -> the payload was never the problem; the sequence axis
+#                            itself cannot deliver visual signal to this backbone,
+#                            and s2c's mechanism is the forecast-side query.
+#   Delta_ramp > 0.0011   -> s2b's null was a bandwidth artefact, not a fusion-mode
+#                            result, and the registry's "arrangement" attribution
+#                            needs rewriting.
+#
+# Also the first arm where A09 (shuffle_frames) is both permitted and informative, and it
+# does not need n_visual_context_steps > 1 to get there: the time slices partition T_lat
+# INSIDE the single visual step, so a frame permutation moves frames between slices and the
+# summary changes. Without them the one query admits every frame and the summary is a set
+# function over the token bag.
+#
+#   base: model=vision_chronos2_s2c +stage=s2b
+model:
+  chronos_core_cfg:
+    visual_cross_attn_blocks: 0
+  vision_cfg:
+    n_soft_tokens: 1          # adapter fan-out OFF; __init__ refuses it with n_sub>1
+    summarizer_time_slices: 4
+    summarizer_spatial_grid: 4
+    # Why 4 and 4, exactly. data/ukpv.yaml gives video_frames: 8 and V-JEPA's temporal
+    # stride is 2, so T_lat = 4 — four slices is one latent frame each, an exact
+    # partition with no duplicated or empty slice. The spatial split is over the native
+    # 14x14 patch field, so 4x4 reproduces s2c's block-pool decomposition. Total
+    # 4 x 16 = 64 tokens per step against s2c's 64 KV entries: same budget, same
+    # decomposition, different query source. Raising either number breaks the match.
+  # Inherited from vision_chronos2_s2c, which would write over s2c's own results on a
+  # manual run. The sweep supplies model.results_tag itself (stage_cmd.sh), so this only
+  # matters outside it — but it is the difference between a clean file and a clobbered one.
+  results_tag: mmtsfm_A29_s2b_ukpv
+  # Reliance, not accuracy, is the quantity under test here.
+  compute_marginal_gain: true

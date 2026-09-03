@@ -61,6 +61,12 @@ A10b| eval  | s2c | vision_chronos2_s2c        | 42,43,44 | uk_pv_s2c_s2c_s{seed
 # --- 2. the attribution pair: grid vs decoder granularity --------------------
 A17 | train | s2c | vision_chronos2_s2c        | 42,43,44 | uk_pv_s1_selfattn_s{seed}
 A22 | train | s2c | vision_chronos2_s2c        | 42,43,44 | uk_pv_s1_selfattn_s{seed}
+# A29 is the third leg: A17/A22 split grid vs decoder INSIDE s2c, A29 splits the
+# spatially resolved payload from the forecast-side query by giving s2b s2c's exact
+# 4x4x4 payload through a widened LatentSummarizer. STAGE is s2b (interleaved) but
+# MODEL_CFG is s2c's, so everything except the fusion route is held fixed against
+# A16. See knowledge/ablations.md §2.2.2.
+A29 | train | s2b | vision_chronos2_s2c        | 42,43,44 | uk_pv_s1_selfattn_s{seed}
 
 # --- 3. is A01's negative result clean? -------------------------------------
 A23 | train | s2a | vision_chronos2            | 42,43,44 | uk_pv_s1_selfattn_s{seed}

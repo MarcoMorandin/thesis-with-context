@@ -74,7 +74,7 @@ s2c changes **five** things at once relative to s2b. Only #1 is the intended var
 
 | ID | Rival explanation it kills | Config | Status | Verdict |
 |----|---------------------------|--------|--------|---------|
-| A13 | *"s2c only wins because it gets more visual tokens."* | `model=vision_chronos2_wide` — differs from `vision_chronos2_timeselfattn` by exactly one line, `n_soft_tokens: 1 → 16` | **DONE n=3** | **Killed — publishable null.** 16× more *pooled* tokens moved ramp 0.0003 (inside the 0.0011 floor); 64 *spatially arranged* tokens moved it 0.0024. Token count is not the mechanism; spatial arrangement is. Was previously logged as TODO; it is done. |
+| A13 | *"s2c only wins because it gets more visual tokens."* | `model=vision_chronos2_wide` — differs from `vision_chronos2_timeselfattn` by exactly one line, `n_soft_tokens: 1 → 16` | **DONE n=3** | **Killed — publishable null**, but a *weaker* null than it was written as. 16× more *pooled* tokens moved ramp 0.0003 (inside the 0.0011 floor); 64 *spatially arranged* tokens moved it 0.0024. ⚠ The 16 tokens were adapter **copies** of one pooled vector (`CrossModalAdapter` is downstream of the summarizer bottleneck), so the null was guaranteed by construction and says nothing about bandwidth; and the 64-token comparison also swaps the query source. "Token count is not the mechanism" stands; "spatial arrangement is" is not yet separated from "the forecast issues the query" — that is **A29** (§2.2.2). |
 | A17 | *"s2c only wins because of the 3-slot forecast head (#2/#3), not the grid."* | `+ablation=A17` — s2c with `vision_cfg.visual_grid=1` | **CONFIG READY — highest value open item** | Holds the 3-position decoder fixed, varies only grid-vs-blob. This is the **one** run that separates the architecture claim from a decoder-granularity artefact. Run at n=3. |
 | A09 | *"the model isn't reading the frames at all, it's exploiting a correlate."* | `+ablation=A09` — `model.eval_control=shuffle_frames`, eval-only | **NOT RUNNABLE ON s2c — refuses at `on_test_start`** | Temporal shuffle destroys motion but preserves marginals. On s2c it is a **proven no-op**, confirmed both analytically and empirically — see §2.2.1. Runnable and informative only on an arm whose visual path can represent frame order (`fusion_mode != future_query` **and** `n_visual_context_steps > 1`). |
 | A09i | *"…"* — the same claim, recorded as an architecture fact instead of a result | `+ablation=A09i` — A09 plus `model.eval_control_allow_inert=true` | **DONE n=3 — architectural null** | The three `mmtsfm_A09_s2c_ukpv_s4*.json` on disk are this run: every reported metric is **bit-identical** to the corresponding plain s2c run (nmae 0.069239 / 0.071379 / 0.069512; Δ 0.007249 / 0.006497 / 0.007630). That is the receipt, not a finding. **Never report it as "shuffling frames does not hurt s2c".** |
@@ -82,6 +82,7 @@ s2c changes **five** things at once relative to s2b. Only #1 is the intended var
 | A10b | *"the sky helps, but any recent sky would do."* | `+ablation=A10b` — `model.eval_control=stale_sky`, ordered loader | **DONE n=3 — strongest positive control on record** | Same plant, one horizon earlier. **nmae 0.0692→0.0911, 0.0714→0.0875, 0.0695→0.0917** (mean +0.0201, +29%); Δramp +0.0148 / +0.0113 / +0.0154. The marginal gain **flips sign**: +0.0072 → −0.0147 (mean −0.0129), i.e. a one-step-stale sky is *worse than no sky at all*. Vision is being read, and read for its timing. The three `mmtsfm_A10_s2c_ukpv_s4*.json` are these runs, filed under the wrong name — re-file, do not re-run. |
 | A22 | *"s2c only wins because of the grid, not the 3-slot head."* — the mirror of A17 | `+ablation=A22` — s2c with `output_patch_size=16`, `max_output_patches=4` (1 decoder position, grid held at 4×4) | **CONFIG READY** | A17 and A22 are only interpretable as a pair: A17 kills the grid, A22 kills the decoder, and which one the gain follows is the attribution. Run at n=3. |
 | A23 | *"A01's null is a dropout artefact, not a fusion-mode result."* | `+ablation=A23` — s2a with `visual_dropout_prob=0.5` | **CONFIG READY** | s2a trains at 0.3, s2b/s2c at 0.5, so A01 currently confounds fusion mode with recipe. If Δ stays ~0 the negative result is clean; if it moves, A01 as written must be withdrawn. n=3. |
+| A29 | *"s2b's null is a bandwidth artefact, not a fusion-mode result."* — and the mirror: *"s2c wins because its tokens are spatially resolved, not because the forecast issues the query."* | `+ablation=A29` — base `model=vision_chronos2_s2c +stage=s2b`, with `summarizer_time_slices=4`, `summarizer_spatial_grid=4` (64 tokens/step, `n_soft_tokens=1`), `visual_cross_attn_blocks=0` | **CODE + CONFIG READY (2026-09-03)** | The missing cell of the 2×2 in §2.2.2. Widens the `LatentSummarizer` **bottleneck itself** — each of the 64 queries is masked to its own (temporal slice, spatial block), so they cannot collapse onto a shared average the way A13's adapter copies did. Payload is the same 4×4×4 decomposition as s2c's KV set, so the only remaining difference from s2c is *who issues the query*. Run at n=3. |
 
 #### 2.2.1 Why A09 cannot falsify anything on s2c
 
@@ -124,6 +125,38 @@ Related fix, same commit: on the V-JEPA cached-latent path the frame permutation
 `visual_mask` (the gate required `video is not None`). Harmless on s2c, where the mask enters
 only as `visual_mask.sum(dim=1) > 0`, but it would have silently corrupted availability on any
 arm where A09 is actually meaningful.
+
+#### 2.2.2 The 2×2 the registry has only half of
+
+"Spatial arrangement is the mechanism" (A13's verdict) rests on a comparison that moves two
+variables at once. Every s2c-vs-s2b contrast changes **both** the payload (1 pooled blob vs 64
+resolved tokens) **and** who issues the query (fixed learned latents vs the forecast
+positions). Four cells, two of them never run:
+
+|                      | payload pooled to a blob | payload resolved 4×4×4 |
+|----------------------|--------------------------|------------------------|
+| **fixed latent queries** | s2b / A02 (n=1) ✅        | **A29** ← the missing cell |
+| **forecast queries**     | A17 (s2c, grid=1) — config ready | s2c / A16 ✅ |
+
+A13 is *not* the top-right cell. `CrossModalAdapter` sits **downstream** of the summarizer
+bottleneck, so `n_soft_tokens: 1 → 16` fans one pooled `d_model` vector into 16 copies — the
+null was guaranteed a priori and carries no information about bandwidth. A29 widens the
+bottleneck itself (`summarizer_time_slices` × `summarizer_spatial_grid²` queries, each masked
+to its own temporal slice and spatial block, so they cannot collapse onto a shared average).
+
+Reads:
+- **Δramp ≈ 0 again** → the payload was never the constraint. The sequence axis cannot deliver
+  visual signal to this backbone, and s2c's mechanism is the forecast-side query, not the grid.
+- **Δramp > 0.0011** → s2b's null is a bandwidth artefact, the "arrangement" attribution in A13
+  and in the §2.2 narrative must be rewritten, and A17/A22 become the *secondary* pair.
+
+A29 is also the only arm on the board where **A09 becomes both permitted and informative**,
+and it does so *without* raising `n_visual_context_steps`. Route 2 of §2.2.1 — "the single
+query's causal threshold admits every frame, so the summary is a set function" — is broken by
+`summarizer_time_slices > 1`: the slices partition `T_lat` **inside** the one visual step, so
+a frame permutation moves frames between slices and the summary changes. At `n_time_slices=4`,
+`n_vis=1` the causal threshold admits everything, so no sub-query takes the spatial-only
+fallback and the time partition is exact.
 
 
 
@@ -195,6 +228,9 @@ Launch lines for every ID below: [running-ablations.md](running-ablations.md).
 2. **A02** — resume s2b seeds 42/43. Without it the headline comparison rests on n=1.
 3. **A17 + A22** — the attribution pair, n=3 each. Only interpretable together: A17 kills the
    grid, A22 kills the 3-slot decoder, and which one the gain follows *is* the claim.
+   **A29** (§2.2.2) is the third leg and arguably the cheapest: it is the only run that
+   separates "spatially resolved payload" from "forecast-side query", and it decides whether
+   s2b's null is a fusion-mode result or a bandwidth artefact. Run it with A17/A22, n=3.
 4. **A23** — recipe-matched s2a, n=3. A01's null currently confounds fusion mode with a
    `visual_dropout_prob` difference (0.3 vs 0.5); until this runs the negative result is not
    clean enough to publish as one.
