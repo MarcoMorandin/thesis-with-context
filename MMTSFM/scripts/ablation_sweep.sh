@@ -9,8 +9,15 @@
 #   bash scripts/ablation_sweep.sh                       # submit the whole manifest
 #   DRY_RUN=1 bash scripts/ablation_sweep.sh             # print the plan, submit nothing
 #   ONLY="A09 A10" bash scripts/ablation_sweep.sh        # just the eval controls
+#   ONLY="A17 A22 A29" bash scripts/ablation_sweep.sh    # the attribution triple, 9 runs
 #   ONLY=A17 SEEDS=42 NPACKS=1 bash scripts/ablation_sweep.sh
 #   CHAIN=3 bash scripts/ablation_sweep.sh               # 3 linked packs: survive walltime
+#
+# Adding an ablation is a MANIFEST edit, never a script edit. Nothing below is
+# per-ablation: the row supplies (id, mode, stage, model_cfg, seeds, base) and
+# ablation_pack.sbatch turns the id into `+ablation=<id>`, so a new configs/
+# ablation/<id>.yaml plus its manifest row is picked up by the bare invocation
+# above. Check it with `DRY_RUN=1 ONLY=<id> bash scripts/ablation_sweep.sh`.
 #
 # What it does, and what it does NOT buy you
 # ------------------------------------------

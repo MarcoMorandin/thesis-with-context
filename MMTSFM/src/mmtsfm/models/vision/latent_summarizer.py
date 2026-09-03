@@ -26,6 +26,12 @@ visual_summary : [B, T_ts, d_model]
   Filled with ``null_visual_token`` (a learned parameter) for macro positions
   outside the visual window; visual summary tokens occupy the last
   ``n_vis_steps`` positions.
+
+  A29: with ``n_time_slices`` or ``spatial_grid`` above 1 the summarizer emits
+  ``n_sub = n_time_slices * spatial_grid**2`` tokens per visual step instead of
+  one, each masked to its own (temporal slice, spatial block), and the return
+  becomes ``[B, T_ts, n_sub, d_model]``. Both 1 → the 3-D output above, byte
+  for byte.
 """
 
 from __future__ import annotations
@@ -69,19 +75,32 @@ class LatentSummarizer(nn.Module):
         n_vis_steps: int,
         n_heads: int = 4,
         dropout: float = 0.1,
+        n_time_slices: int = 1,
+        spatial_grid: int = 1,
     ):
         super().__init__()
         self.d_v = d_v
         self.d_model = d_model
         self.n_vis_steps = n_vis_steps
         self.n_heads = n_heads
+        # A29: sub-resolution inside each visual TS step. n_sub == 1 reproduces the
+        # historical single-query-per-step behaviour EXACTLY — same query shape, same
+        # mask, same 3-D return — so existing checkpoints load and the four already
+        # published arms are bit-identical. See the class docstring.
+        self.n_time_slices = max(1, int(n_time_slices))
+        self.spatial_grid = max(1, int(spatial_grid))
+        self.n_spatial = self.spatial_grid**2
+        self.n_sub = self.n_time_slices * self.n_spatial
 
         # Project V-JEPA latent dim → d_model (K, V projection)
         self.kv_proj = nn.Linear(d_v, d_model, bias=False)
 
-        # Learned latent queries — one per visual context step
+        # Learned latent queries — n_sub per visual context step, laid out
+        # (t_vis, sub) with sub varying fastest. At n_sub == 1 this is
+        # [1, n_vis_steps, d_model], byte-identical to the pre-A29 parameter, so
+        # state_dict shape is unchanged and any existing checkpoint warm-starts.
         self.latent_queries = nn.Parameter(
-            torch.randn(1, n_vis_steps, d_model) * (d_model**-0.5)
+            torch.randn(1, n_vis_steps * self.n_sub, d_model) * (d_model**-0.5)
         )
 
         # Manual cross-attention projections.
@@ -186,6 +205,79 @@ class LatentSummarizer(nn.Module):
         )
         return mask  # [B, n_vis, T_lat * P]
 
+    def _build_sub_attn_mask(
+        self, T_lat: int, P: int, device: torch.device
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Build the sub-resolution masks, both ``[n_sub, T_lat * P]`` (A29).
+
+        Splits each visual TS step into ``n_time_slices`` contiguous temporal
+        slices and ``spatial_grid**2`` spatial blocks, so query ``(tau, s)`` sees
+        only the patches of its own block within its own slice. This is what makes
+        ``n_sub`` genuine bandwidth rather than a fan-out: without it, extra
+        queries are free to collapse onto the same global average, which is
+        exactly what the pooled-token widening (A13) demonstrated.
+
+        Sub-index layout is ``tau * n_spatial + s``, matching ``latent_queries``.
+        Returns all-zero masks when ``n_sub == 1`` so the pre-A29 behaviour is
+        recovered exactly.
+
+        Returns
+        -------
+        sub_mask : ``[n_sub, T_lat * P]``
+            Temporal slice AND spatial block — the intended restriction.
+        spatial_mask : ``[n_sub, T_lat * P]``
+            Spatial block only. Used as the fallback for a sub-query whose
+            temporal slice lies entirely outside its step's causal window: the
+            time restriction is dropped, the spatial identity is kept, so the
+            query never degenerates into a copy of its neighbours.
+        """
+        kv_len = T_lat * P
+        if self.n_sub == 1:
+            z = torch.zeros(1, kv_len, device=device, dtype=torch.float32)
+            return z, z
+
+        frame_idx = torch.arange(T_lat, device=device).repeat_interleave(P)
+        patch_idx = torch.arange(P, device=device).repeat(T_lat)
+
+        # --- temporal slices over the full latent-frame axis ---
+        n_t = self.n_time_slices
+        tau = torch.arange(n_t, device=device)
+        lo = (tau * T_lat) // n_t
+        hi = ((tau + 1) * T_lat) // n_t
+        hi = torch.maximum(hi, lo + 1).clamp(max=T_lat)  # never an empty slice
+        t_ok = (frame_idx[None, :] >= lo[:, None]) & (frame_idx[None, :] < hi[:, None])
+
+        # --- spatial blocks over the square patch grid ---
+        g = self.spatial_grid
+        if g == 1:
+            s_ok = torch.ones(1, kv_len, device=device, dtype=torch.bool)
+        else:
+            side = int(math.isqrt(P))
+            if side * side != P:
+                raise ValueError(
+                    f"spatial_grid={g} requires a square patch grid, but the visual "
+                    f"encoder emitted P={P} patches per frame, which is not a perfect "
+                    f"square. Set spatial_grid=1 or supply a square-grid encoder."
+                )
+            if g > side:
+                raise ValueError(
+                    f"spatial_grid={g} exceeds the native patch grid side {side}. "
+                    f"Choose spatial_grid <= {side}."
+                )
+            blk = ((patch_idx // side) * g // side) * g + (
+                (patch_idx % side) * g // side
+            )
+            s_ok = blk[None, :] == torch.arange(g * g, device=device)[:, None]
+
+        # [n_t, 1, kv] & [1, n_spatial, kv] -> [n_t, n_spatial, kv] -> [n_sub, kv]
+        ok = (t_ok[:, None, :] & s_ok[None, :, :]).reshape(self.n_sub, kv_len)
+        s_only = s_ok[None, :, :].expand(n_t, self.n_spatial, kv_len)
+        s_only = s_only.reshape(self.n_sub, kv_len)
+
+        zero = torch.zeros(1, device=device, dtype=torch.float32)
+        blocked = torch.full((1,), -1e4, device=device, dtype=torch.float32)
+        return torch.where(ok, zero, blocked), torch.where(s_only, zero, blocked)
+
     # ------------------------------------------------------------------
     # Forward
     # ------------------------------------------------------------------
@@ -219,10 +311,12 @@ class LatentSummarizer(nn.Module):
 
         Returns
         -------
-        visual_summary : ``[B, T_ts, d_model]``
-            Zero-padded for TS steps outside the visual window.
+        visual_summary : ``[B, T_ts, d_model]`` when ``n_sub == 1``,
+            otherwise ``[B, T_ts, n_sub, d_model]`` (A29).
+            Null-padded for TS steps outside the visual window.
             Query at TS position t only attends to frames in its causal
-            sub-interval — no future-frame leakage.
+            sub-interval — no future-frame leakage. Sub-tokens within a step are
+            ordered ``time_slice * n_spatial + spatial_block``.
         """
         B, T_lat, P, D_v = video_tokens.shape
         device = video_tokens.device
@@ -265,13 +359,33 @@ class LatentSummarizer(nn.Module):
             )
             # [1, 1, n_vis, kv_len] — broadcast over batch and heads in scores
             mask = causal_mask[None, None, :, :]  # [1, 1, n_vis, kv_len]
+
+        # A29: split each visual step into n_sub = (temporal slice x spatial block)
+        # queries. At n_sub == 1 this whole block is skipped and `mask` is untouched.
+        n_sub = self.n_sub
+        n_q = n_vis * n_sub
+        if n_sub > 1:
+            sub, spat = self._build_sub_attn_mask(T_lat, P, device)  # [n_sub, kv_len]
+            base = mask.unsqueeze(-2)  # [., ., n_vis, 1, kv_len]
+            wide = base + sub.view(1, 1, 1, n_sub, kv_len)
+            # A sub-query whose temporal slice falls entirely outside its step's
+            # causal window would have every key blocked, and a uniformly-blocked
+            # softmax row attends to EVERYTHING — future frames included. Fall back
+            # to causal AND spatial there: the causal guarantee then holds for every
+            # (t_vis, sub) pair, and the query keeps its own spatial block instead
+            # of degenerating into a copy of its neighbours.
+            fallback = base + spat.view(1, 1, 1, n_sub, kv_len)
+            blocked = (wide <= -9e3).all(dim=-1, keepdim=True)
+            wide = torch.where(blocked, fallback.expand_as(wide), wide)
+            mask = wide.reshape(wide.shape[0], wide.shape[1], n_q, kv_len)
+
         if visual_mask is not None:
             frame_exp = visual_mask.unsqueeze(-1).expand(B, T_lat, P).reshape(B, kv_len)
             pad_penalty = (1.0 - frame_exp.float()) * -1e4  # [B, kv_len]
-            mask = mask + pad_penalty[:, None, None, :]  # [B, 1, n_vis, kv_len]
+            mask = mask + pad_penalty[:, None, None, :]  # [B, 1, n_q, kv_len]
 
-        # Learned queries: [B, n_vis, d_model]
-        queries = self.latent_queries[:, :n_vis, :].expand(B, -1, -1)
+        # Learned queries: [B, n_q, d_model], laid out (t_vis, sub) with sub fastest
+        queries = self.latent_queries[:, :n_q, :].expand(B, -1, -1)
         queries = self.layer_norm_q(queries)
 
         # --- Manual eager multi-head cross-attention -------------------------
@@ -279,22 +393,20 @@ class LatentSummarizer(nn.Module):
         # Flash Attention / MemEffAttn backends which produce NaN in backward
         # under bf16 autocast on A100 even with finite (-1e4) mask values.
         h, d_h = self.n_heads, self.d_head
-        Q = (
-            self.q_proj(queries).view(B, n_vis, h, d_h).transpose(1, 2)
-        )  # [B,h,n_vis,d_h]
+        Q = self.q_proj(queries).view(B, n_q, h, d_h).transpose(1, 2)  # [B,h,n_q,d_h]
         K = self.k_proj(kv).view(B, kv_len, h, d_h).transpose(1, 2)  # [B,h,kv_len,d_h]
         V = self.v_proj(kv).view(B, kv_len, h, d_h).transpose(1, 2)  # [B,h,kv_len,d_h]
 
-        scores = (Q @ K.transpose(-2, -1)) * (d_h**-0.5)  # [B,h,n_vis,kv_len]
-        scores = scores + mask  # add causal + pad mask
+        scores = (Q @ K.transpose(-2, -1)) * (d_h**-0.5)  # [B,h,n_q,kv_len]
+        scores = scores + mask  # add causal + sub + pad mask
         # Guard: replace any NaN/inf in scores before softmax (handles all-masked rows)
         scores = torch.nan_to_num(scores.float(), nan=0.0, neginf=-1e4)
-        attn_w = F.softmax(scores, dim=-1).to(Q.dtype)  # [B,h,n_vis,kv_len]
+        attn_w = F.softmax(scores, dim=-1).to(Q.dtype)  # [B,h,n_q,kv_len]
         attn_w = torch.nan_to_num(attn_w, nan=0.0)  # zero out NaN rows
         attn_w = self.attn_drop(attn_w)
-        attn_out = attn_w @ V  # [B,h,n_vis,d_h]
+        attn_out = attn_w @ V  # [B,h,n_q,d_h]
         attn_out = torch.nan_to_num(attn_out, nan=0.0)
-        attn_out = attn_out.transpose(1, 2).contiguous().view(B, n_vis, self.d_model)
+        attn_out = attn_out.transpose(1, 2).contiguous().view(B, n_q, self.d_model)
         attn_out = self.out_proj(attn_out)
         # Final guard: catch any remaining NaN before returning
         attn_out = torch.nan_to_num(attn_out, nan=0.0)
@@ -303,10 +415,19 @@ class LatentSummarizer(nn.Module):
         # Macro positions → learned null token; refinement window → cross-attn output.
         # Using null_visual_token (not zeros) prevents degenerate Plücker subspaces.
         T_macro = T_ts - n_vis
-        null = self.null_visual_token.expand(B, T_macro, self.d_model).to(dtype)
-        if n_vis > 0:
-            visual_summary = torch.cat([null, attn_out], dim=1)  # [B, T_ts, d_model]
-        else:
-            visual_summary = null  # [B, T_ts, d_model]
+        if n_sub == 1:
+            # Pre-A29 path, preserved exactly: [B, T_ts, d_model].
+            null = self.null_visual_token.expand(B, T_macro, self.d_model).to(dtype)
+            if n_vis > 0:
+                return torch.cat([null, attn_out], dim=1)  # [B, T_ts, d_model]
+            return null
 
-        return visual_summary
+        # A29 path: [B, T_ts, n_sub, d_model]. Every macro position carries n_sub
+        # copies of the null token so the shape is uniform across the sequence and
+        # the caller can treat sub-tokens as ordinary visual tokens.
+        sub_out = attn_out.view(B, n_vis, n_sub, self.d_model)
+        null = self.null_visual_token.view(1, 1, 1, self.d_model)
+        null = null.expand(B, T_macro, n_sub, self.d_model).to(dtype)
+        if n_vis > 0:
+            return torch.cat([null, sub_out], dim=1)  # [B, T_ts, n_sub, d_model]
+        return null

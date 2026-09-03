@@ -161,6 +161,11 @@ class VisionChronos2Config:
         Hidden layers for MLP adapter (ignored otherwise).
     summarizer_n_heads:
         Attention heads in LatentSummarizer cross-attention.
+    summarizer_time_slices, summarizer_spatial_grid:
+        A29 — sub-resolution inside each visual TS step. The summarizer emits
+        ``n_sub = summarizer_time_slices * summarizer_spatial_grid**2`` tokens per
+        step instead of one, each masked to its own (temporal slice, spatial block).
+        Both 1 → the historical single-token-per-step behaviour, unchanged.
     visual_dropout_prob:
         Probability of zeroing the entire visual stream per sample during
         training (Asymmetric Bernoulli modality dropout — visual rate).
@@ -186,6 +191,16 @@ class VisionChronos2Config:
     adapter_type: str = "linear"
     adapter_n_layers: int = 2
     summarizer_n_heads: int = 4
+    # A29: sub-resolution INSIDE the LatentSummarizer. Each visual TS step is split
+    # into summarizer_time_slices temporal slices x summarizer_spatial_grid**2 spatial
+    # blocks, and each of those n_sub queries is masked to its own block. This is the
+    # only way to widen the interleaved payload with real information: the
+    # CrossModalAdapter sits DOWNSTREAM of the summarizer bottleneck and can only
+    # fan one d_model vector out into N_soft copies, which is why A13 (n_soft 1 -> 16)
+    # was a null on reliance by construction. Defaults 1/1 reproduce every published
+    # arm bit-identically.
+    summarizer_time_slices: int = 1
+    summarizer_spatial_grid: int = 1
     visual_dropout_prob: float = 0.5
     numeric_dropout_prob: float = (
         0.1  # M3 fix: asymmetric Bernoulli — numeric stream dropout rate
@@ -392,7 +407,24 @@ class VisionChronos2Model(nn.Module):
                 n_vis_steps=vision_config.n_visual_context_steps,
                 n_heads=vision_config.summarizer_n_heads,
                 dropout=vision_config.dropout,
+                n_time_slices=vision_config.summarizer_time_slices,
+                spatial_grid=vision_config.summarizer_spatial_grid,
             )
+            # n_sub > 1 and N_soft > 1 would widen the payload twice, once with real
+            # information and once with a fan-out, and no post-hoc analysis could
+            # separate the two. Refuse the combination rather than run a confound.
+            n_sub = self.latent_summarizer.n_sub
+            if n_sub > 1 and vision_config.n_soft_tokens > 1:
+                raise ValueError(
+                    f"summarizer sub-resolution (n_sub={n_sub}) and n_soft_tokens="
+                    f"{vision_config.n_soft_tokens} are both > 1. The adapter fan-out "
+                    "would confound the summarizer bandwidth. Set n_soft_tokens=1."
+                )
+            if n_sub > 1 and vision_config.fusion_mode != "interleaved":
+                raise ValueError(
+                    f"summarizer sub-resolution (n_sub={n_sub}) is only consumed by "
+                    f"fusion_mode='interleaved', got '{vision_config.fusion_mode}'."
+                )
 
             # Late fusion always expands through the adapter. Interleaved fusion
             # only needs it to widen the bottleneck: at N_soft == 1 it would be an
@@ -948,7 +980,8 @@ class VisionChronos2Model(nn.Module):
                     .values
                 )
 
-            # LatentSummarizer — [B, n_vis, d_model]  (T_ts=n_vis → no null tokens)
+            # LatentSummarizer — [B, n_vis, d_model], or [B, n_vis, n_sub, d_model]
+            # when A29 sub-resolution is on  (T_ts=n_vis → no null tokens)
             vis_summary = self.latent_summarizer(
                 video_tokens=video_tokens,
                 T_ts=n_vis,
@@ -956,12 +989,23 @@ class VisionChronos2Model(nn.Module):
                 frame_delta_t=video_delta_t,
             )
 
+            # Visual tokens per refined step. Two mutually exclusive ways to get
+            # more than one, and __init__ refuses the combination:
+            #   n_sub  — A29, real bandwidth: each token attends to its own
+            #            (temporal slice, spatial block) of the patch field.
+            #   N_soft — A13, a fan-out of the single pooled vector by the adapter
+            #            downstream of the bottleneck; adds capacity, not signal.
+            N_vis_tok = N_soft
+            if vis_summary.dim() == 4:
+                N_vis_tok = vis_summary.shape[2]
+                vis_summary = vis_summary.reshape(B_, n_vis * N_vis_tok, -1)
+
             # Widen the bottleneck: one summary token per step becomes N_soft.
             # Everything downstream (modality embeds, dropout, interleave, masks)
             # treats them as ordinary visual tokens, so this is the only place
             # N_soft enters the interleaved path. At N_soft == 1 the adapter is
             # not built and vis_summary passes through untouched.
-            if self.cross_modal_adapter is not None:
+            elif self.cross_modal_adapter is not None:
                 vis_summary = self.cross_modal_adapter(
                     vis_summary
                 )  # [B, n_vis, N_soft, d]
@@ -1028,16 +1072,16 @@ class VisionChronos2Model(nn.Module):
                 )
 
             # Interleave refinement window. Regroup the flat visual tokens back to
-            # [B, n_vis, N_soft, d] so each refined step gets its own block.
+            # [B, n_vis, N_vis_tok, d] so each refined step gets its own block.
             interleaved_ctx, modality_mask_ctx = interleave_sequences(
                 input_embeds_mm,
-                vis_summary.reshape(B, n_vis, N_soft, -1),
+                vis_summary.reshape(B, n_vis, N_vis_tok, -1),
                 n_vis,
             )
 
-            # Full sequence: [B, T_ctx + n_vis*N_soft + T_fut, d]
+            # Full sequence: [B, T_ctx + n_vis*N_vis_tok + T_fut, d]
             T_fut = future_embeds_mm.shape[1]
-            n_vis_tok = n_vis * N_soft  # visual tokens inserted into the context
+            n_vis_tok = n_vis * N_vis_tok  # visual tokens inserted into the context
             T_M = T_ctx - n_vis  # macro region: context patches with no visual partner
             all_embeds = torch.cat([interleaved_ctx, future_embeds_mm], dim=1)
             modality_mask_fut = torch.zeros(B, T_fut, dtype=torch.long, device=device)
@@ -1057,12 +1101,12 @@ class VisionChronos2Model(nn.Module):
             refine_mask = torch.cat(
                 [
                     ctx_mask[:, T_M:, None],  # the TS token opening each block
-                    torch.ones(  # its N_soft visual partners
-                        B, n_vis, N_soft, device=device, dtype=dtype
+                    torch.ones(  # its N_vis_tok visual partners
+                        B, n_vis, N_vis_tok, device=device, dtype=dtype
                     ),
                 ],
                 dim=2,
-            ).reshape(B, n_vis * (1 + N_soft))
+            ).reshape(B, n_vis * (1 + N_vis_tok))
             all_mask = torch.cat(
                 [
                     macro_mask,
@@ -1075,7 +1119,7 @@ class VisionChronos2Model(nn.Module):
 
             # Position IDs: TS and vis tokens at same step share position
             position_ids = build_interleaved_position_ids(
-                T_M, n_vis, T_fut, device, n_soft=N_soft
+                T_M, n_vis, T_fut, device, n_soft=N_vis_tok
             ).expand(B, -1)
 
             # Covariate rows (batch-axis) — the interleaved path previously dropped
