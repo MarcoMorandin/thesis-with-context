@@ -1,0 +1,136 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="928" viewBox="0 0 1500 928">
+<!-- LAYOUT PLAN  (shared grid across the stage figures)
+     row A in : y 40..126    2 cols 90..620 | 660..1180
+     row B fe : y 166..244   same cols
+     row C prj: y 282..348   90..1180
+     row D mem: y 386..460   90..1180
+     row F enc: y 498..770   sub-blocks 110..450 | 470..810 | 830..1170
+     row G out: y 808..888   90..500 | 540..790
+     rail     : x 1240..1460 (legend 40..232)
+     NOTE: Cairo mis-spaces the "fu" pair in Times italic, so annotations use
+     Helvetica italic; serif italic is kept for single symbols only.
+-->
+<defs>
+  <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M 0 0 L 10 5 L 0 10 z" fill="#3A3A44"/>
+  </marker>
+  <marker id="arrowLight" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path d="M 0 0 L 10 5 L 0 10 z" fill="#7A7A86"/>
+  </marker>
+</defs>
+
+<rect x="0" y="0" width="1500" height="928" fill="#FFFFFF"/>
+
+<g id="inputs"><title>Input tensors</title>
+  <rect x="90" y="40" width="530" height="86" rx="3" fill="#FFFFFF" stroke="#4A4A55" stroke-width="1.8"/>
+  <text x="355" y="64" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1E1E28">Numeric target -- PV power</text>
+  <text x="355" y="88" text-anchor="middle" font-family="Times New Roman, serif" font-style="italic" font-size="14" fill="#2E2E38">Y_hist   [B, 672]</text>
+  <text x="355" y="110" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#5A5A66">672 historical steps per entity</text>
+
+  <rect x="660" y="40" width="520" height="86" rx="3" fill="#FFFFFF" stroke="#4A4A55" stroke-width="1.8"/>
+  <text x="920" y="64" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1E1E28">Known covariates</text>
+  <text x="920" y="88" text-anchor="middle" font-family="Times New Roman, serif" font-style="italic" font-size="14" fill="#2E2E38">X_cov   [B, 672 + 12, 14]</text>
+  <text x="920" y="110" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#5A5A66">14 protocol channels</text>
+</g>
+
+<g id="frontends"><title>Per-modality front ends</title>
+  <rect x="90" y="166" width="530" height="78" rx="8" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="1.8"/>
+  <text x="355" y="190" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1B3A55">InstanceNorm (arcsinh) + Patch(16)</text>
+  <text x="355" y="212" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#2F4E68">out: patched context and per-patch mask</text>
+  <text x="355" y="232" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#2F4E68">plus (loc, scale), kept for the inverse</text>
+
+  <rect x="660" y="166" width="520" height="78" rx="8" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="1.8"/>
+  <text x="920" y="190" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1B3A55">Per-channel patching</text>
+  <text x="920" y="212" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#2F4E68">each covariate channel becomes its own token</text>
+  <text x="920" y="232" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#2F4E68">row on the batch axis, with mask = 1</text>
+</g>
+
+<g id="tokenisers"><title>Projection into the 512-d token space</title>
+  <rect x="90" y="282" width="1090" height="66" rx="8" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="1.8"/>
+  <text x="635" y="308" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1B3A55">input_patch_embedding   (PRETRAINED)</text>
+  <text x="635" y="336" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-style="italic" font-size="12" fill="#2F4E68">out:  context [B, 42, 512]   |   horizon [B, 1, 512]   |   14 covariate rows [B, 1, 512]</text>
+</g>
+
+<g id="membed"><title>MultimodalEmbedding</title>
+  <rect x="90" y="386" width="1090" height="74" rx="8" fill="#FBE3D6" stroke="#D97742" stroke-width="1.8"/>
+  <text x="635" y="410" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#7A3A10">MultimodalEmbedding  +  RoPE position ids</text>
+  <text x="635" y="432" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#8A4A1E">segment {context, horizon}  +  token-type {target, covariate}  +  entity id.   Modality tag is always num = 0.</text>
+  <text x="635" y="452" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="10.5" font-style="italic" fill="#9A6440">shape preserving: every row stays [B, *, 512]</text>
+</g>
+
+<g id="encoder"><title>Chronos2Encoder</title>
+  <rect x="90" y="498" width="1090" height="272" rx="12" fill="#EDF3F9" stroke="#4C7FB0" stroke-width="1.6"/>
+  <text x="106" y="522" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="bold" fill="#1B3A55">Chronos2Encoder  --  x6 identical blocks</text>
+
+  <rect x="110" y="554" width="340" height="196" rx="8" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="1.6"/>
+  <text x="280" y="580" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1B3A55">1. TimeSelfAttention + RoPE</text>
+  <text x="280" y="608" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#2F4E68">causal self-attention along the TIME</text>
+  <text x="280" y="628" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#2F4E68">axis, rotary positions.</text>
+  <text x="280" y="704" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="bold" fill="#1B3A55">PRETRAINED</text>
+  <text x="280" y="734" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-style="italic" font-size="12" fill="#2F4E68">in / out:  [B, 43, 512]</text>
+
+  <rect x="470" y="554" width="340" height="196" rx="8" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="1.6"/>
+  <text x="640" y="580" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1B3A55">2. GroupSelfAttention</text>
+  <text x="640" y="608" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#2F4E68">acts on the BATCH axis, not time.</text>
+  <text x="640" y="628" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#2F4E68">Fuses the target row with the 14</text>
+  <text x="640" y="648" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#2F4E68">covariate rows across all rows that</text>
+  <text x="640" y="668" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#2F4E68">share a group_id.</text>
+  <text x="640" y="704" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="bold" fill="#1B3A55">PRETRAINED</text>
+  <text x="640" y="734" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-style="italic" font-size="12" fill="#2F4E68">in / out:  [B, 43, 512]</text>
+
+  <rect x="830" y="554" width="340" height="196" rx="8" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="1.6"/>
+  <text x="1000" y="580" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1B3A55">3. FeedForward</text>
+  <text x="1000" y="704" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="bold" fill="#1B3A55">PRETRAINED</text>
+  <text x="1000" y="734" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-style="italic" font-size="12" fill="#2F4E68">in / out:  [B, 43, 512]</text>
+</g>
+
+<g id="head"><title>Output head and forecast</title>
+  <rect x="90" y="824" width="410" height="48" rx="8" fill="#FBE3D6" stroke="#D97742" stroke-width="1.8"/>
+  <text x="295" y="854" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#7A3A10">Output head   (RE-INITIALISED)</text>
+
+  <rect x="540" y="808" width="250" height="80" rx="3" fill="#FDF0C8" stroke="#C9971E" stroke-width="2"/>
+  <text x="665" y="836" text-anchor="middle" font-family="Times New Roman, serif" font-style="italic" font-size="18" fill="#6B4E06">Y_hat</text>
+  <text x="665" y="860" text-anchor="middle" font-family="Times New Roman, serif" font-style="italic" font-size="14" fill="#6B4E06">[B, 12, 9]</text>
+  <text x="665" y="880" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#7A5C10">12 steps x 9 quantiles, one pass</text>
+</g>
+
+<g id="edges" stroke="#3A3A44" stroke-width="1.8" fill="none">
+  <path d="M 355 126 L 355 164" marker-end="url(#arrow)"/>
+  <path d="M 920 126 L 920 164" marker-end="url(#arrow)"/>
+  <path d="M 355 244 L 355 280" marker-end="url(#arrow)"/>
+  <path d="M 920 244 L 920 280" marker-end="url(#arrow)"/>
+  <path d="M 635 348 L 635 384" marker-end="url(#arrow)"/>
+  <path d="M 635 460 L 635 496" marker-end="url(#arrow)"/>
+  <path d="M 295 770 L 295 822" marker-end="url(#arrow)"/>
+  <path d="M 500 848 L 536 848" marker-end="url(#arrow)"/>
+</g>
+
+<g id="innerEdges" stroke="#7A7A86" stroke-width="1.6" fill="none">
+  <path d="M 450 652 L 466 652" marker-end="url(#arrowLight)"/>
+  <path d="M 810 652 L 826 652" marker-end="url(#arrowLight)"/>
+</g>
+
+<g id="edgeLabels" font-family="Helvetica, Arial, sans-serif" font-style="italic" font-size="11.5" fill="#4A4A55">
+  <text x="367" y="268">[B, 42, 16] patches</text>
+  <text x="932" y="268">14 channel rows</text>
+  <text x="647" y="374">numeric, horizon and covariate rows, all at 512</text>
+  <text x="647" y="486">tagged token sequence  --  [B, 43, 512]</text>
+  <text x="311" y="798">last T_hor hidden states, target rows only:  [B, 1, 512]</text>
+</g>
+
+<g id="legend"><title>Legend</title>
+  <rect x="1240" y="40" width="220" height="192" rx="10" fill="#FCFCFD" stroke="#C6C6CE" stroke-width="1.4"/>
+  <text x="1256" y="64" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1E1E28">Legend</text>
+  <rect x="1256" y="82" width="22" height="13" rx="4" fill="#FBE3D6" stroke="#D97742" stroke-width="1.4"/>
+  <text x="1288" y="93" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#3A3A44">trained from scratch</text>
+  <rect x="1256" y="112" width="22" height="13" rx="4" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="1.4"/>
+  <text x="1288" y="123" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#3A3A44">pretrained, fine-tuned</text>
+  <rect x="1256" y="142" width="22" height="13" fill="#FFFFFF" stroke="#4A4A55" stroke-width="1.4"/>
+  <text x="1288" y="153" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#3A3A44">data tensor</text>
+  <rect x="1256" y="172" width="22" height="13" rx="3" fill="#FDF0C8" stroke="#C9971E" stroke-width="1.4"/>
+  <text x="1288" y="183" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#3A3A44">model output</text>
+  <line x1="1256" y1="207" x2="1276" y2="207" stroke="#3A3A44" stroke-width="1.8" marker-end="url(#arrow)"/>
+  <text x="1288" y="211" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#3A3A44">forward pass</text>
+</g>
+
+</svg>

@@ -1,0 +1,237 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="1200" viewBox="0 0 1500 1200">
+<!-- LAYOUT PLAN  (rows A-C shared with the other stage figures)
+     title    : x 60..1460, y 24..92
+     row A in : y 110..210   cols 90..440 | 480..830 | 870..1180
+     row B fe : y 250..328   same cols
+     row C prj: y 366..470   numeric 90..830 | vision 870..1180
+     row D mem: y 508..582   numeric only, 90..830 (the field is not tagged)
+     row E enc: y 620..1030  2x2 serpentine, blocks 125/655 x 668/856, each 490x160
+     row F out: y 1068..1148 90..500 | 540..790 | 830..1180
+     rail     : x 1240..1460 (legend 110..332, stage 360..640, config 668..970)
+     NOTE: there is no fusion row in S2c because there is no fusion op: the
+     sequence entering the encoder is the vision-free one. The encoder is 2x2
+     rather than 1xN so that the visual field can reach the cross-attention
+     sub-layer from outside the sequence in three short segments.
+     Cairo mis-spaces the "fu" pair in Times italic, so annotations use
+     Helvetica italic; serif italic is kept for single symbols only.
+-->
+<defs>
+  <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M 0 0 L 10 5 L 0 10 z" fill="#3A3A44"/>
+  </marker>
+  <marker id="arrowLight" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path d="M 0 0 L 10 5 L 0 10 z" fill="#7A7A86"/>
+  </marker>
+  <marker id="arrowVis" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M 0 0 L 10 5 L 0 10 z" fill="#D97742"/>
+  </marker>
+</defs>
+
+<rect x="0" y="0" width="1500" height="1200" fill="#FFFFFF"/>
+
+<g id="title"><title>Figure title</title>
+  <text x="60" y="52" font-family="Helvetica, Arial, sans-serif" font-size="23" font-weight="bold" fill="#1E1E28">Stage S2c  --  future-query cross-attention over a retained 4x4 spatial field</text>
+  <text x="60" y="76" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#5A5A66">Vision never joins the token sequence. The forecast positions cross-attend a coarsened V-JEPA field inside the last four encoder blocks.</text>
+  <line x1="60" y1="92" x2="1460" y2="92" stroke="#D8D8DE" stroke-width="1.5"/>
+</g>
+
+<g id="inputs"><title>Input tensors</title>
+  <rect x="90" y="110" width="350" height="100" rx="3" fill="#FFFFFF" stroke="#4A4A55" stroke-width="1.8"/>
+  <text x="265" y="134" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1E1E28">Numeric target -- PV power</text>
+  <text x="265" y="158" text-anchor="middle" font-family="Times New Roman, serif" font-style="italic" font-size="14" fill="#2E2E38">Y_hist   [B, 672]</text>
+  <text x="265" y="180" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#5A5A66">672 historical steps per entity</text>
+  <text x="265" y="200" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#5A5A66">NaN at night; masked downstream</text>
+
+  <rect x="480" y="110" width="350" height="100" rx="3" fill="#FFFFFF" stroke="#4A4A55" stroke-width="1.8"/>
+  <text x="655" y="134" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1E1E28">Known covariates</text>
+  <text x="655" y="158" text-anchor="middle" font-family="Times New Roman, serif" font-style="italic" font-size="14" fill="#2E2E38">X_cov   [B, 672 + 12, 14]</text>
+  <text x="655" y="180" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#5A5A66">14 protocol channels, past and ahead</text>
+  <text x="655" y="200" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#5A5A66">the 12 ahead are known, not predicted</text>
+
+  <rect x="870" y="110" width="310" height="100" rx="3" fill="#FFFFFF" stroke="#4A4A55" stroke-width="1.8"/>
+  <text x="1025" y="134" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1E1E28">Sky / satellite video</text>
+  <text x="1025" y="158" text-anchor="middle" font-family="Times New Roman, serif" font-style="italic" font-size="14" fill="#2E2E38">V   [B, 3, 8, 224, 224]</text>
+  <text x="1025" y="180" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#5A5A66">8 RGB frames over a 6 h window</text>
+  <text x="1025" y="200" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#5A5A66">ending at the forecast origin</text>
+</g>
+
+<g id="frontends"><title>Per-modality front ends</title>
+  <rect x="90" y="250" width="350" height="78" rx="8" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="1.8"/>
+  <text x="265" y="274" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="bold" fill="#1B3A55">InstanceNorm (arcsinh) + Patch(16)</text>
+  <text x="265" y="296" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#2F4E68">out: patched context and per-patch mask</text>
+  <text x="265" y="316" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#2F4E68">plus (loc, scale), kept for the inverse</text>
+
+  <rect x="480" y="250" width="350" height="78" rx="8" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="1.8"/>
+  <text x="655" y="274" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="bold" fill="#1B3A55">Per-channel patching</text>
+  <text x="655" y="296" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#2F4E68">each covariate channel becomes its own</text>
+  <text x="655" y="316" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#2F4E68">token row on the batch axis (mask = 1)</text>
+
+  <rect x="870" y="250" width="310" height="78" rx="8" fill="#E8E8EA" stroke="#8A8A93" stroke-width="1.8"/>
+  <text x="1025" y="274" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="bold" fill="#33333B">V-JEPA 2.1  ViT-L/16   (FROZEN)</text>
+  <text x="1025" y="296" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#4A4A55">spatiotemporal tubelets, temporal stride 2</text>
+  <text x="1025" y="316" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#4A4A55">the patch grid is kept, not pooled away</text>
+</g>
+
+<g id="tokenisers"><title>Projection into the 512-d token space</title>
+  <rect x="90" y="366" width="740" height="104" rx="8" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="1.8"/>
+  <text x="460" y="390" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1B3A55">input_patch_embedding (PRETRAINED)   +   future_patch_embedding (TRAINABLE, NEW)</text>
+  <text x="460" y="414" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#2F4E68">patch in = 16 but patch out = 4, so the future patch no longer fits the context embedding</text>
+  <text x="460" y="434" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#2F4E68">a separate future_patch_embedding is built; it has no pretrained counterpart and must learn</text>
+  <text x="460" y="458" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-style="italic" font-size="12" fill="#2F4E68">out:  context [B, 42, 512]   |   horizon [B, 3, 512]   |   14 covariate rows</text>
+
+  <rect x="870" y="366" width="310" height="104" rx="8" fill="#FBE3D6" stroke="#D97742" stroke-width="1.8"/>
+  <text x="1025" y="390" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="bold" fill="#7A3A10">4x4 block-pool + visual_kv_proj</text>
+  <text x="1025" y="414" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#8A4A1E">no LatentSummarizer, no adapter:</text>
+  <text x="1025" y="434" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#8A4A1E">V-JEPA patches project straight to KV</text>
+  <text x="1025" y="458" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-style="italic" font-size="12" fill="#8A4A1E">out:  [B, 4 x 4 x 4, 512]  =  [B, 64, 512]</text>
+</g>
+
+<g id="membed"><title>MultimodalEmbedding, numeric sequence only</title>
+  <rect x="90" y="508" width="740" height="74" rx="8" fill="#FBE3D6" stroke="#D97742" stroke-width="1.8"/>
+  <text x="460" y="532" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#7A3A10">MultimodalEmbedding (TRAINABLE)  +  RoPE  +  lead-time embedding</text>
+  <text x="460" y="554" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#8A4A1E">segment {context, horizon}  +  token-type {target, covariate}  +  entity id  --  identical to Stage 1</text>
+  <text x="460" y="574" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="10.5" font-style="italic" fill="#9A6440">modality is a dead channel here (no visual token exists).  lead_time_embed[0:3] hits the 3 forecast positions.</text>
+</g>
+
+<g id="encoder"><title>Chronos2Encoder</title>
+  <rect x="90" y="620" width="1090" height="410" rx="12" fill="#EDF3F9" stroke="#4C7FB0" stroke-width="1.6"/>
+  <text x="106" y="648" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="bold" fill="#1B3A55">Chronos2Encoder  --  x6 blocks</text>
+  <text x="1164" y="648" text-anchor="end" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#2F4E68">top 3 of 6 unfrozen; cross-attention exists in blocks 3 to 6</text>
+
+  <rect x="125" y="668" width="490" height="160" rx="8" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="1.6"/>
+  <text x="370" y="694" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1B3A55">1. TimeSelfAttention + RoPE</text>
+  <text x="370" y="726" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#2F4E68">causal self-attention along the TIME axis, rotary positions.</text>
+  <text x="370" y="748" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#2F4E68">The sequence here is purely numeric: no visual token holds a</text>
+  <text x="370" y="770" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#2F4E68">position, so this sub-layer is unchanged from Stage 1.</text>
+  <text x="370" y="796" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="bold" fill="#1B3A55">TOP 3 BLOCKS TRAIN</text>
+  <text x="370" y="818" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-style="italic" font-size="12" fill="#2F4E68">in / out:  [B, 45, 512]</text>
+
+  <rect x="655" y="668" width="490" height="160" rx="8" fill="#DCEAF7" stroke="#D97742" stroke-width="2.2"/>
+  <text x="900" y="694" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1B3A55">2. TimeCrossAttention</text>
+  <text x="900" y="716" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-style="italic" fill="#B0641E">this is where vision enters in S2c</text>
+  <text x="900" y="744" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#2F4E68">the 3 forecast positions QUERY the 64 visual KV entries; a gate</text>
+  <text x="900" y="766" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#2F4E68">keeps the update on those rows, so the history stays untouched.</text>
+  <text x="900" y="796" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="bold" fill="#7A3A10">NEW MODULE, TRAINS</text>
+  <text x="900" y="818" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-style="italic" font-size="12" fill="#2F4E68">q [B, 3, 512]   x   kv [B, 64, 512]</text>
+
+  <rect x="655" y="856" width="490" height="160" rx="8" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="1.6"/>
+  <text x="900" y="882" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1B3A55">3. GroupSelfAttention</text>
+  <text x="900" y="914" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#2F4E68">acts on the BATCH axis, not time. Fuses the target row with</text>
+  <text x="900" y="936" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#2F4E68">the 14 covariate rows across a shared group_id.</text>
+  <text x="900" y="958" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#2F4E68">No visual row exists here, unlike S2a.</text>
+  <text x="900" y="984" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="bold" fill="#1B3A55">TOP 3 BLOCKS TRAIN</text>
+  <text x="900" y="1006" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-style="italic" font-size="12" fill="#2F4E68">in / out:  [B, 45, 512]</text>
+
+  <rect x="125" y="856" width="490" height="160" rx="8" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="1.6"/>
+  <text x="370" y="882" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1B3A55">4. FeedForward</text>
+  <text x="370" y="914" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#2F4E68">LayerNorm -&gt; Linear 512 -&gt; 2048 -&gt; ReLU -&gt; Linear 2048 -&gt; 512</text>
+  <text x="370" y="936" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#2F4E68">-&gt; residual add.  Blocks 1 to 3 frozen; blocks 4 to 6 train.</text>
+  <text x="370" y="958" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#2F4E68">The cross-attention is exempt: new weight, no counterpart.</text>
+  <text x="370" y="984" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="12" font-weight="bold" fill="#1B3A55">TOP 3 BLOCKS TRAIN</text>
+  <text x="370" y="1006" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-style="italic" font-size="12" fill="#2F4E68">in / out:  [B, 45, 512]</text>
+</g>
+
+<g id="head"><title>Output head, forecast and loss</title>
+  <rect x="90" y="1068" width="410" height="80" rx="8" fill="#FBE3D6" stroke="#D97742" stroke-width="1.8"/>
+  <text x="295" y="1092" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#7A3A10">Output head   (TRAINABLE)</text>
+  <text x="295" y="1114" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#8A4A1E">reads the 3 forecast positions; the field is never read</text>
+  <text x="295" y="1136" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#8A4A1E">reshape -&gt; arcsinh inverse with (loc, scale)</text>
+
+  <rect x="540" y="1068" width="250" height="80" rx="3" fill="#FDF0C8" stroke="#C9971E" stroke-width="2"/>
+  <text x="665" y="1096" text-anchor="middle" font-family="Times New Roman, serif" font-style="italic" font-size="18" fill="#6B4E06">Y_hat</text>
+  <text x="665" y="1120" text-anchor="middle" font-family="Times New Roman, serif" font-style="italic" font-size="14" fill="#6B4E06">[B, 12, 9]</text>
+  <text x="665" y="1140" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#7A5C10">3 patches x 4 steps x 9 quantiles</text>
+
+  <rect x="830" y="1068" width="350" height="80" rx="8" fill="#FBDDD9" stroke="#C0524A" stroke-width="1.8"/>
+  <text x="1005" y="1092" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#7E2A22">Masked pinball loss</text>
+  <text x="1005" y="1114" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#8E3A32">valid horizon steps only; night is masked</text>
+  <text x="1005" y="1136" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#8E3A32">reported as NMAE, NRMSE, Skill Score</text>
+</g>
+
+<g id="edges" stroke="#3A3A44" stroke-width="1.8" fill="none">
+  <path d="M 265 210 L 265 248" marker-end="url(#arrow)"/>
+  <path d="M 655 210 L 655 248" marker-end="url(#arrow)"/>
+  <path d="M 1025 210 L 1025 248" marker-end="url(#arrow)"/>
+  <path d="M 265 328 L 265 364" marker-end="url(#arrow)"/>
+  <path d="M 655 328 L 655 364" marker-end="url(#arrow)"/>
+  <path d="M 1025 328 L 1025 364" marker-end="url(#arrow)"/>
+  <path d="M 460 470 L 460 506" marker-end="url(#arrow)"/>
+  <path d="M 370 582 L 370 666" marker-end="url(#arrow)"/>
+  <path d="M 295 1016 L 295 1066" marker-end="url(#arrow)"/>
+  <path d="M 500 1108 L 536 1108" marker-end="url(#arrow)"/>
+  <path d="M 790 1108 L 826 1108" marker-end="url(#arrow)"/>
+</g>
+
+<g id="visualBypass" stroke="#D97742" stroke-width="2" fill="none" stroke-dasharray="8 6">
+  <path d="M 1025 470 L 1025 500 L 1208 500 L 1208 748 L 1149 748" marker-end="url(#arrowVis)"/>
+</g>
+
+<g id="innerEdges" stroke="#7A7A86" stroke-width="1.8" fill="none">
+  <path d="M 615 748 L 651 748" marker-end="url(#arrowLight)"/>
+  <path d="M 900 828 L 900 852" marker-end="url(#arrowLight)"/>
+  <path d="M 655 936 L 619 936" marker-end="url(#arrowLight)"/>
+</g>
+
+<g id="edgeLabels" font-family="Helvetica, Arial, sans-serif" font-style="italic" font-size="11.5" fill="#4A4A55">
+  <text x="277" y="352">[B, 42, 16] patches</text>
+  <text x="667" y="352">14 channel rows</text>
+  <text x="1037" y="352">[B, 4, 196, 1024]</text>
+  <text x="472" y="494">numeric rows at 512</text>
+  <text x="1195" y="528" text-anchor="end" fill="#B0641E">visual KV field   [B, 64, 512]</text>
+  <text x="1195" y="546" text-anchor="end" fill="#B0641E">held outside the sequence</text>
+  <text x="386" y="606">[B, 45, 512]  --  the vision-free sequence</text>
+  <text x="311" y="1054" font-size="11">the 3 forecast positions, target rows only:  [B, 3, 512]</text>
+</g>
+
+<g id="legend"><title>Legend</title>
+  <rect x="1240" y="110" width="220" height="222" rx="10" fill="#FCFCFD" stroke="#C6C6CE" stroke-width="1.4"/>
+  <text x="1256" y="134" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1E1E28">Legend</text>
+  <rect x="1256" y="152" width="22" height="13" rx="4" fill="#FBE3D6" stroke="#D97742" stroke-width="1.4"/>
+  <text x="1288" y="163" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#3A3A44">trained from scratch</text>
+  <rect x="1256" y="182" width="22" height="13" rx="4" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="1.4"/>
+  <text x="1288" y="193" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#3A3A44">pretrained Chronos-2</text>
+  <rect x="1256" y="212" width="22" height="13" rx="4" fill="#E8E8EA" stroke="#8A8A93" stroke-width="1.4"/>
+  <text x="1288" y="223" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#3A3A44">frozen (V-JEPA 2.1)</text>
+  <rect x="1256" y="242" width="22" height="13" fill="#FFFFFF" stroke="#4A4A55" stroke-width="1.4"/>
+  <text x="1288" y="253" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#3A3A44">data tensor</text>
+  <rect x="1256" y="272" width="22" height="13" rx="3" fill="#FDF0C8" stroke="#C9971E" stroke-width="1.4"/>
+  <text x="1288" y="283" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#3A3A44">model output</text>
+  <line x1="1256" y1="308" x2="1278" y2="308" stroke="#D97742" stroke-width="2" stroke-dasharray="8 6"/>
+  <text x="1288" y="313" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#3A3A44">visual side channel</text>
+</g>
+
+<g id="stage"><title>Stage S2c policy</title>
+  <rect x="1240" y="360" width="220" height="280" rx="10" fill="#FCFCFD" stroke="#C6C6CE" stroke-width="1.4"/>
+  <text x="1256" y="384" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1E1E28">Stage S2c policy</text>
+  <text x="1256" y="410" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="bold" fill="#2E2E38">vision</text>
+  <text x="1256" y="428" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#5A5A66">on, mode = future_query</text>
+  <text x="1256" y="454" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="bold" fill="#2E2E38">what trains</text>
+  <text x="1256" y="472" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#5A5A66">visual_kv_proj, the lead-time</text>
+  <text x="1256" y="488" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#5A5A66">embedding, cross-attention in</text>
+  <text x="1256" y="504" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#5A5A66">blocks 3 to 6, the patch</text>
+  <text x="1256" y="520" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#5A5A66">embeddings, top 3 blocks, head</text>
+  <text x="1256" y="546" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="bold" fill="#2E2E38">what is frozen</text>
+  <text x="1256" y="564" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#5A5A66">V-JEPA, and self-attention in</text>
+  <text x="1256" y="580" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#5A5A66">encoder blocks 1 to 3</text>
+  <text x="1256" y="606" font-family="Helvetica, Arial, sans-serif" font-size="11.5" font-weight="bold" fill="#2E2E38">warm start</text>
+  <text x="1256" y="624" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#5A5A66">the S1 checkpoint, not S2a</text>
+</g>
+
+<g id="config"><title>Reference config</title>
+  <rect x="1240" y="668" width="220" height="302" rx="10" fill="#FCFCFD" stroke="#C6C6CE" stroke-width="1.4"/>
+  <text x="1256" y="692" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1E1E28">Reference config (uk_pv)</text>
+  <text x="1256" y="718" font-family="Helvetica, Arial, sans-serif" font-style="italic" font-size="11.5" fill="#3A3A44">T_ctx = 42,  T_hor = 3</text>
+  <text x="1256" y="740" font-family="Helvetica, Arial, sans-serif" font-style="italic" font-size="11.5" fill="#3A3A44">field = 4 x 4 x 4 = 64 KV</text>
+  <text x="1256" y="762" font-family="Helvetica, Arial, sans-serif" font-style="italic" font-size="11.5" fill="#3A3A44">L = 42 + 3 = 45</text>
+  <text x="1256" y="788" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#5A5A66">backbone: amazon/chronos-2</text>
+  <text x="1256" y="808" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#5A5A66">512 wide, 6 layers, 8 heads</text>
+  <text x="1256" y="828" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#5A5A66">d_kv 64, d_ff 2048</text>
+  <text x="1256" y="848" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#5A5A66">patch in 16, patch out 4</text>
+  <text x="1256" y="868" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#5A5A66">visual_grid 4</text>
+  <text x="1256" y="888" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#5A5A66">visual_cross_attn_blocks 4</text>
+  <text x="1256" y="908" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#5A5A66">n_unfreeze_encoder_blocks 3</text>
+  <text x="1256" y="928" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#5A5A66">backbone_lr_ratio 0.1</text>
+  <text x="1256" y="952" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#5A5A66">freeze policy = S2b exactly</text>
+</g>
+
+</svg>
