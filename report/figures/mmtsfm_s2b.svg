@@ -87,7 +87,7 @@
 
 <g id="encoder"><title>Chronos2Encoder</title>
   <rect x="90" y="702" width="1090" height="302" rx="12" fill="#EDF3F9" stroke="#4C7FB0" stroke-width="1.6"/>
-  <text x="106" y="726" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="bold" fill="#1B3A55">Chronos2Encoder  --  x6 identical blocks</text>
+  <text x="106" y="726" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="bold" fill="#1B3A55">Chronos2Encoder  --  x12 identical blocks</text>
 
   <rect x="110" y="758" width="340" height="226" rx="8" fill="#DCEAF7" stroke="#D97742" stroke-width="2.2"/>
   <text x="280" y="784" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1B3A55">1. TimeSelfAttention + RoPE</text>

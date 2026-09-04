@@ -85,8 +85,8 @@
 
 <g id="encoder"><title>Chronos2Encoder</title>
   <rect x="90" y="550" width="1090" height="410" rx="12" fill="#EDF3F9" stroke="#4C7FB0" stroke-width="1.6"/>
-  <text x="106" y="578" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="bold" fill="#1B3A55">Chronos2Encoder  --  x6 blocks</text>
-  <text x="1164" y="578" text-anchor="end" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#2F4E68">top 3 of 6 unfrozen; cross-attention exists in blocks 3 to 6</text>
+  <text x="106" y="578" font-family="Helvetica, Arial, sans-serif" font-size="14" font-weight="bold" fill="#1B3A55">Chronos2Encoder  --  x12 blocks</text>
+  <text x="1164" y="578" text-anchor="end" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#2F4E68">top 3 of 12 unfrozen; cross-attention exists in blocks 9 to 12</text>
 
   <rect x="125" y="598" width="490" height="160" rx="8" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="1.6"/>
   <text x="370" y="624" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1B3A55">1. TimeSelfAttention + RoPE</text>

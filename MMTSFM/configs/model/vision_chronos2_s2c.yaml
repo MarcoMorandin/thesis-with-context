@@ -18,7 +18,7 @@ chronos_core_cfg:
   grassmann_window_offsets: [1, 2, 4, 8, 12, 16]
   grassmann_modality_pair_bias: true
   attn_implementation: sdpa
-  # s2c: visual cross-attention on the LAST 4 of 6 encoder blocks. Mirrors the
+  # s2c: visual cross-attention on the LAST 4 of the backbone's 12 encoder blocks. Mirrors the
   # existing n_unfreeze_encoder_blocks convention (new capacity goes at the top,
   # against a frozen backbone). 0 elsewhere, so every other arm builds no
   # cross-attention module at all and keeps its exact parameter set.

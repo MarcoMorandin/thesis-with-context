@@ -190,7 +190,9 @@ on the placement question. All five are run as baselines under this report's pro
 ) <fig-sunset>
 
 SUNSET is the canonical convolutional solar baseline and the ancestor of most sky-image forecasters.
-Its fusion is *concatenative*: a flattened convolutional descriptor is joined to the power history,
+It was published for 15-minute-ahead forecasting from ground sky images and PV history; here the same
+architecture is fed the satellite crops of @sec-dataset, which is the only change made to it. Its
+fusion is *concatenative*: a flattened convolutional descriptor is joined to the power history,
 and a multilayer perceptron maps the concatenation to the whole horizon. The visual descriptor is
 therefore computed once, independently of the horizon, and every lead time reads the same vector.
 
@@ -460,7 +462,7 @@ gradients; together they account for a small fraction of the parameters in the s
   align: (left, left, center),
   table.header[Component][Role and dimensions][State],
   [Chronos-2 @chronos2], [Pretrained encoder-only time-series transformer.], [frozen, top 3 of 12 blocks unfrozen],
-  [V-JEPA 2 @vjepa2], [Self-supervised video encoder. Encodes the 8-frame clip once, offline, into 4 temporal slices × 196 spatial patches × 1024 channels, cached.], [frozen entirely],
+  [V-JEPA 2.1 @vjepa21], [Self-supervised video encoder, ViT-L/16. Encodes the 8-frame clip once, offline, into 4 temporal slices × 196 spatial patches × 1024 channels, cached.], [frozen entirely],
   [Channel projection], [Maps the visual channel width onto the backbone's width.], [trained],
   [Fusion module], [The only thing that differs between configurations.], [trained],
 ) <tbl-components>
@@ -739,7 +741,7 @@ channel that is aligned to the forecast interval by construction rather than by 
   [13], [Solar-VLM @solarvlm], [satellite + text], [vision–language fusion, multi-site (@fig-solarvlm)], [0.4396], [0.1514],
   [21], [CrossViViT @crossvivit], [satellite], [cross-attention from history timesteps (@fig-crossvivit)], [0.3491], [—],
   [26], [Aurora @aurora], [several], [joint multimodal pretraining], [0.2324], [—],
-  [27], [SUNSET @sunset], [sky/satellite], [convolutional precedent; joint encoding (@fig-sunset)], [0.2162], [—],
+  [27], [SUNSET @sunset], [satellite], [convolutional precedent, sky images in the original; joint encoding (@fig-sunset)], [0.2162], [—],
   [28], [UniCast @unicast], [several], [prompting a foundation forecaster], [0.1211], [—],
   [30], [VisionTS++ @visionts], [series *rendered as* images], [continual pretraining of a visual backbone], [0.0167], [—],
 ) <tbl-leaderboard-multimodal>
