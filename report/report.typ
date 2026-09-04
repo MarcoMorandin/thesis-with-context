@@ -325,9 +325,8 @@ dimensionless and comparable across installations of very different size.
   [PV power, UK], [`openclimatefix/uk_pv` @ukpv: 30-minute generation for 2019--2020 with per-site
   capacity and rounded coordinates. Energy over the interval is converted to power; gaps of at most
   three steps are linearly interpolated, longer ones dropped.],
-  [Satellite, UK], [EUMETSAT SEVIRI Rapid Scanning Service @seviri, reprojected per site and cropped
-  to 128 #sym.times 128 px (#sym.tilde.op 128 km). Version 2 of the corpus uses the *non-HRV*
-  multi-band product in place of the earlier single-channel HRV crops.],
+  [Satellite, UK], [EUMETSAT SEVIRI Rapid Scanning Service @seviri, *non-HRV* multi-band product,
+  reprojected per site and cropped to 128 #sym.times 128 px (#sym.tilde.op 128 km).],
   [PV power and satellite, US], [NREL PVDAQ systems from the OEDI data lake @pvdaq paired with
   GOES-16 crops at 256 #sym.times 256 px.],
   [Weather covariates], [Open-Meteo historical archive @openmeteo: eight variables joined to each
@@ -353,10 +352,10 @@ directly.
   [Capacity- and climate-transfer questions can be asked without an ETL rewrite; the same model code
   consumes both regions.],
 
-  [Infrared bands, not HRV],
+  [Multi-band infrared imagery],
   [Three genuinely distinct bands (inter-channel correlation 0.67--0.91, mean $|R-G| = 16.1$ DN)
-  rather than a replicated grayscale channel, and coverage through the night: December pre-dawn
-  frames carry mean 134 / std 37, against midday mean 123 / std 38.],
+  rather than the replicated grayscale channel an HRV crop provides, and coverage through the night:
+  December pre-dawn frames carry mean 134 / std 37, against midday mean 123 / std 38.],
   [Cloud fields are observable before sunrise, so a 14-day history window is visually covered rather
   than half blank. 96.1% of scored windows carry all eight frames.],
 
