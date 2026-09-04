@@ -158,10 +158,13 @@ The contributions are as follows.
 = Related work <sec-related>
 
 Published multimodal forecasters differ in many respects, but for the purposes of this study they
-differ in exactly one: *where the visual representation is attached relative to the point at which
-the horizon is resolved*. Three representative systems are reproduced schematically below, in a
-common visual language, so that the attachment point can be compared directly. All three are also
-run as baselines under this report's protocol (@tbl-leaderboard-multimodal).
+differ in exactly one: *where the auxiliary representation is attached relative to the point at
+which the horizon is resolved*. Five representative systems are reproduced schematically below in a
+common visual language so that the attachment point can be compared directly: three satellite-based
+multimodal forecasters (@fig-sunset to @fig-solarvlm), and the two strongest non-MMTSFM entries of the
+baseline suite (@fig-timevlm, @fig-itransformer), which are strongest for reasons that bear directly
+on the placement question. All five are run as baselines under this report's protocol
+(@tbl-leaderboard-multimodal, @tbl-leaderboard-deep).
 
 == Convolutional joint encoding — SUNSET
 
@@ -219,21 +222,90 @@ already been condensed.
   learned gate decides how far the multimodal prediction is allowed to move the numeric one.],
 ) <fig-solarvlm>
 
-Solar-VLM represents the vision--language family @pvvlm @timevlm @unicast. Its visual pathway ends
+Solar-VLM represents the vision--language family @pvvlm @unicast. Its visual pathway ends
 in one pooled vector per station, which is concatenated with the temporal state and passed through a
 fusion network; a modality gate then interpolates between the multimodal prediction and the
 numeric-only prediction. As in the previous two cases, the visual summary is fixed before the model
 has committed to any particular lead time.
 
+== Vision without a scene — Time-VLM
+
+#figure(
+  pipe(
+    dbox[the *series itself* rendered as a 3-channel image, plus a text prompt of its own statistics],
+    dbox[frozen vision--language embedder],
+    dbox[*one pooled vision + text vector* per window],
+    hit[cross-attention with the *query on the temporal side*; a gate blends the result against the numeric-only prediction],
+    dbox[linear head emits all lead times per variate],
+  ),
+  caption: [Time-VLM @timevlm. The imagery is manufactured from the numeric input rather than
+  observed, and the pooled multimodal vector serves as keys and values for a query formed from the
+  temporal state.],
+) <fig-timevlm>
+
+Time-VLM is the strongest published multimodal entry in the suite (rank 2, SS 0.5404,
+@tbl-leaderboard-multimodal) and it is instructive precisely because its second modality carries no
+external information. There is no camera and no satellite: the past window is plotted into a
+three-channel image, a prompt is assembled from the window's own minimum, maximum, median and trend
+direction, and both are embedded by a frozen vision--language model. Whatever the visual branch
+contributes is therefore a re-encoding of data the numeric branch already has. Its accuracy comes
+from reusing visual pretraining as an inductive bias over the series — the same direction as
+VisionTS++ @visionts — not from seeing anything new.
+
+Structurally it repeats the pattern of the preceding three. Both modalities are pooled to a single
+vector per window; that vector is used as keys and values while the query is formed from the
+temporal features; and a learned gate interpolates between the multimodal path and a numeric-only
+prediction. The visual representation is again complete before any lead time is distinguished.
+
+The consequence for this report is a measurement one. A model that scores well with a visual channel
+that provably carries no new information is a warning about attributing a leaderboard gain to a
+modality, and it is the reason the counterfactual instrument of @sec-instrument is defined on the
+imagery rather than on the architecture.
+
+== Exogenous information aligned to the horizon — iTransformer
+
+#figure(
+  pipe(
+    dbox[target series + weather and solar-geometry covariates],
+    dbox[each *variate* becomes one token spanning the whole window],
+    hit[covariate window *shifted onto the forecast interval*: the tokens carry the horizon's own weather],
+    dbox[self-attention *across variates*, feed-forward along time],
+    dbox[linear head emits all lead times],
+  ),
+  caption: [iTransformer @itransformer with covariates. Inverting the transformer's axes makes each
+  variate a token; with the covariate window shifted forward, the exogenous channel is already
+  aligned to the lead times being predicted.],
+) <fig-itransformer>
+
+iTransformer is not a multimodal architecture and is included for a different reason: it holds the
+best ramp NMAE of the whole suite (0.1445, @tbl-leaderboard-deep), better than every multimodal
+model tested including S2c. It inverts the usual axes — a token is a whole variate rather than a
+timestep — so attention runs across the target and its eleven covariates while the feed-forward path
+runs along time. Under this report's protocol it is run with the covariate window shifted onto the
+forecast interval, which is the deployable-NWP assumption the MMTSFM arms are also trained under and
+what makes the two modality-identical.
+
+That shift is the point. The exogenous channel that wins on ramps is one whose content is *already
+indexed by the lead time it is meant to inform*: the token describing cloud cover describes the cloud
+cover of the hours being predicted, not of the hours already observed. No architecture is needed to
+route it to the right horizon, because the alignment is in the data. Satellite imagery has the
+opposite property — it is an observation of the past, and something in the model must decide which
+part of it pertains to which future step. iTransformer therefore sets the ramp-metric reference point
+this report is measured against, and simultaneously illustrates, from the numeric side, the property
+that S2c has to construct architecturally.
+
 == The shared assumption <sec-shared-assumption>
 
-@fig-sunset, @fig-crossvivit and @fig-solarvlm differ in encoder family, in training regime and in
-whether cross-attention is used at all, yet they agree on one structural choice: *the visual
-representation is finalised before the horizon is resolved, and every lead time receives the same
-representation*. Retrieval-augmented and covariate-adaptation methods for frozen backbones
-@tsrag @crossrag @cora make the same choice for a different auxiliary modality. The experiments in
-this report are designed to test whether that shared choice is what prevents a frozen forecaster
-from using satellite imagery.
+@fig-sunset, @fig-crossvivit, @fig-solarvlm and @fig-timevlm differ in encoder family, in training
+regime, in whether the second modality is even observed, and in whether cross-attention is used at
+all, yet they agree on one structural choice: *the auxiliary representation is finalised before the
+horizon is resolved, and every lead time receives the same representation*. Retrieval-augmented and
+covariate-adaptation methods for frozen backbones @tsrag @crossrag @cora make the same choice for a
+different auxiliary modality. @fig-itransformer is the exception that locates the cost of that
+choice: it is the only strong entry whose exogenous channel is aligned to the forecast interval
+rather than summarised ahead of it, and it is the one that wins on ramps. The experiments in this
+report are designed to test whether the shared choice is what prevents a frozen forecaster from using
+satellite imagery.
 
 = The dataset <sec-dataset>
 
@@ -338,7 +410,7 @@ excluded from scoring rather than imputed.
 
 = Experimental protocol <sec-protocol>
 
-The experiments in this report are run on the UK track. All metrics are normalised by installed
+The experiments in this report are run on the UK track of @sec-dataset. All metrics are normalised by installed
 capacity, so they are comparable across systems of different size, and all are computed on daytime
 steps only. @tbl-setup gives the full setting; every configuration in this report shares it.
 
@@ -629,11 +701,13 @@ tiers. Rank is the global position by skill score across all three tables.
 Three observations follow. First, the ordering of the four arms in @tbl-leaderboard-multimodal
 matches the reliance ordering of @tbl-ladder exactly, which is what makes the reliance measure
 worth trusting as more than an internal diagnostic. Second, the vision-free control alone
-(SS 0.5230) already outranks every published multimodal forecaster in the suite except Time-VLM,
+(SS 0.5230) already outranks every published multimodal forecaster in the suite except Time-VLM —
+whose second modality is manufactured from the numeric input rather than observed (@fig-timevlm) —
 which is a statement about the strength of the frozen backbone rather than about those methods.
-Third, the best ramp NMAE in the entire suite belongs to a unimodal supervised model
-(@tbl-leaderboard-deep), so S2c's advantage is specific to the reliance measurement and does not yet
-translate into a ramp-metric win.
+Third, the best ramp NMAE in the entire suite belongs to a unimodal supervised model, iTransformer
+with forward-shifted covariates (@fig-itransformer), so S2c's advantage is specific to the reliance
+measurement and does not yet translate into a ramp-metric win; the gap is against an exogenous
+channel that is aligned to the forecast interval by construction rather than by architecture.
 
 #tbl(
   [Multimodal leaderboard.],
@@ -653,7 +727,7 @@ translate into a ramp-metric win.
   [7], [MMTSFM S1 control (ours)], [none], [— (vision-free control)], [0.5230], [0.1506],
 
   table.cell(colspan: 6, fill: luma(240))[*Multimodal forecasters (satellite & pseudo-image)*],
-  [2], [Time-VLM @timevlm], [series *rendered as* images], [reuses visual pretraining in the opposite direction], [0.5404], [—],
+  [2], [Time-VLM @timevlm], [series *rendered as* images], [pooled vision + text, query on the temporal side (@fig-timevlm)], [0.5404], [—],
   [13], [Solar-VLM @solarvlm], [satellite + text], [vision–language fusion, multi-site (@fig-solarvlm)], [0.4396], [0.1514],
   [21], [CrossViViT @crossvivit], [satellite], [cross-attention from history timesteps (@fig-crossvivit)], [0.3491], [—],
   [26], [Aurora @aurora], [several], [joint multimodal pretraining], [0.2324], [—],
@@ -673,7 +747,7 @@ translate into a ramp-metric win.
   table.header[Rank][Model][Second modality][Where the fusion sits][Skill score][Ramp NMAE],
 
   table.cell(colspan: 6, fill: luma(240))[*Supervised deep learning*],
-  [6], [iTransformer + covariates @itransformer], [covariates], [channel-inverted self-attention over variates], [0.5257], [*0.1445*],
+  [6], [iTransformer + covariates @itransformer], [covariates], [channel-inverted self-attention over variates (@fig-itransformer)], [0.5257], [*0.1445*],
   [12], [PatchTST @patchtst], [none], [—], [0.4581], [0.1543],
   [14], [Temporal Fusion Transformer @tft], [covariates], [gated residual & temporal self-attention], [0.4264], [0.1605],
   [15], [MLP], [none], [—], [0.4219], [0.1624],
