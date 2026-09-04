@@ -116,10 +116,19 @@
 = Introduction
 
 The multimodal forecasting literature is largely a literature of proposals: an architecture is
-introduced, trained end to end, shown to beat a set of unimodal baselines, and the improvement is
-attributed to the additional modality. That attribution is rarely tested. When both encoders are
-trained jointly, an accuracy gain is consistent with at least three explanations — the model learned
-to read the images, the extra capacity helped, or the extra gradient path acted as regularisation.
+introduced, trained end to end, and shown to beat a set of unimodal baselines. The contribution of
+the additional modality is not left untested — ablation studies are near-universal, and they are
+usually the right ones to run. Solar-VLM removes the visual encoder, Time-VLM reports a 9.0% MSE
+degradation when its vision branch is dropped, M3S-Net reports roughly 15% higher MAE for a variant
+"devoid of visual information", and PV-VLM evaluates every combination of its temporal, prompt and
+vision modules @solarvlm @timevlm @m3snet @pvvlm.
+
+The difficulty is what such a test can measure. In each of these cases the ablated variant is
+*retrained* — Solar-VLM states it explicitly, that all variants are trained and evaluated under the
+same protocol — so removing the module changes the modality, the parameter count and the gradient
+path at the same time. The reported degradation is therefore consistent with at least three
+explanations: the model was reading the images, the extra capacity helped, or the extra gradient
+path acted as regularisation. The standard ablation reproduces the confound it is meant to resolve.
 
 This work fixes the confound by construction. Both encoders are *pretrained and frozen*, so neither
 can adapt to the other; only a small bridge between them is learned. The architecture is then held
@@ -212,7 +221,7 @@ already been condensed.
 
 #figure(
   pipe(
-    dbox[satellite crop + text prompt (site metadata, recent power)],
+    dbox[satellite crop + text prompt (historical weather description)],
     dbox[frozen vision--language embedder],
     dbox[*one pooled vector per station*],
     hit[concatenated with the temporal state, MLP fusion, cross-station attention],
