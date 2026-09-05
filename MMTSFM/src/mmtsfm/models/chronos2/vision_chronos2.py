@@ -30,6 +30,7 @@ from einops import rearrange
 from .model import Chronos2Model
 from ..vision.latent_summarizer import LatentSummarizer
 from ..vision.cross_modal_adapter import CrossModalAdapter
+from ..vision.patch_projector import VisualPatchProjector
 
 
 # ---------------------------------------------------------------------------
@@ -139,6 +140,66 @@ def build_interleaved_position_ids(
     return torch.cat([macro_ids, refine_blocks, future_ids]).unsqueeze(0)
 
 
+def reduce_delta_t_to_latents(frame_delta_t: torch.Tensor, T_lat: int) -> torch.Tensor:
+    """``[B, T_v]`` raw-frame Δt -> ``[B, T_lat]``, one value per latent frame.
+
+    V-JEPA tubelets pool 2 raw frames, so T_v is a multiple of T_lat. Takes the
+    ``amax`` (the OLDEST frame in each tubelet), matching
+    ``LatentSummarizer.forward``'s reduction so s2b and s2d read the same clock.
+    """
+    B, L = frame_delta_t.shape
+    if L == T_lat:
+        return frame_delta_t
+    if L % T_lat != 0:
+        raise ValueError(f"video_delta_t length {L} is not a multiple of T_lat={T_lat}")
+    return frame_delta_t.reshape(B, T_lat, L // T_lat).amax(dim=-1)
+
+
+def build_subpatch_position_ids(
+    T_M: int,
+    T_fut: int,
+    frame_idx: torch.Tensor,  # [B, K] long — source latent frame of each visual token
+    frame_delta_t: Optional[torch.Tensor],  # [B, T_lat] seconds before the origin
+    span_seconds: float,
+    dtype: torch.dtype = torch.float32,
+) -> torch.Tensor:
+    """s2d — FRACTIONAL positions placing visual tokens *inside* the last TS patch.
+
+    At ``input_patch_size=16`` on 30-minute data one TS token spans 8 hours and the
+    whole 6-hour visual window falls inside the final context patch, so there is no
+    integer position left to interleave at (design doc §3.3). Instead every visual
+    token lands at
+
+        pos = T_M + clamp(1 - Δt/span, 0, 1) * 0.99
+
+    i.e. in ``[T_M, T_M + 0.99]`` — after the co-temporal TS token at ``T_M``, before
+    the first future token at ``T_M + 1``, ordered oldest-to-newest. ``layers.py:90``
+    casts ``position_ids`` to float before the RoPE frequency outer product, so
+    fractional positions need no kernel change.
+
+    ``0.99`` rather than ``1.0`` keeps the newest frame strictly below the future
+    token; without it a Δt=0 frame would collide with the forecast position.
+
+    Returns ``[B, T_M + 1 + K + T_fut]`` float — note this is a per-sample tensor,
+    unlike the shared row ``build_interleaved_position_ids`` returns, because Δt
+    varies across the batch.
+    """
+    B, K = frame_idx.shape
+    device = frame_idx.device
+    ctx = torch.arange(T_M + 1, device=device, dtype=dtype).expand(B, T_M + 1)
+    if frame_delta_t is None:
+        # No clock: every visual token sits exactly on its TS partner, which
+        # degenerates to s2b's co-temporal block.
+        vis = torch.full((B, K), float(T_M), device=device, dtype=dtype)
+    else:
+        dt = frame_delta_t.to(device=device, dtype=dtype).gather(1, frame_idx)
+        vis = float(T_M) + (1.0 - dt / float(span_seconds)).clamp(0.0, 1.0) * 0.99
+    fut = torch.arange(T_M + 1, T_M + 1 + T_fut, device=device, dtype=dtype).expand(
+        B, T_fut
+    )
+    return torch.cat([ctx, vis, fut], dim=1)
+
+
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
@@ -212,8 +273,29 @@ class VisionChronos2Config:
 
     # --- NEW fields for proposal ---
     fusion_mode: str = "late"
-    # "late"        → existing CrossModalAdapter path (batch-dim concat)
-    # "interleaved" → selective temporal interleaving (refinement window only)
+    # "late"            → existing CrossModalAdapter path (batch-dim concat)
+    # "interleaved"     → selective temporal interleaving (refinement window only)
+    # "future_query"    → s2c, forecast positions cross-attend a retained field
+    # "interleaved_raw" → s2d / A30, the same interleaved sequence assembly but the
+    #                     visual tokens come from VisualPatchProjector (pixel shuffle
+    #                     + MLP + EVS) instead of the LatentSummarizer, and they carry
+    #                     FRACTIONAL positions. No resampler anywhere in the path.
+
+    # --- s2d / A30 (fusion_mode="interleaved_raw") ---
+    # Pixel-shuffle factor: 2 gives Nemotron's 4x token reduction, 14x14 -> 7x7.
+    visual_shuffle_r: int = 2
+    # Spatial cells after the shuffle; must equal (grid/visual_shuffle_r)**2 and is
+    # checked against the real patch field at forward time.
+    visual_n_cells: int = 49
+    # Tokens surviving EVS out of T_lat*visual_n_cells (4*49=196). 98 is q=0.5.
+    # <= 0 disables pruning entirely — that is the q=0 arm of the §3.5 sweep, and it
+    # is a pure eval-time knob: EVS has no parameters.
+    visual_evs_keep: int = 98
+    # Seconds spanned by one TS input patch: input_patch_size * step_seconds. On
+    # uk_pv, 16 * 1800 = 28800 (8 h). Only used to normalise Δt into the fractional
+    # slot [T_M, T_M+0.99]; a wrong value rescales the visual positions but keeps
+    # their order.
+    visual_position_span_seconds: float = 28800.0
 
     visual_encoder_ckpt_path: str = ""
     freeze_visual_encoder: bool = True
@@ -401,19 +483,44 @@ class VisionChronos2Model(nn.Module):
                 )
             _d_v = self.video_encoder.d_v
 
-            self.latent_summarizer: Optional[nn.Module] = LatentSummarizer(
-                d_v=_d_v,
-                d_model=d_model,
-                n_vis_steps=vision_config.n_visual_context_steps,
-                n_heads=vision_config.summarizer_n_heads,
-                dropout=vision_config.dropout,
-                n_time_slices=vision_config.summarizer_time_slices,
-                spatial_grid=vision_config.summarizer_spatial_grid,
-            )
-            # n_sub > 1 and N_soft > 1 would widen the payload twice, once with real
-            # information and once with a fan-out, and no post-hoc analysis could
-            # separate the two. Refuse the combination rather than run a confound.
-            n_sub = self.latent_summarizer.n_sub
+            # s2d removes the resampler outright, so it must not be constructed:
+            # a summarizer left in the module would put unused `latent_queries` in
+            # the state_dict and, worse, make "did the summarizer cause it?" ask a
+            # question about a tensor that is still there.
+            self.raw_visual: bool = vision_config.fusion_mode == "interleaved_raw"
+            if self.raw_visual:
+                if vision_config.n_soft_tokens > 1:
+                    raise ValueError(
+                        "fusion_mode='interleaved_raw' with n_soft_tokens="
+                        f"{vision_config.n_soft_tokens}: the adapter fan-out copies "
+                        "one vector N times and adds no information (A13 was null by "
+                        "construction). Widen with visual_evs_keep instead."
+                    )
+                self.latent_summarizer: Optional[nn.Module] = None
+                self.patch_projector: Optional[nn.Module] = VisualPatchProjector(
+                    d_v=_d_v,
+                    d_model=d_model,
+                    shuffle_r=vision_config.visual_shuffle_r,
+                    n_cells=vision_config.visual_n_cells,
+                    evs_keep=vision_config.visual_evs_keep,
+                    dropout=vision_config.dropout,
+                )
+                n_sub = 1
+            else:
+                self.patch_projector = None
+                self.latent_summarizer = LatentSummarizer(
+                    d_v=_d_v,
+                    d_model=d_model,
+                    n_vis_steps=vision_config.n_visual_context_steps,
+                    n_heads=vision_config.summarizer_n_heads,
+                    dropout=vision_config.dropout,
+                    n_time_slices=vision_config.summarizer_time_slices,
+                    spatial_grid=vision_config.summarizer_spatial_grid,
+                )
+                # n_sub > 1 and N_soft > 1 would widen the payload twice, once with
+                # real information and once with a fan-out, and no post-hoc analysis
+                # could separate the two. Refuse rather than run a confound.
+                n_sub = self.latent_summarizer.n_sub
             if n_sub > 1 and vision_config.n_soft_tokens > 1:
                 raise ValueError(
                     f"summarizer sub-resolution (n_sub={n_sub}) and n_soft_tokens="
@@ -474,6 +581,8 @@ class VisionChronos2Model(nn.Module):
             self.visual_kv_proj = None
             self.lead_time_embed = None
             self.latent_summarizer = None
+            self.patch_projector = None
+            self.raw_visual = False
             self.cross_modal_adapter = None
 
         self.multimodal_embed = MultimodalEmbedding(
@@ -934,10 +1043,27 @@ class VisionChronos2Model(nn.Module):
             # see s2c the same way they see every other arm.
             visual_active = vis_on
 
-        if use_video and self.vcfg.fusion_mode == "interleaved":
-            # --- Interleaved fusion path ---
+        if use_video and self.vcfg.fusion_mode in ("interleaved", "interleaved_raw"):
+            # --- Interleaved fusion path (s2b, and s2d via `raw_visual`) ---
             # Works for both Variant A (use_grassmann=True) and Variant B (use_grassmann=False)
+            #
+            # s2d shares this block deliberately. At n_vis == 1 the sequence
+            # `interleave_sequences` emits is already s2d's layout —
+            # [macro(0..T_M-1)] || [ts_{T_M}, v_1..v_K] — so the two arms differ in
+            # exactly two places, both flagged `raw_visual` below: which module turns
+            # the patch field into tokens, and whether those tokens get integer or
+            # fractional positions. Everything else (masks, modality embeds, dropout,
+            # FIX F, covariate rows, decode) is bit-identical between them, which is
+            # what makes the s2b vs s2d contrast attributable.
             n_vis = min(self.vcfg.n_visual_context_steps, T_ctx)
+            if self.raw_visual and n_vis != 1:
+                raise ValueError(
+                    f"fusion_mode='interleaved_raw' needs n_visual_context_steps=1, "
+                    f"got {self.vcfg.n_visual_context_steps}. The whole visual window "
+                    "falls inside ONE 8-hour TS patch, so there is exactly one "
+                    "co-temporal TS token to interleave against (design doc §3.3); "
+                    "sub-patch position is carried by the fractional position IDs."
+                )
 
             # Encode video
             if video_latents is not None:
@@ -980,36 +1106,57 @@ class VisionChronos2Model(nn.Module):
                     .values
                 )
 
-            # LatentSummarizer — [B, n_vis, d_model], or [B, n_vis, n_sub, d_model]
-            # when A29 sub-resolution is on  (T_ts=n_vis → no null tokens)
-            vis_summary = self.latent_summarizer(
-                video_tokens=video_tokens,
-                T_ts=n_vis,
-                visual_mask=lat_mask,
-                frame_delta_t=video_delta_t,
-            )
+            # --- Visual tokens: the ONE place s2b and s2d diverge ---
+            vis_frame_idx = None
+            lat_delta_t = None
+            if video_delta_t is not None:
+                lat_delta_t = reduce_delta_t_to_latents(video_delta_t, T_lat)
 
-            # Visual tokens per refined step. Two mutually exclusive ways to get
-            # more than one, and __init__ refuses the combination:
-            #   n_sub  — A29, real bandwidth: each token attends to its own
-            #            (temporal slice, spatial block) of the patch field.
-            #   N_soft — A13, a fan-out of the single pooled vector by the adapter
-            #            downstream of the bottleneck; adds capacity, not signal.
-            N_vis_tok = N_soft
-            if vis_summary.dim() == 4:
-                N_vis_tok = vis_summary.shape[2]
-                vis_summary = vis_summary.reshape(B_, n_vis * N_vis_tok, -1)
+            if self.raw_visual:
+                # s2d: pixel shuffle -> MLP projector -> cell embedding -> EVS.
+                # No pooling over the patch field at any point.
+                vis_summary, vis_frame_idx, _cell_idx = self.patch_projector(
+                    video_tokens
+                )  # [B, K, d]
+                N_vis_tok = vis_summary.shape[1]  # n_vis == 1, so K tokens per step
+                if lat_mask is not None:
+                    # Zero the tokens whose source frame was unavailable. EVS already
+                    # deprioritises blank frames (they are near-identical to each
+                    # other, so their dissimilarity is ~0), but frame 0 is a pinned
+                    # anchor and would survive even when absent.
+                    keep_mask = lat_mask.to(vis_summary.dtype).gather(1, vis_frame_idx)
+                    vis_summary = vis_summary * keep_mask.unsqueeze(-1)
+            else:
+                # LatentSummarizer — [B, n_vis, d_model], or [B, n_vis, n_sub, d_model]
+                # when A29 sub-resolution is on  (T_ts=n_vis → no null tokens)
+                vis_summary = self.latent_summarizer(
+                    video_tokens=video_tokens,
+                    T_ts=n_vis,
+                    visual_mask=lat_mask,
+                    frame_delta_t=video_delta_t,
+                )
 
-            # Widen the bottleneck: one summary token per step becomes N_soft.
-            # Everything downstream (modality embeds, dropout, interleave, masks)
-            # treats them as ordinary visual tokens, so this is the only place
-            # N_soft enters the interleaved path. At N_soft == 1 the adapter is
-            # not built and vis_summary passes through untouched.
-            elif self.cross_modal_adapter is not None:
-                vis_summary = self.cross_modal_adapter(
-                    vis_summary
-                )  # [B, n_vis, N_soft, d]
-                vis_summary = vis_summary.reshape(B_, n_vis * N_soft, -1)
+                # Visual tokens per refined step. Two mutually exclusive ways to get
+                # more than one, and __init__ refuses the combination:
+                #   n_sub  — A29, real bandwidth: each token attends to its own
+                #            (temporal slice, spatial block) of the patch field.
+                #   N_soft — A13, a fan-out of the single pooled vector by the adapter
+                #            downstream of the bottleneck; adds capacity, not signal.
+                N_vis_tok = N_soft
+                if vis_summary.dim() == 4:
+                    N_vis_tok = vis_summary.shape[2]
+                    vis_summary = vis_summary.reshape(B_, n_vis * N_vis_tok, -1)
+
+                # Widen the bottleneck: one summary token per step becomes N_soft.
+                # Everything downstream (modality embeds, dropout, interleave, masks)
+                # treats them as ordinary visual tokens, so this is the only place
+                # N_soft enters the interleaved path. At N_soft == 1 the adapter is
+                # not built and vis_summary passes through untouched.
+                elif self.cross_modal_adapter is not None:
+                    vis_summary = self.cross_modal_adapter(
+                        vis_summary
+                    )  # [B, n_vis, N_soft, d]
+                    vis_summary = vis_summary.reshape(B_, n_vis * N_soft, -1)
 
             # Multimodal embeddings for TS tokens
             input_embeds_mm = self.multimodal_embed.add_modality(
@@ -1118,9 +1265,23 @@ class VisionChronos2Model(nn.Module):
             all_group_ids = group_ids
 
             # Position IDs: TS and vis tokens at same step share position
-            position_ids = build_interleaved_position_ids(
-                T_M, n_vis, T_fut, device, n_soft=N_vis_tok
-            ).expand(B, -1)
+            if self.raw_visual:
+                # s2d: the K visual tokens spread across [T_M, T_M+0.99] by Δt, so a
+                # frame permutation (A09) changes the sequence — `_apply_eval_control`
+                # permutes video_latents and visual_mask but NOT video_delta_t, so the
+                # clock stays put while the content moves. On s2b every visual token
+                # shares one integer position and A09 is inert by construction.
+                position_ids = build_subpatch_position_ids(
+                    T_M=T_M,
+                    T_fut=T_fut,
+                    frame_idx=vis_frame_idx,
+                    frame_delta_t=lat_delta_t,
+                    span_seconds=self.vcfg.visual_position_span_seconds,
+                )
+            else:
+                position_ids = build_interleaved_position_ids(
+                    T_M, n_vis, T_fut, device, n_soft=N_vis_tok
+                ).expand(B, -1)
 
             # Covariate rows (batch-axis) — the interleaved path previously dropped
             # them, so known future weather never reached the encoder in the final
@@ -1481,8 +1642,16 @@ class VisionChronos2Model(nn.Module):
                 yield p
 
     def vision_parameters(self):
-        yield from self.latent_summarizer.parameters()
-        yield from self.cross_modal_adapter.parameters()
+        # Each of these is None on some arm: the summarizer and adapter are absent
+        # on the raw path (s2d) and on skip_vision_stack, the projector is absent
+        # everywhere else. Yield whatever this arm actually built.
+        for mod in (
+            self.latent_summarizer,
+            self.cross_modal_adapter,
+            getattr(self, "patch_projector", None),
+        ):
+            if mod is not None:
+                yield from mod.parameters()
         yield from self.multimodal_embed.parameters()
 
     def chronos_parameters(self):

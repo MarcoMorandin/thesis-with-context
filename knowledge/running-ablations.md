@@ -297,9 +297,12 @@ rather than site-local cloud, and the *spatial-grounding* claim must be weakened
 one. Cheap to find out — hence first.
 
 
-⚠ Caveat that limits both controls on `uk_pv`: all 07:30 origins hold a blank-frame
-embedding, so vision is only measurable at h≤5. Report the controls on the same
-subset as the headline, not on the full test set.
+✅ **Caveat retired 2026-09-05.** An earlier note here held that all 07:30 origins carry a
+blank-frame embedding, so the controls had to be reported on the h≤5 subset only. That was
+true of the **v1 HRV** daylight-only archive and is **false for v2** — see
+[`dataset.md`](dataset.md) §coverage: 96.1 % of scored windows carry all 8 frames and only
+3.7 % of scored steps have no visual input. **Score A09/A10/A10b on the full test set**, the
+same population as the headline.
 
 ---
 

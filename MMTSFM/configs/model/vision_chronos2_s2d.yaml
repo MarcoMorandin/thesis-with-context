@@ -1,0 +1,109 @@
+_target_: mmtsfm.models.chronos2.lightning_module.VisionChronos2LightningModule
+
+# ---- Chronos-2 backbone ----
+# Byte-for-byte the base vision_chronos2.yaml backbone, INCLUDING
+# output_patch_size: 16. s2c moved to 4 because it needed >1 decoder position to
+# hang per-lead-time queries on; s2d has no such need — its visual tokens live in
+# the CONTEXT, at fractional positions inside the last context patch. Keeping 16
+# means s2d and s2b share an identical backbone and decoder, so the s2d-vs-s2b
+# delta is the visual path and nothing else.
+pretrained_model_name_or_path: "amazon/chronos-2"
+chronos_core_cfg:
+  d_model: 512
+  d_kv: 64
+  d_ff: 2048
+  num_layers: 6
+  num_heads: 8
+  dropout_rate: 0.1
+  layer_norm_epsilon: 1.0e-6
+  initializer_factor: 0.05
+  feed_forward_proj: relu
+  rope_theta: 10000.0
+  use_grassmann: false
+  grassmann_reduced_dim: 32
+  grassmann_window_offsets: [1, 2, 4, 8, 12, 16]
+  grassmann_modality_pair_bias: true
+  attn_implementation: sdpa
+  # 0: no cross-attention module is built. s2d injects vision into the sequence,
+  # not through a side channel.
+  visual_cross_attn_blocks: 0
+  chronos_config:
+    context_length: 2048   # covers the 14-day protocol history (uk_pv 672 steps)
+    input_patch_size: 16
+    input_patch_stride: 16
+    output_patch_size: 16
+    quantiles: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+    use_reg_token: false
+    use_arcsinh: true
+    max_output_patches: 4
+
+# ---- Vision modules ----
+vision_cfg:
+  visual_encoder_ckpt_path: ""
+  freeze_visual_encoder: true
+  skip_vision_stack: false
+
+  # The whole point of the arm: NO LatentSummarizer, NO CrossModalAdapter. The
+  # V-JEPA patch field goes pixel-shuffle -> MLP projector -> sequence, the
+  # "encoder -> MLP projector -> decoder" shape of NVIDIA Nemotron 3 Nano Omni
+  # (arXiv 2604.24954v2 §2). Every arm that pools through the summarizer's ~800:1
+  # learned-query bottleneck sits at the ramp seed floor.
+  fusion_mode: "interleaved_raw"
+
+  # Must be 1 (asserted at model init). At input_patch_size 16 on 30-min uk_pv one
+  # TS token spans 8 h, so the entire 6 h visual window falls inside the LAST
+  # context patch: there is exactly one co-temporal TS token. s2d's interleaving is
+  # therefore SUB-patch — four latents at distinct fractional positions inside
+  # patch 41 — not between-token. Design doc §3.3; the manuscript must say so.
+  n_visual_context_steps: 1
+
+  # n_soft_tokens is meaningless here (it fans a pooled vector out downstream of a
+  # summarizer that no longer exists) and >1 raises.
+  n_soft_tokens: 1
+  adapter_type: linear
+  adapter_n_layers: 2
+  summarizer_n_heads: 4
+
+  # --- Resampler-free visual path (VisualPatchProjector) ---
+  # r=2: Nemotron's 4x token reduction. 14x14x1024 -> 7x7x4096, space-to-depth,
+  # so the 4 merged patches are CONCATENATED, never averaged — averaging is the
+  # operation this arm exists to remove. Projector is then 4096 -> d_model -> d_model.
+  visual_shuffle_r: 2
+  visual_n_cells: 49          # (14/2)^2; asserted against the real grid at forward time
+  # EVS keeps the 98 of 196 most temporally novel tokens (q=0.5) — cosine
+  # dissimilarity per spatial cell between consecutive latent frames, frame 0
+  # pinned as anchor. Fixed count, so sequence length is static at
+  # 42 TS + 98 visual + 1 future = 141. <= 0 disables pruning (the q=0 eval).
+  visual_evs_keep: 98
+  # One TS token = input_patch_size * cadence = 16 * 30 min = 8 h. Visual tokens
+  # are placed at T_M + clamp(1 - dt/span, 0, 1) * 0.99, i.e. inside that patch,
+  # after the co-temporal TS token and strictly before the first future token.
+  visual_position_span_seconds: 28800.0
+
+  visual_dropout_prob: 0.5   # matches s2b/s2c
+  numeric_dropout_prob: 0.1
+  dropout: 0.1
+  n_entities: 0
+
+# ---- Optimiser & schedule ----
+lr: 1.0e-4
+weight_decay: 1.0e-2
+warmup_steps: 500
+min_lr_ratio: 0.1
+horizon: ${data.horizon}
+
+# ---- Training strategy ----
+# Identical to s2b and s2c on purpose: the three-way attribution only holds if the
+# freeze policy is the same everywhere.
+freeze_chronos: true
+n_unfreeze_encoder_blocks: 3
+backbone_lr_ratio: 0.1
+
+# ---- Protocol evaluation ----
+results_dir: results
+results_tag: mmtsfm_s2d_ukpv
+sp_reference_path: null
+
+# On: the forced vision-OFF pass over s2d's own weights is what separates "the
+# projector learned to read the sky" from "the recipe happened to help".
+compute_marginal_gain: true

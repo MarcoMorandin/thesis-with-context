@@ -73,6 +73,14 @@ class VisionChronos2LightningModule(LightningModule):
         n_unfreeze_encoder_blocks: int = 1,
         backbone_lr_ratio: float = 0.1,
         grassmann_warmup_steps: int = 0,
+        # s2d / A30 Stage 0 — "vision projector warmup" (Nemotron §3.1.1). For the
+        # first N optimizer steps every param group EXCEPT the visual patch
+        # projector is held at lr 0, so a freshly initialised projector cannot
+        # inject noise into a warm-started Chronos-2 at step 0. Implemented as an
+        # LR gate rather than a requires_grad toggle because flipping
+        # requires_grad mid-run re-buckets DDP gradients. 0 disables it, which
+        # leaves every existing arm's schedule bit-identical.
+        projector_warmup_steps: int = 0,
         # Vision unfreeze schedule (curriculum). freeze_visual_encoder="partial"
         # (in vision_cfg) unfreezes the last ``n_visual_unfreeze_layers`` V-JEPA
         # blocks at construction (Stage 2a). ``progressive_vision_unfreeze`` adds
@@ -127,6 +135,7 @@ class VisionChronos2LightningModule(LightningModule):
         # the untouched path no matter what eval_control says.
         self._eval_control_active = False
         self.grassmann_warmup_steps = grassmann_warmup_steps
+        self.projector_warmup_steps = projector_warmup_steps
         self.n_unfreeze_encoder_blocks = n_unfreeze_encoder_blocks
         self._last_loss = None
         self._nonfinite_grad_streak = 0
@@ -1132,6 +1141,7 @@ class VisionChronos2LightningModule(LightningModule):
                     "n_unfreeze_encoder_blocks",
                     "backbone_lr_ratio",
                     "grassmann_warmup_steps",
+                    "projector_warmup_steps",
                     "n_visual_unfreeze_layers",
                     "progressive_vision_unfreeze",
                 )
@@ -1193,6 +1203,10 @@ class VisionChronos2LightningModule(LightningModule):
     _GRAD_GROUPS: tuple[tuple[str, str], ...] = (
         ("vision_adapter", "model.cross_modal_adapter"),
         ("latent_summarizer", "model.latent_summarizer"),
+        # s2d's entire visual path. It is the ONLY module with a non-zero LR
+        # during Stage 0, so its grad norm is how you tell the projector warmup
+        # actually ran rather than silently no-op'd.
+        ("patch_projector", "model.patch_projector"),
         ("multimodal_embed", "model.multimodal_embed"),
         ("output_patch_embedding", "model.chronos.output_patch_embedding"),
         ("input_patch_embedding", "model.chronos.input_patch_embedding"),
@@ -1414,6 +1428,8 @@ class VisionChronos2LightningModule(LightningModule):
         backbone_nodecay: list[torch.Tensor] = []
         new_decay: list[torch.Tensor] = []
         new_nodecay: list[torch.Tensor] = []
+        projector_decay: list[torch.Tensor] = []
+        projector_nodecay: list[torch.Tensor] = []
         grassmann_decay: list[torch.Tensor] = []
         grassmann_nodecay: list[torch.Tensor] = []
 
@@ -1431,8 +1447,14 @@ class VisionChronos2LightningModule(LightningModule):
             is_no_decay = any(kw in name for kw in self._NO_DECAY_KWS)
             is_grassmann = any(kw in name for kw in grassmann_kws)
             is_backbone = name.startswith("model.chronos.")
+            # s2d: split out so Stage 0 can hold everything else at lr 0 while
+            # these train. Falls back into `new_*` on every other arm, where the
+            # module does not exist and this list stays empty.
+            is_projector = name.startswith("model.patch_projector.")
 
-            if is_grassmann:
+            if is_projector:
+                (projector_nodecay if is_no_decay else projector_decay).append(p)
+            elif is_grassmann:
                 (grassmann_nodecay if is_no_decay else grassmann_decay).append(p)
             elif is_backbone:
                 (backbone_nodecay if is_no_decay else backbone_decay).append(p)
@@ -1489,31 +1511,80 @@ class VisionChronos2LightningModule(LightningModule):
                     "name": "grassmann_nodecay",
                 }
             )
+        if projector_decay:
+            param_groups.append(
+                {
+                    "params": projector_decay,
+                    "lr": lr,
+                    "weight_decay": wd,
+                    "name": "projector_decay",
+                }
+            )
+        if projector_nodecay:
+            param_groups.append(
+                {
+                    "params": projector_nodecay,
+                    "lr": lr,
+                    "weight_decay": 0.0,
+                    "name": "projector_nodecay",
+                }
+            )
         if not param_groups:
             param_groups = [{"params": [], "lr": lr, "weight_decay": 0.0}]
-
         optimizer = AdamW(param_groups)
 
         total_steps = self._total_steps
         warmup = self.hparams.warmup_steps
         g_warmup = self.grassmann_warmup_steps
+        p_warmup = self.projector_warmup_steps
         min_ratio = self.hparams.min_lr_ratio
 
+        # Stage 0 (s2d) holds every non-projector group at lr 0 for p_warmup steps.
+        # The rest of the schedule is then SHIFTED by p_warmup rather than
+        # fast-forwarded, so the backbone still gets its full linear warmup once it
+        # is released — otherwise a p_warmup >= warmup makes the backbone LR jump
+        # 0 -> full in one step, which is exactly what warmup exists to prevent.
+        # p_warmup = 0 (every other arm) makes this the identity.
+        eff_total = max(1, total_steps - p_warmup)
+
         def lr_schedule(step: int) -> float:
-            if step < warmup:
-                return step / max(1, warmup)
-            progress = (step - warmup) / max(1, total_steps - warmup)
+            if step < p_warmup:
+                return 0.0  # Stage 0: only the projector moves
+            s = step - p_warmup
+            if s < warmup:
+                return s / max(1, warmup)
+            progress = (s - warmup) / max(1, eff_total - warmup)
             return max(min_ratio, 0.5 * (1.0 + math.cos(math.pi * progress)))
 
         def grassmann_lr_schedule(step: int) -> float:
-            if step < g_warmup:
-                return step / max(1, g_warmup)
-            progress = (step - g_warmup) / max(1, total_steps - g_warmup)
+            if step < p_warmup:
+                return 0.0
+            s = step - p_warmup
+            if s < g_warmup:
+                return s / max(1, g_warmup)
+            progress = (s - g_warmup) / max(1, eff_total - g_warmup)
             return max(min_ratio, 0.5 * (1.0 + math.cos(math.pi * progress)))
+
+        def projector_lr_schedule(step: int) -> float:
+            # Its own linear ramp over Stage 0, then it HOLDS at full while the
+            # backbone runs the warmup it was denied during Stage 0, then rejoins
+            # the shared cosine. Holding rather than calling lr_schedule keeps the
+            # curve continuous: the projector has already warmed up, and dropping
+            # it back to 0 at step p_warmup to re-warm alongside the backbone would
+            # undo Stage 0's whole purpose.
+            if step < p_warmup:
+                return step / max(1, p_warmup)
+            s = step - p_warmup
+            if s < warmup:
+                return 1.0
+            return lr_schedule(step)
 
         lambdas = []
         for g in param_groups:
-            if "grassmann" in g.get("name", ""):
+            name = g.get("name", "")
+            if "projector" in name:
+                lambdas.append(projector_lr_schedule)
+            elif "grassmann" in name:
                 lambdas.append(grassmann_lr_schedule)
             else:
                 lambdas.append(lr_schedule)
