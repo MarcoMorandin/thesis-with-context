@@ -157,6 +157,13 @@ parallel width is a queue question, not a node question.
   gain negative, same pattern and magnitude as s2c. First positive control on disk for A30;
   kills "any recent sky would do".
 
+- [A30-e: pooling probe re-run at GRID=7](issues/23-a30e-probe-grid7.md): **non-monotonic,
+  4x4 beats 7x7 on ramp R² at every horizon** — s2d's shipped resolution shows no more
+  mean-pooled ramp signal than 1x1. Caveat: the probe mean-pools; s2d's pixel-shuffle
+  concatenates instead, so this doesn't falsify the architecture, but it removes
+  "resolution match" as a supporting story and raises A30-d's priority. Also fixed a real
+  bug in the probe script (crop-compounding at non-power-of-2 GRID values) on the way.
+
 ## Not yet specified
 
 - **Retarget the model to clear-sky index.** Every external reviewer's top recommendation,
@@ -207,9 +214,10 @@ parallel width is a queue question, not a node question.
   curriculum's unfreeze is dead code and V-JEPA has never been adapted to satellite imagery.
   Live-encoding is expensive; unknown whether it is worth a wave.
 
-- **Remaining s2d controls (A30-c/d/e).** s2d (ticket 20) has 2 of its 5 planned controls
-  run (21, 22); still open: A30-c (spatial-grounding shuffle, needs `data.shuffle_test`),
-  A30-d (EVS q-sweep, eval-only, minutes), A30-e (pooling probe re-run at `GRID=7`, minutes).
+- **Remaining s2d controls (A30-c/d).** s2d (ticket 20) has 3 of 5 planned controls run
+  (21, 22, 23); still open: A30-c (spatial-grounding shuffle, needs `data.shuffle_test`),
+  A30-d (EVS q-sweep, eval-only, minutes) — now the more load-bearing of the two, since
+  ticket 23 removed spatial resolution as the likely explanation for s2d's ramp gain.
   Detail: `knowledge/ablations.md` §2.2.3. Until these land, s2d's ramp-NMAE win is not
   citable as a defensible result — same bar s2c cleared with A10b/A09 before its gate
   (ticket 17) was called.
