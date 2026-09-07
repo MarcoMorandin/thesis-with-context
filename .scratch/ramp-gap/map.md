@@ -139,6 +139,26 @@ decision here is blocked until a run finishes or a measurement exists.
   Limitation rather than building an isolating control arm. The map's core question is
   closed — remaining work is writeup, not more ablations.
 
+- [Verify the prior art the reviewers cited](issues/19-verify-prior-art.md): resolved via
+  research subagent. **SolCAD-Net is real** (*Energy* 361 (2026), DOI
+  `10.1016/j.energy.2026.141988`, verified against 3 independent sources) and pre-empts
+  s2c's old cross-attention framing directly — but not s2d's actual mechanism. Recommended
+  foil for related work: SolCAD-Net hard-codes advection architecturally, s2d's ablations
+  show implicit content-grounded interleaving captures the ramp signal without that prior.
+  Everything else (PVNet, Cloudcasting, pySTEPS, Prithvi, PV-VLM, KNMI benchmark) real but
+  non-threatening, or not found (SolarSTEPS — cite Carpentieri et al. 2023 instead). Full
+  writeup: [`knowledge/specs/2026-09-08-prior-art-verification.md`](../../knowledge/specs/2026-09-08-prior-art-verification.md).
+
+- [How much visual headroom is left? (G0 ceiling probe)](issues/05-g0-ceiling-probe.md):
+  **contradicts the expected decay** — aggregate `conditional_rel` rises 4.1%→12.0% over
+  h1–h5 instead of decaying. Sharper finding: ramp-severity tiers diverge hard — vision
+  actively **hurts** the mild-ramp tier (−16%→−33%), is null on mid, and only reliably
+  helps the extreme-ramp tier (+2.2%→+7.0%, rising), which is the regime the flagship P0
+  ramp metric already targets. Inconclusive-but-suggestive on headroom: still rising at h5,
+  not flat-zero, but the h≥6 population break (known 13:30-origin dropout) blocks
+  confirming further, and no matched-aggregation comparison to s2d's own realized gain
+  exists yet.
+
 ## Not yet specified
 
 - **Retarget the model to clear-sky index / auxiliary CSI loss.** Every external reviewer's
@@ -179,6 +199,12 @@ decision here is blocked until a run finishes or a measurement exists.
 - **Whether V-JEPA should ever be unfrozen.** The latent cache bypasses the encoder, so
   unfreeze is dead code and V-JEPA has never been adapted to satellite imagery.
   Live-encoding is expensive; unknown whether it is worth a wave.
+- **Re-run G0 with the h≥6 population handled cleanly, matched against s2d's realized
+  gain.** Surfaced by ticket 05: the extreme-ramp ceiling is still rising at h5 with no
+  matched comparison yet to what s2d actually extracts (Δ ramp NMAE 0.0063). Would need the
+  13:30-origin population break resolved (separate fit per population, or drop the mixed
+  regime) before a real headroom number exists. Not yet a ticket — needs the aggregation
+  method specified first.
 - **s2d follow-on wave**, if any — the ramp-weighted objective (loss is uniform pinball in
   `arcsinh` space; a ramp-weighted loss and/or ramp-based checkpoint selection carries an
   unresolved fairness question against tier-2 baselines on plain pinball), 12 future-query
