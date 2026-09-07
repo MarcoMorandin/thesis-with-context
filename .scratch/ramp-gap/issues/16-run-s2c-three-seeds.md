@@ -1,7 +1,7 @@
 # 16 — Run s2c, 3 seeds, against s2b
 
 Type: task
-Status: in-progress
+Status: resolved
 Blocked by: 14, 15
 Blocks: 17, 18
 
@@ -73,10 +73,18 @@ from the user's own login-node session.
 
 ## Done when
 
-- [ ] 3 seeds completed with results JSONs, no walltime kills
-- [ ] ramp NMAE, ramp NRMSE, NMAE, SS, and the vision marginal recorded per seed
-- [ ] attention divergence and tau distances (ticket 15) present in each JSON
-- [ ] per-seed values reported individually, plus mean +/- sd — not only the mean
+- [x] 3 seeds completed with results JSONs, no walltime kills
+- [x] ramp NMAE, ramp NRMSE, NMAE, SS, and the vision marginal recorded per seed
+- [x] attention divergence and tau distances (ticket 15) present in each JSON
+- [x] per-seed values reported individually, plus mean +/- sd — not only the mean
+
+## Answer
+
+Status line was stale — the launch log below already records a clean third relaunch
+(`54839915`) and the registry (`knowledge/ablations.md` §2.1, ID A16) has carried the full
+n=3 result since before this correction: SS 0.5470 ± 0.0060, ramp NMAE 0.1461 ± 0.0020,
+Δ vision-off 0.0056. Only the `Status:` line and this checklist were never updated to match.
+Unblocks 17 and 18.
 
 ## Launch log
 

@@ -1,7 +1,14 @@
 # 08 — Launch wave 1: six seeded curriculum chains
 
 Type: task
-Status: ready-for-human
+Status: closed — out of scope
+
+**Closed 2026-09-08, never launched.** Destination narrowed to s2d; s2b/s2b_wide discarded
+and the Grassmann-vs-selfattn mixer question (A03) cut outright — selfattn only, reported
+as a stated limitation (decision made explicitly this session, matches `ablations.md` §2.5's
+"cheaper honest option"). The six chains below were entirely in service of that mixer
+comparison on s2b; none of it is needed for s2d, which already has its own n=3 (`ablations.md`
+ID A30).
 
 ## Question
 

@@ -1,8 +1,14 @@
 # 06 — Does the model read cloud motion, or time of day?
 
 Type: task
-Status: needs-triage
+Status: closed — out of scope, subsumed by A30-a
 Blocked by: 02
+
+**Closed 2026-09-08, never run on s2b.** Destination narrowed to s2d; s2b discarded. The
+underlying question was answered for s2d instead — `ablations.md` A30-a / ticket 21:
+frame-shuffle costs ~0 ramp NMAE, an unexpected near-null (s2d's gain doesn't come from
+reading frame order). Not the same arm, but the same control, and s2b isn't coming back to
+have its own version run.
 
 ## Question
 

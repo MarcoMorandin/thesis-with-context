@@ -1,8 +1,13 @@
 # 09 — Call the A03 gate: does the mixer get swapped?
 
 Type: grilling
-Status: needs-triage
+Status: closed — out of scope, decided without the gate
 Blocked by: 08
+
+**Closed 2026-09-08.** Decided directly, not through the pre-registered gate — Grassmann
+is cut, selfattn only. Zero Grassmann results ever existed on any arm (`ablations.md`
+§2.5, A03), and with the destination narrowed to s2d there's no winning arm left to run
+the comparison on. Report as a stated limitation.
 
 ## Question
 

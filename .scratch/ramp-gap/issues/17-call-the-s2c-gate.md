@@ -1,8 +1,13 @@
 # 17 — Call the pre-registered s2c gate
 
 Type: grilling
-Status: blocked
+Status: closed — out of scope
 Blocked by: 16
+
+**Closed 2026-09-08, not resolved.** Destination narrowed to s2d as the publication's
+architecture; s2c is discarded (kept in the codebase, not the map). This gate is now moot
+— s2c's own A16 verdict stays on record in `knowledge/ablations.md` §2.1 as the last
+measurement, just never gated against a swap decision.
 
 ## Question
 

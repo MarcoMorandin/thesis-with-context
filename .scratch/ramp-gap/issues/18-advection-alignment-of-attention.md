@@ -1,8 +1,15 @@
 # 18 — Does per-tau attention move with the cloud field?
 
 Type: task
-Status: blocked
+Status: closed — out of scope
 Blocked by: 16
+
+**Closed 2026-09-08, not resolved.** Destination narrowed to s2d; s2c discarded. The
+question doesn't even transfer: s2d has no cross-attention blocks and no per-tau queries
+(`interleaved_raw` fusion, no `TimeCrossAttention`), so there is no per-tau attention
+centroid to measure. The optical-flow-as-measuring-instrument method here could in
+principle be repointed at something in s2d (e.g. does EVS keep the cells that moved?), but
+that would be a new ticket, not a resumption of this one.
 
 ## Question
 

@@ -1,8 +1,12 @@
 # 07 — Does vision help ramp, and only at short lead?
 
 Type: task
-Status: needs-triage
+Status: closed — out of scope, subsumed by s2d's own marginal-gain numbers
 Blocked by: 08
+
+**Closed 2026-09-08.** s2b discarded. Every s2d run already carries `compute_marginal_gain`
+by default (`ablations.md` ID A30 and its controls) — the per-horizon vision on/off
+decomposition this ticket wanted exists for s2d, not s2b.
 
 ## Question
 
