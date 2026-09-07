@@ -164,6 +164,25 @@ parallel width is a queue question, not a node question.
   "resolution match" as a supporting story and raises A30-d's priority. Also fixed a real
   bug in the probe script (crop-compounding at non-power-of-2 GRID values) on the way.
 
+- [A30-d: EVS q-sweep on s2d](issues/24-a30d-evs-qsweep.md): **U-shaped, centered on the
+  trained keep=98, not the monotonic trend predicted** — every deviation from the trained
+  token count hurts, in both directions. Read as train/test sequence-length mismatch, not
+  motion-selectivity evidence; inconclusive for its registered question.
+
+- [A30-c: swap-plant control on s2d](issues/25-a30c-swap-plant-s2d.md): **strong non-null,
+  all 3 seeds, bigger than A30-b** — wrong plant's sky costs +0.016–0.019 ramp NMAE and
+  ~−0.18 skill score, marginal gain flips hard negative. Kills "the grid isn't spatially
+  grounded" cleanly.
+
+- [Call s2d's gate](issues/26-call-s2d-gate.md): all 5 controls in. **Content grounding
+  (A30-b, A30-c) strongly supported — s2d needs the right plant's current sky. Architectural
+  mechanism (A30-a frame order, A30-e resolution, A30-d motion-selectivity) has no
+  supporting evidence** — two negative/unsupportive, one confounded by train/test mismatch.
+  Manuscript should claim the ramp-NMAE recovery as real (grounded in A30-b/c) without
+  claiming the design doc's mechanistic story as its explanation. s2d vs s2c: present both,
+  s2d wins ramp NMAE at a calibration cost and with weaker mechanism evidence than s2c's
+  own horizon-attention diagnostic (ticket 15).
+
 ## Not yet specified
 
 - **Retarget the model to clear-sky index.** Every external reviewer's top recommendation,
@@ -213,18 +232,6 @@ parallel width is a queue question, not a node question.
 - **Whether V-JEPA should ever be unfrozen.** The latent cache bypasses the encoder, so the
   curriculum's unfreeze is dead code and V-JEPA has never been adapted to satellite imagery.
   Live-encoding is expensive; unknown whether it is worth a wave.
-
-- **Remaining s2d controls (A30-c/d).** s2d (ticket 20) has 3 of 5 planned controls run
-  (21, 22, 23); still open: A30-c (spatial-grounding shuffle, needs `data.shuffle_test`),
-  A30-d (EVS q-sweep, eval-only, minutes) — now the more load-bearing of the two, since
-  ticket 23 removed spatial resolution as the likely explanation for s2d's ramp gain.
-  Detail: `knowledge/ablations.md` §2.2.3. Until these land, s2d's ramp-NMAE win is not
-  citable as a defensible result — same bar s2c cleared with A10b/A09 before its gate
-  (ticket 17) was called.
-- **Whether s2d supersedes or sits beside s2c in the writeup.** s2d beats s2c on ramp NMAE
-  (paired, all 3 seeds) but ties on skill score and costs calibration (coverage_80, ECE) that
-  s2c doesn't. Depends on the outcome above and on how ticket 17's s2c gate — still blocked
-  on ticket 16 — resolves; the two gates were never designed to be called independently.
 
 ## Out of scope
 

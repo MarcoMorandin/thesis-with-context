@@ -78,7 +78,7 @@ Status legend: `DONE` = ran, n=3, verdict callable · `PARTIAL` = ran, under-see
 | A01 | Late fusion (s2a) reads the images | `model.vision_cfg.fusion_mode="late"` | DONE n=3 | **H1 falsified for late fusion.** Δramp 0.0000 ± 0.0015 — the ramp gain over s1 survives forcing vision off. Report as a negative result, not as a win. |
 | A02 | Interleaved fusion (s2b) reads the images | `model.fusion_mode=interleaved` | **PARTIAL n=1 — BLOCKING** | s42/s43 killed mid-run, never resumed. Only `..._selfattn_s44` on disk. s2c's headline is measured *against this control*; at n=1 the comparison is not defensible. Resume the two seeds. |
 | A16 | Future-query cross-attention (s2c) reads the images | `model=vision_chronos2_s2c`, `fusion_mode=future_query` | DONE n=3 | **SUPPORTED** on the ticket-17 gate against both controls: vs s2b(n=1) Δramp +0.0026, vs s2b_wide(n=3) Δramp +0.0024; all 3 seeds improve in both. Below the STRONG tier (0.00275). Δ vision-off 0.0056 — the only arm that visibly uses the images. |
-| A30 | Removing the resampler (s2d) recovers the ramp signal that s2b's pooled arm destroys | `model=vision_chronos2_s2d +stage=s2d`, `fusion_mode=interleaved_raw`; design → [`specs/2026-09-05-A30-s2d-design.md`](specs/2026-09-05-A30-s2d-design.md) | **DONE n=3 — ⚠ REGISTERED RETROACTIVELY 2026-09-07, ran before this row existed (AGENTS.md §4 violation)** | **SUPPORTED on ramp NMAE, NOT on skill score.** Best arm on both P0 metrics (SS 0.5510 ± 0.0020, ramp 0.1440 ± 0.0008) and best of anything on disk. Paired against s2c per seed: ramp NMAE **−0.0020, all 3 seeds, clears the 0.0011 floor**; SS +0.0040 flips sign on s42 at a 0.0037 floor → tie; Δramp +0.0007 → tie. Δ NMAE **drops** 0.0071→0.0047 (all 3 seeds): reliance concentrates onto ramps, as predicted. **Costs**: coverage\_80 0.768→0.731, ECE 0.0280→0.0359, both in all 3 seeds. **Not yet defensible** — 3 of 5 planned controls on disk (§2.2.3: A30-b strong support, A30-a and A30-e both unsupportive nulls), and it moves 4 variables at once vs s2b (design §5.3). A30-c/d still needed — A30-d now the more load-bearing of the two. |
+| A30 | Removing the resampler (s2d) recovers the ramp signal that s2b's pooled arm destroys | `model=vision_chronos2_s2d +stage=s2d`, `fusion_mode=interleaved_raw`; design → [`specs/2026-09-05-A30-s2d-design.md`](specs/2026-09-05-A30-s2d-design.md) | **DONE n=3 — ⚠ REGISTERED RETROACTIVELY 2026-09-07, ran before this row existed (AGENTS.md §4 violation)** | **SUPPORTED on ramp NMAE, NOT on skill score.** Best arm on both P0 metrics (SS 0.5510 ± 0.0020, ramp 0.1440 ± 0.0008) and best of anything on disk. Paired against s2c per seed: ramp NMAE **−0.0020, all 3 seeds, clears the 0.0011 floor**; SS +0.0040 flips sign on s42 at a 0.0037 floor → tie; Δramp +0.0007 → tie. Δ NMAE **drops** 0.0071→0.0047 (all 3 seeds): reliance concentrates onto ramps, as predicted. **Costs**: coverage\_80 0.768→0.731, ECE 0.0280→0.0359, both in all 3 seeds. **Defensible on content, not on mechanism** — all 5 planned controls done (§2.2.3): A30-b and A30-c strongly support content grounding (right plant, current sky); A30-a, A30-d, A30-e supply no supporting evidence for the design's mechanistic story (frame order, motion-selectivity, resolution). Gate call: `.scratch/ramp-gap/issues/26-call-s2d-gate.md` — report the ramp-NMAE recovery as real, not the design doc's "why" as established. |
 
 ### 2.2 Controls that isolate the s2c claim
 
@@ -176,22 +176,27 @@ a frame permutation moves frames between slices and the summary changes. At `n_t
 `n_vis=1` the causal threshold admits everything, so no sub-query takes the spatial-only
 fallback and the time partition is exact.
 
-#### 2.2.3 Controls that isolate the s2d claim — 3 of 5 now on disk
+#### 2.2.3 Controls that isolate the s2d claim — all 5 now on disk; gate called
 
-s2d has an n=3 headline and, as of 2026-09-08, **three** of its five planned controls on
-disk (A30-a, A30-b, A30-e — see rows above). A30-b (stale sky) lands exactly where s2c's
-A10b did — strong support. A30-a (frame shuffle) came back an unexpected near-null. A30-e
-(resolution probe) also came back against the design's hope: 4×4 beats s2d's shipped 7×7
-on ramp R² at every horizon, mean-pooled — removing spatial resolution as the likely
-explanation for s2d's gain and raising the stakes on A30-d, still not run. A30-c is also
-still not run.
+s2d has an n=3 headline and, as of 2026-09-0x, **all five** planned controls on disk
+(A30-a through A30-e — see rows above). They split cleanly on two axes. **Content
+grounding — strongly supported**: A30-b (stale sky) and A30-c (swap plant) are both
+clean, large, unanimous-across-seeds positives; s2d needs the right plant's current sky.
+**Architectural mechanism — no supporting evidence**: A30-a (frame order) came back
+near-inert, A30-e (resolution) shows 4×4 beating s2d's shipped 7×7 on the (caveated,
+mean-pooling) probe, and A30-d (EVS/motion-selectivity) is confounded by a train/test
+sequence-length mismatch rather than genuinely negative. None of the three isolable
+architectural variables from design §5.3 supply the mechanism the design doc hypothesized.
+**Gate call**: `.scratch/ramp-gap/issues/26-call-s2d-gate.md` — claim the ramp-NMAE
+recovery as real (grounded in A30-b/A30-c), not the design doc's mechanistic story as its
+explanation.
 
 | ID | Rival explanation it kills | Config | Status |
 |----|---------------------------|--------|--------|
 | A30-a | *"s2d isn't reading frame order either."* | `+ablation=A09` on s2d | **DONE n=3 (2026-09-07).** Structurally live for the first time (fractional RoPE positions), but measured **near-inert**: Δ ramp NMAE ~0 all 3 seeds (s42 −0.00001, s43 +0.00008, s44 −0.00030), an order of magnitude under the 0.0011 floor. Δ SS small and seed-inconsistent (only s43 clears 0.0037). **Contradicts the design prediction** — s2d's ramp gain does not depend on reading frame *order*. Detail: `.scratch/ramp-gap/issues/21-a09-frame-shuffle-s2d.md`. |
 | A30-b | *"any recent sky would do."* | `+ablation=A10b` on s2d | **DONE n=3 (2026-09-07) — SUPPORTED, kills the rival explanation.** Staling the sky costs +0.0156 to +0.0182 ramp NMAE, all 3 seeds, an order of magnitude over floor; SS drops ~0.135 in all 3; vision marginal gain flips from positive to negative in every seed. Same direction/magnitude as s2c's A10b. First positive control on disk for A30. Detail: `.scratch/ramp-gap/issues/22-a10b-stale-sky-s2d.md`. |
-| A30-c | *"the grid isn't spatially grounded."* | `+ablation=A10` on s2d, needs `data.shuffle_test=true` | **NOT RUN.** Config already sets `data.shuffle_test=true` itself — no extra override needed. |
-| A30-d | *"EVS is doing nothing / is doing everything."* | `vision_cfg.visual_evs_keep` sweep q ∈ {0, 0.3, 0.5, 0.7}, eval-only on the trained checkpoint | **NOT RUN.** `<= 0` disables pruning. If ramp NMAE improves as q rises, the signal is in the tokens that *changed* — moving cloud edges. Free motion-selectivity evidence. |
+| A30-c | *"the grid isn't spatially grounded."* | `+ablation=A10` on s2d, needs `data.shuffle_test=true` | **DONE n=3 (2026-09-0x) — SUPPORTED, cleanly, bigger than A30-b.** Wrong plant's sky costs +0.0163 to +0.0189 ramp NMAE, all 3 seeds; SS drops ~0.18 in all 3 (0.55→0.37); marginal gain flips hard negative (−0.027 to −0.028). Kills the rival explanation outright. Detail: `.scratch/ramp-gap/issues/25-a30c-swap-plant-s2d.md`. |
+| A30-d | *"EVS is doing nothing / is doing everything."* | `vision_cfg.visual_evs_keep` sweep q ∈ {0, 0.3, 0.5, 0.7}, eval-only on the trained checkpoint | **DONE n=3 per point (2026-09-0x) — INCONCLUSIVE, not the predicted trend.** U-shaped in keep-count, centered exactly on the trained keep=98: q=0 (no pruning, +0.0102 ramp) worst, q=0.3 (+0.0022) and q=0.7 (+0.0069) both worse than baseline, all 3 seeds agree at every point. Reads as train/test sequence-length mismatch — none of these configs were retrained at their new token count — not motion-selectivity evidence either way. Detail: `.scratch/ramp-gap/issues/24-a30d-evs-qsweep.md`. |
 | A30-e | *"7×7 is unmeasured."* | `scripts/probes/latent_pooling_bottleneck.py`, `GRID = 4` → `7` | **DONE (2026-09-08) — does NOT support 7×7.** Non-monotonic across all 3 horizons: 4×4 beats every other arm on ramp R² (t+30 0.0512, t+60 0.0815, t+120 0.0516); s2d's shipped 7×7 loses to 4×4 at every horizon and sits at-or-below the 1×1 floor at t+30 (−0.0020). Caveat: the probe mean-pools to each grid size, s2d's pixel-shuffle concatenates instead (space-to-depth, no averaging), so this doesn't falsify s2d's architecture — but it removes "spatial resolution match" as a supporting story for the shipped 7×7 and raises the weight resting on **A30-d**. First re-run of this probe also fixed a real bug (crop-compounding when GRID isn't a power of 2); 1×1 numbers shifted from the historically-cited 0.0060 to 0.0215 (t+30 ramp) as a result — full native-grid basis now, not comparable to the old figure. Detail: `.scratch/ramp-gap/issues/23-a30e-probe-grid7.md`. |
 
 A29 remains the pooled control that isolates *resolution* from *summarizer removal*; the
@@ -264,13 +269,12 @@ Launch lines for every ID below: [running-ablations.md](running-ablations.md).
    the 4×4 grid is spatially grounded. **A09i** is a one-shot receipt for an architectural
    null (§2.2.1) and **A10b** is already measured — re-file the synced A10 JSONs under that
    name rather than re-running them.
-1b. **A30-a and A30-e both done (unsupportive nulls) — A30-c/d next.** A09 (frame-shuffle)
-   and the GRID=7 resolution probe both ran 2026-09-07/08: neither supports the design
-   doc's story (§2.2.3). **A30-d (EVS q-sweep) is now the highest-value remaining run** —
-   with resolution and frame-order both ruled out as the explanation, motion-selectivity is
-   what's left. Then A30-c (A10 swap-plant, eval-only, minutes). Without them, s2d has an
-   n=3 headline, one supporting control (A30-b) and two unsupportive ones, and cannot carry
-   a paper claim as currently understood.
+1b. **A30's control battery is complete — gate called.** All five controls ran (§2.2.3):
+   content grounding (A30-b, A30-c) strongly supported; mechanism (A30-a, A30-d, A30-e)
+   unsupported or confounded. `.scratch/ramp-gap/issues/26-call-s2d-gate.md` has the full
+   synthesis and the manuscript framing it implies — the ramp-NMAE recovery is real and
+   should be reported; the design doc's explanation for *why* should not be claimed as
+   established. Nothing left to run on this line; remaining work is writeup, not ablations.
 2. **A02** — resume s2b seeds 42/43. Without it the headline comparison rests on n=1.
 3. **A17 + A22** — the attribution pair, n=3 each. Only interpretable together: A17 kills the
    grid, A22 kills the 3-slot decoder, and which one the gain follows *is* the claim.
