@@ -140,6 +140,23 @@ parallel width is a queue question, not a node question.
   Compute is not the binding constraint; the local-h conversion stays unmeasured until a
   wave is large enough for it to matter.
 
+- [Build and run the s2d arm (interleaved, no resampler)](issues/20-build-run-s2d-arm.md):
+  built and run n=3 outside this map's own tracking (registered retroactively in
+  `knowledge/ablations.md` as **A30**, 2026-09-07). **Best arm on both P0 metrics**, ramp
+  NMAE beats s2c by −0.0020 all 3 seeds (clears floor), skill score ties. Costs
+  coverage_80 and ECE. Zero positive controls existed at build time.
+
+- [A09 frame-shuffle control on s2d](issues/21-a09-frame-shuffle-s2d.md): **unexpected
+  near-null**, all 3 seeds — shuffling frame order costs s2d ~0 ramp NMAE, an order of
+  magnitude under floor, despite fractional RoPE positions making the control structurally
+  live for the first time (inert-by-construction on s2b/s2c). s2d's gain does not come from
+  reading temporal order across the 4 latents.
+
+- [A10b stale-sky control on s2d](issues/22-a10b-stale-sky-s2d.md): **strong non-null, all 3
+  seeds** — staling the sky costs +0.016 to +0.018 ramp NMAE and flips the vision marginal
+  gain negative, same pattern and magnitude as s2c. First positive control on disk for A30;
+  kills "any recent sky would do".
+
 ## Not yet specified
 
 - **Retarget the model to clear-sky index.** Every external reviewer's top recommendation,
@@ -189,6 +206,17 @@ parallel width is a queue question, not a node question.
 - **Whether V-JEPA should ever be unfrozen.** The latent cache bypasses the encoder, so the
   curriculum's unfreeze is dead code and V-JEPA has never been adapted to satellite imagery.
   Live-encoding is expensive; unknown whether it is worth a wave.
+
+- **Remaining s2d controls (A30-c/d/e).** s2d (ticket 20) has 2 of its 5 planned controls
+  run (21, 22); still open: A30-c (spatial-grounding shuffle, needs `data.shuffle_test`),
+  A30-d (EVS q-sweep, eval-only, minutes), A30-e (pooling probe re-run at `GRID=7`, minutes).
+  Detail: `knowledge/ablations.md` §2.2.3. Until these land, s2d's ramp-NMAE win is not
+  citable as a defensible result — same bar s2c cleared with A10b/A09 before its gate
+  (ticket 17) was called.
+- **Whether s2d supersedes or sits beside s2c in the writeup.** s2d beats s2c on ramp NMAE
+  (paired, all 3 seeds) but ties on skill score and costs calibration (coverage_80, ECE) that
+  s2c doesn't. Depends on the outcome above and on how ticket 17's s2c gate — still blocked
+  on ticket 16 — resolves; the two gates were never designed to be called independently.
 
 ## Out of scope
 

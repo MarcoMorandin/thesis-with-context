@@ -59,7 +59,9 @@ TEST = [
     "7836",
 ]
 HORIZONS = (1, 2, 4)  # steps of 30 min
-GRID = 4  # finest spatial grid retained; 2x2 and 1x1 nest inside
+GRID = (
+    7  # A30-e: s2d ships 7x7 (design §5.4), was 4 — probe must match what's deployed.
+)
 FNAME = re.compile(r"^(?P<ds>.+?)_(?P<site>\d+)_(?P<epoch>\d+)\.pt$")
 
 

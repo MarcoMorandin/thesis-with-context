@@ -11,7 +11,7 @@ defects → [architecture.md](architecture.md) · live plan of record → `.scra
 
 ## 0. What is being defended
 
-Three fusion arms are candidates for publication. All share the same Chronos-2 numeric
+Four fusion arms are candidates for publication. All share the same Chronos-2 numeric
 backbone and the same frozen V-JEPA 2.1 ViT-L/16 visual features; they differ only in *where
 and how* visual information enters the sequence.
 
@@ -20,6 +20,7 @@ and how* visual information enters the sequence.
 | **s2a** late fusion | `vision_cfg.fusion_mode="late"` | visual latents → `LatentSummarizer` → `CrossModalAdapter` → N soft tokens appended after the series |
 | **s2b** deep token fusion | `fusion_mode=interleaved` | pooled visual tokens woven into the refinement window of the TS sequence |
 | **s2c** cross-attention fusion | `fusion_mode=future_query` | V-JEPA field block-pooled to 4×4 grid × 4 temporal slices = 64 KV tokens, cross-attended by 3 *future* decoder positions in the last 4 encoder blocks |
+| **s2d** resampler-free interleaved | `fusion_mode=interleaved_raw` | no `LatentSummarizer`, no `CrossModalAdapter` — V-JEPA field pixel-shuffled r=2 (14×14×1024 → 7×7×4096), 2-layer MLP projector, EVS keeps 98 of 196 tokens, injected into the sequence at fractional positions inside the last context patch |
 
 Two P0 metrics: generalization skill score and **ramp NMAE** (top-decile \|Δy\|, protocol.md §5).
 Pre-registered seed floors: **ramp NMAE 0.0011**, **skill score 0.0037**. A difference smaller
@@ -41,12 +42,28 @@ Seeds 42/43/44 unless noted. Reproduce from `baselines/results/mmtsfm_*.json`.
 | s2a late | 3 | 0.5258 ± 0.0043 | 0.1487 ± 0.0010 | 0.0008 ± 0.0005 | 0.0000 ± 0.0015 |
 | s2b interleaved N=1 | **1** | 0.5322 | 0.1487 | 0.0014 | 0.0006 |
 | s2b_wide N=16 | 3 | 0.5352 ± 0.0026 | 0.1484 ± 0.0010 | 0.0022 ± 0.0005 | 0.0002 ± 0.0016 |
-| **s2c future-query** | 3 | **0.5470 ± 0.0060** | **0.1461 ± 0.0020** | **0.0071 ± 0.0006** | **0.0056 ± 0.0006** |
+| **s2c future-query** | 3 | 0.5470 ± 0.0060 | 0.1461 ± 0.0020 | **0.0071 ± 0.0006** | 0.0056 ± 0.0006 |
+| **s2d interleaved_raw** | 3 | **0.5510 ± 0.0020** | **0.1440 ± 0.0008** | 0.0047 ± 0.0001 | **0.0063 ± 0.0006** |
 
-Reading: only s2c has a vision-off delta that clears the ramp floor by a wide margin. s2a's
+Reading: only s2c and s2d have a vision-off delta that clears the ramp floor. s2a's
 score gain survives deleting the images — it is a recipe effect, not a visual one.
 
+s2d is best on both P0 metrics, but only the **ramp NMAE** win over s2c is callable: paired
+per seed it is −0.0020 with all three seeds agreeing, against a 0.0011 floor. The skill-score
+gain (+0.0040 mean) flips sign on s42 and sits at the 0.0037 floor — a tie. Δ ramp (+0.0007)
+is a tie. Δ NMAE **falls** 0.0071 → 0.0047, all three seeds, i.e. s2d relies on the images
+*less* across all hours and *more* on ramps (Δramp/Δnmae 1.34 vs s2c's 0.79) — which is what
+A30 predicted, and the reason the two arms are not interchangeable in the manuscript.
+
+**Calibration cost, not yet anywhere else in this file**: s2d degrades coverage\_80
+0.768 → 0.731 (nominal 0.80) and quantile ECE 0.0280 → 0.0359, in all three seeds, at flat
+CRPS (0.0542 → 0.0544). Sharpness bought the ramp gain. Report it or a reviewer will find it.
+
 **No Grassmann result exists anywhere on disk.** Every number above is `selfattn`.
+
+Provenance: s2d carries `dataset_version dataset_all.parquet:92099550:…` against the other
+arms' `:92166811:…` — the same 2026-09-01 parquet rewrite covered in §2.2.1, proven there not
+to have changed the uk\_pv test windows. `n_plants` 14 and `n_steps` 165,295 match exactly.
 
 ## 2. Registry
 
@@ -61,6 +78,7 @@ Status legend: `DONE` = ran, n=3, verdict callable · `PARTIAL` = ran, under-see
 | A01 | Late fusion (s2a) reads the images | `model.vision_cfg.fusion_mode="late"` | DONE n=3 | **H1 falsified for late fusion.** Δramp 0.0000 ± 0.0015 — the ramp gain over s1 survives forcing vision off. Report as a negative result, not as a win. |
 | A02 | Interleaved fusion (s2b) reads the images | `model.fusion_mode=interleaved` | **PARTIAL n=1 — BLOCKING** | s42/s43 killed mid-run, never resumed. Only `..._selfattn_s44` on disk. s2c's headline is measured *against this control*; at n=1 the comparison is not defensible. Resume the two seeds. |
 | A16 | Future-query cross-attention (s2c) reads the images | `model=vision_chronos2_s2c`, `fusion_mode=future_query` | DONE n=3 | **SUPPORTED** on the ticket-17 gate against both controls: vs s2b(n=1) Δramp +0.0026, vs s2b_wide(n=3) Δramp +0.0024; all 3 seeds improve in both. Below the STRONG tier (0.00275). Δ vision-off 0.0056 — the only arm that visibly uses the images. |
+| A30 | Removing the resampler (s2d) recovers the ramp signal that s2b's pooled arm destroys | `model=vision_chronos2_s2d +stage=s2d`, `fusion_mode=interleaved_raw`; design → [`specs/2026-09-05-A30-s2d-design.md`](specs/2026-09-05-A30-s2d-design.md) | **DONE n=3 — ⚠ REGISTERED RETROACTIVELY 2026-09-07, ran before this row existed (AGENTS.md §4 violation)** | **SUPPORTED on ramp NMAE, NOT on skill score.** Best arm on both P0 metrics (SS 0.5510 ± 0.0020, ramp 0.1440 ± 0.0008) and best of anything on disk. Paired against s2c per seed: ramp NMAE **−0.0020, all 3 seeds, clears the 0.0011 floor**; SS +0.0040 flips sign on s42 at a 0.0037 floor → tie; Δramp +0.0007 → tie. Δ NMAE **drops** 0.0071→0.0047 (all 3 seeds): reliance concentrates onto ramps, as predicted. **Costs**: coverage\_80 0.768→0.731, ECE 0.0280→0.0359, both in all 3 seeds. **Not yet defensible** — 2 of 5 planned controls on disk (§2.2.3: A30-b strong support, A30-a an unexpected near-null), and it moves 4 variables at once vs s2b (design §5.3). A30-c/d/e still needed. |
 
 ### 2.2 Controls that isolate the s2c claim
 
@@ -158,6 +176,26 @@ a frame permutation moves frames between slices and the summary changes. At `n_t
 `n_vis=1` the causal threshold admits everything, so no sub-query takes the spatial-only
 fallback and the time partition is exact.
 
+#### 2.2.3 Controls that isolate the s2d claim — 2 of 5 now on disk
+
+s2d has an n=3 headline and, as of 2026-09-07, **two** positive controls on disk (A30-a,
+A30-b — see rows above). A30-b (stale sky) lands exactly where s2c's A10b did: staling the
+sky costs s2d +0.016–0.018 ramp NMAE and flips its marginal gain negative, same pattern and
+magnitude as s2c's +0.0201. A30-a (frame shuffle) came back an unexpected near-null instead
+of the falsification test the design doc expected — s2d's gain survives frame reordering.
+A30-c/d/e below are specified in design §3.5 and have not been launched.
+
+| ID | Rival explanation it kills | Config | Status |
+|----|---------------------------|--------|--------|
+| A30-a | *"s2d isn't reading frame order either."* | `+ablation=A09` on s2d | **DONE n=3 (2026-09-07).** Structurally live for the first time (fractional RoPE positions), but measured **near-inert**: Δ ramp NMAE ~0 all 3 seeds (s42 −0.00001, s43 +0.00008, s44 −0.00030), an order of magnitude under the 0.0011 floor. Δ SS small and seed-inconsistent (only s43 clears 0.0037). **Contradicts the design prediction** — s2d's ramp gain does not depend on reading frame *order*. Detail: `.scratch/ramp-gap/issues/21-a09-frame-shuffle-s2d.md`. |
+| A30-b | *"any recent sky would do."* | `+ablation=A10b` on s2d | **DONE n=3 (2026-09-07) — SUPPORTED, kills the rival explanation.** Staling the sky costs +0.0156 to +0.0182 ramp NMAE, all 3 seeds, an order of magnitude over floor; SS drops ~0.135 in all 3; vision marginal gain flips from positive to negative in every seed. Same direction/magnitude as s2c's A10b. First positive control on disk for A30. Detail: `.scratch/ramp-gap/issues/22-a10b-stale-sky-s2d.md`. |
+| A30-c | *"the grid isn't spatially grounded."* | `+ablation=A10` on s2d, needs `data.shuffle_test=true` | **NOT RUN.** Config already sets `data.shuffle_test=true` itself — no extra override needed. |
+| A30-d | *"EVS is doing nothing / is doing everything."* | `vision_cfg.visual_evs_keep` sweep q ∈ {0, 0.3, 0.5, 0.7}, eval-only on the trained checkpoint | **NOT RUN.** `<= 0` disables pruning. If ramp NMAE improves as q rises, the signal is in the tokens that *changed* — moving cloud edges. Free motion-selectivity evidence. |
+| A30-e | *"7×7 is unmeasured."* | `scripts/probes/latent_pooling_bottleneck.py`, `GRID = 4` → `7` | **NOT RUN.** One-constant change, minutes of GPU. The probe justified s2d at 4×4 but s2d ships 7×7; without this a 7×7+EVS null has two explanations that cannot be separated. |
+
+A29 remains the pooled control that isolates *resolution* from *summarizer removal*; the
+summarizer removal itself is the residual and is **not** separately isolable (design §5.3).
+
 
 
 | ID | Question | Config | Status |
@@ -225,6 +263,11 @@ Launch lines for every ID below: [running-ablations.md](running-ablations.md).
    the 4×4 grid is spatially grounded. **A09i** is a one-shot receipt for an architectural
    null (§2.2.1) and **A10b** is already measured — re-file the synced A10 JSONs under that
    name rather than re-running them.
+1b. **A30-a done (near-null) — A30-c next.** A09 on s2d ran 2026-09-07: unexpected near-null
+   (§2.2.3), not the falsification test the design doc expected. Next: **A30-c** (A10
+   swap-plant, eval-only, minutes — decides if the 4x4/7x7 grid is spatially grounded), then
+   A30-d (EVS q-sweep) and A30-e (probe at `GRID = 7`), both minutes. Without c/d/e, s2d has
+   an n=3 headline and only one supporting control (A30-b) and cannot carry a paper claim.
 2. **A02** — resume s2b seeds 42/43. Without it the headline comparison rests on n=1.
 3. **A17 + A22** — the attribution pair, n=3 each. Only interpretable together: A17 kills the
    grid, A22 kills the 3-slot decoder, and which one the gain follows *is* the claim.

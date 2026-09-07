@@ -1,0 +1,20 @@
+# @package _global_
+# A30-d — EVS q-sweep on s2d. Eval-only, scores the ALREADY-TRAINED s2d checkpoint at
+# different token-retention counts. Does not retrain — q=0.5 (keep=98) is the checkpoint's
+# own training-time default and is already measured (mmtsfm_s2d_ukpv_s2d_s{42,43,44}.json).
+#
+# keep = round(196 * (1 - drop_fraction)); q in the registry names the DROP fraction:
+#   q=0   -> keep=0 (sentinel, see patch_projector.py: <=0 disables pruning) -> all 196 kept
+#   q=0.3 -> keep=137
+#   q=0.5 -> keep=98  (== training default, do not re-run, reuse existing s2d JSON)
+#   q=0.7 -> keep=59
+#
+# visual_evs_keep is NOT set here — pass it on the CLI per sweep point:
+#   +ablation=A30d model.vision_cfg.visual_evs_keep=<N>
+#
+# NO TRAINING. Score the existing s2d checkpoint:
+#   train=false ckpt_path=<uk_pv_s2d_s2d_s{seed}/best.ckpt> +ablation=A30d
+train: false
+test: true
+model:
+  compute_marginal_gain: true
