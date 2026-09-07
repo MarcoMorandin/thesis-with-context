@@ -162,7 +162,13 @@ def main() -> None:
     df = df[(df.dataset == "uk_pv") & (df.site_id.isin(TEST))]
     df = df.sort_values(["site_id", "timestamp_utc"]).reset_index(drop=True)
 
-    feats, tgt, ramp, sites, tt = [], [], [], [], []
+    # Each arm pools directly off the native patch grid, independently — not
+    # chained through GRID — so a coarse arm's crop (native % gsz != 0, e.g.
+    # 14 % 4) never compounds through a finer arm's own crop (A30-e regression:
+    # deriving 2x2/4x4 from an already-7x7-reduced base silently cropped both).
+    ARM_SIZES = tuple(sorted({1, 2, 4, GRID}))
+    feats = {g: [] for g in ARM_SIZES}
+    tgt, ramp, sites, tt = [], [], [], []
     D = None
     for site, g in df.groupby("site_id", sort=True):
         g = g.reset_index(drop=True)
@@ -210,7 +216,8 @@ def main() -> None:
             now = zg.mean(0)  # [G0, G0, D]
             mot = zg[-1] - zg[0]  # [G0, G0, D]
             pair = np.stack([now, mot])  # [2, G0, G0, D]
-            feats.append(block_pool(pair, GRID).astype(np.float32))  # [2,4,4,D]
+            for gsz in ARM_SIZES:
+                feats[gsz].append(block_pool(pair, gsz).astype(np.float32))
             tgt.append([csi[i + h] for h in HORIZONS])
             ramp.append(bool(is_ramp[i]))
             sites.append(site)
@@ -219,28 +226,34 @@ def main() -> None:
             D = Dv
         print(f"  {site}: {taken} samples", flush=True)
 
-    if not feats:
+    if not feats[ARM_SIZES[0]]:
         raise SystemExit(
             "no origin matched the cache — the cache sits on a coarser grid than "
             "the 30-min power series; check TRAIN_STRIDE used at extraction"
         )
 
-    F = np.stack(feats)  # [N, 2, 4, 4, D]
+    F = {gsz: np.stack(feats[gsz]) for gsz in ARM_SIZES}  # each [N, 2, gsz, gsz, D]
+    N = len(F[ARM_SIZES[0]])
     TGT = np.asarray(tgt, float)
     RAMP = np.asarray(ramp, bool)
     SITES = np.asarray(sites)
     TT = np.asarray(tt, np.int64)
-    print(f"\nsamples {len(F):,}  ramp {int(RAMP.sum()):,} ({RAMP.mean():.1%})")
+    total_gb = sum(a.nbytes for a in F.values()) / 1e9
+    print(f"\nsamples {N:,}  ramp {int(RAMP.sum()):,} ({RAMP.mean():.1%})")
     print(
-        f"patch grid kept {GRID}x{GRID}, D={D}, feature array {F.nbytes / 1e9:.2f} GB\n"
+        f"arms {', '.join(f'{g}x{g}' for g in ARM_SIZES)} off a native {G0}x{G0} "
+        f"patch grid, D={D}, total feature bytes {total_gb:.2f} GB\n"
     )
 
     ARMS = {}
-    for gsz in (1, 2, 4):
-        X = block_pool(F, gsz).reshape(len(F), -1)  # exact nested pooling
-        tag = f"{gsz}x{gsz} grid" + (
-            "   <- what the summarizer emits today" if gsz == 1 else ""
-        )
+    for gsz in ARM_SIZES:
+        X = F[gsz].reshape(N, -1)
+        suffix = ""
+        if gsz == 1:
+            suffix = "   <- what the summarizer emits today"
+        elif gsz == GRID:
+            suffix = "   <- s2d native"
+        tag = f"{gsz}x{gsz} grid{suffix}"
         ARMS[tag] = pca(X, args.pca_dim) if X.shape[1] > args.pca_dim else X
 
     for hi, h in enumerate(HORIZONS):
