@@ -10,8 +10,13 @@ registry (`knowledge/ablations.md`) for provenance, removed from this map's forw
 The Grassmann-vs-selfattn mixer question (A03) is cut outright: selfattn only, reported as
 a stated limitation, decided 2026-09-08 without running the pre-registered gate.
 
-The way is clear when s2d's own claim is thesis-grade evidence — Ch7–9 rewritten around
-it, H1/H2 answered specifically for s2d, and nothing remains to *decide* before writing.
+**Raised to paper-grade, 2026-09-07.** The thesis-grade bar (Ch7–9 rewritten, H1/H2 called for
+s2d) was reached on 2026-09-08. The destination is now a **top-tier (ICLR/NeurIPS-grade)
+paper** whose proposed architecture is s2d: H2 isolated rather than stated as a limitation,
+s2d's own component-ablation table, protocol-clean leaderboard rows with the significance
+machinery `baselines.md` §4.5 promises, and `report/report.typ` rewritten around s2d. Gap
+analysis: [`paper-readiness-audit.md`](paper-readiness-audit.md). The way is clear when
+nothing remains to *decide* before that draft is written.
 MMTSFM ahead of iTransformer on ramp NMAE (0.1481 → <0.1429) stays the stretch goal it
 always was — a leaderboard win that rides on the same evidence, never a reason to reorder
 the map.
@@ -28,6 +33,8 @@ question, hypothesis ladder), `protocol.md` (windows, metrics, splits), `archite
 
 **Skills every session should consult.** `grilling` and `domain-modeling` by default.
 Tracker conventions: [`knowledge/agents/issue-tracker.md`](../../knowledge/agents/issue-tracker.md).
+Paper-readiness gap analysis (what exists, what is missing, priority order):
+[`paper-readiness-audit.md`](paper-readiness-audit.md) — read before picking a ticket ≥ 27.
 
 **This map plans; it does not build.** Exception: `task` tickets do real work, because a
 decision here is blocked until a run finishes or a measurement exists.
@@ -159,6 +166,40 @@ decision here is blocked until a run finishes or a measurement exists.
   confirming further, and no matched-aggregation comparison to s2d's own realized gain
   exists yet.
 
+- **Destination raised to paper-grade** (2026-09-07) — user asked what a top-tier paper on
+  s2d still needs, excluding s2b/s2c. Audit: [`paper-readiness-audit.md`](paper-readiness-audit.md).
+  Verdict: no new baseline *models* are required; the suite covers every rebuttal cell. What
+  is missing is (i) the H2-isolating late-fusion resampler-free arm, (ii) any trained
+  component ablation on s2d, (iii) A23, (iv) protocol-clean tier 4–6 rows with a ramp column
+  (four rows contaminated by train/val plants, Time-VLM at rank 2 never re-scored), (v) seeds
+  for PatchTST / Chronos-2 FT and the Chronos-2 ZS provenance, (vi) DM + block bootstrap +
+  Holm, efficiency table, robustness battery, calibration recovery, (vii) the single-dataset
+  decision, (viii) the rewrite itself. Tickets 27–39 created; two fog patches graduated
+  (late-raw arm → 28, H1/H2 presentation → 38).
+
+- **Architecture-derived ablation audit** (2026-09-07, audit §6) — s2d's design choices
+  re-enumerated from config and code, independent of the earlier pass. Three findings that
+  change the paper: every MMTSFM arm trains with **future weather covariates known**
+  (next-6h cloudcover + irradiance) and no history-only run exists → ticket 40 (A36); the
+  backbone is not frozen — s1 fully fine-tunes Chronos-2 and s2d trains 3 of 6 encoder
+  blocks → ticket 43 (A39) + wording fix; the "concatenate, never average" founding claim
+  has no model-level test → ticket 41 (A37). Plus EVS random-keep control (42, A38) and a
+  vision-off sequence-length check (44) that gates every Δ. Launch order in audit §6.
+
+- **s2d ablation wave built and ordered** (2026-09-07) — ticket 44 **resolved** (length
+  preserved: yes, `vision_chronos2.py:937-941` / `:1208` / `:635-644`, now asserted in
+  `tests/test_s2d_component_ablations.py`), so every Δ in `ablations.md` §1 stands and
+  tickets 28/32/40-43 may quote it. Code for the four buildable arms landed behind mode
+  switches rather than forks, so each foil shares s2d's code path exactly:
+  `visual_pool_mode=avg` (A37/41), `visual_evs_mode=random` (A38/42),
+  `fusion_mode=late_raw` (**A43**/28 — see that ticket: "late" had to be redefined as
+  *position*, because a group-axis late fusion is unbuildable for a payload with no time
+  axis and because the token ORDER is already identical), and `data.future_cov`
+  (A36/40, plus manifest recording via `lightning_module._data_cfg`). A39 (43) is pure
+  config. `sweep.manifest` retired all 16 s2a/s2b/s2c rows and now carries the s2d wave in
+  decision-value-per-GPU-hour order: **A38 (eval, minutes) → A39 → A43 → A37 → A36s1 →
+  A36s2d**, with A38t conditional on A38 clearing the 0.0011 ramp floor.
+
 ## Not yet specified
 
 - **Retarget the model to clear-sky index / auxiliary CSI loss.** Every external reviewer's
@@ -187,15 +228,12 @@ decision here is blocked until a run finishes or a measurement exists.
   against ground-truth motion). Surfaced while closing ticket 18: repoint its optical-flow
   method at "does EVS keep the cells that moved" instead of a per-tau attention centroid
   that doesn't exist in s2d. Not yet a ticket — needs the method sharpened first.
-- **Late-fusion, resampler-free control arm.** Surfaced by ticket 10's H2 answer: the
-  +0.0252 SS / −0.0047 ramp margin over s2a is confounded with the resampler removal, and
-  nothing on disk isolates fusion-mode from that. Would need a new curriculum arm (s2d's
-  pixel-shuffle projector wired for late fusion instead of interleaved), ≥3 seeds — real new
-  engineering, explicitly not attempted for this thesis (ticket 10's Limitations). Follow-up
-  work, not currently a ticket.
-- **How H1/H2 verdicts get presented.** Content is decided (ticket 10) — what remains is
-  which chapter carries which claim, and how the H2 Limitations paragraph reads next to
-  Ch9's existing follow-up list.
+- **Second frozen vision encoder through the same projector** (Prithvi-EO-2.0 or DINOv2).
+  The paper's claim is about "frozen vision-FM tokens"; only V-JEPA has been tried. Needs a
+  new latent cache against the 1 TB quota. Sharpens into a ticket once ticket 34 decides
+  how much compute the paper gets. Subsumes the older "Encoder domain gap" entry below.
+- **Second TS backbone.** Same generality question on the numeric side; almost certainly a
+  stated limitation, not a run.
 - **Whether V-JEPA should ever be unfrozen.** The latent cache bypasses the encoder, so
   unfreeze is dead code and V-JEPA has never been adapted to satellite imagery.
   Live-encoding is expensive; unknown whether it is worth a wave.
@@ -236,3 +274,13 @@ decision here is blocked until a run finishes or a measurement exists.
   not a ramp-gap fix; stays as future work.
 - **Tuning s3 / full joint fine-tuning.** No curriculum stage goes past s2b/s2d-equivalent;
   s3 stands as a reported regression, not a stage to improve.
+- **The s2c-based ablation battery as written** — A13, A17, A22, A29 (attribution), A18a/b,
+  A19, A20, A21, and the s2c-based A24–A28 rows of `sweep.manifest`. Ruled out 2026-09-07 with
+  the paper-grade redraw: every one targets a `vision_chronos2_s2c` base. Their *questions*
+  survive where they apply to s2d and are re-registered against `vision_chronos2_s2d` in
+  ticket 32; the configs stay in the repo for provenance.
+- **S4 long-horizon and S5 data-efficiency scenarios** (`baselines.md` §4.1). Not
+  load-bearing for a fusion-mechanism claim; future work.
+- **Between-token interleaving.** Chronos-2's `input_patch_size` 16 makes one TS token 8 h on
+  uk_pv, so the 6 h visual window sits inside one patch; genuine inter-token interleaving
+  would need a re-patched backbone. Stated as a limitation (design §3.3), not ablated.
