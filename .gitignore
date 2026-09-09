@@ -81,6 +81,7 @@ slurm-*.out
 *.fls
 *.fdb_latexmk
 *.toc
+*.synctex.gz
 
 # Keep reference PDFs in baselines/ and solar-related-work/ (tracked intentionally)
 results/

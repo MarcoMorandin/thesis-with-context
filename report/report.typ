@@ -151,15 +151,19 @@ The contributions are as follows.
 
 + A *placement study* rather than an architecture proposal: three fusion sites are compared under a
   frozen-backbone protocol that holds capacity, initialisation and training schedule constant
-  (@sec-configs, @tbl-ladder).
+  (@sec-configs, @tbl-ladder). The question of where two modalities should meet has been asked
+  before for video classification @mbt; it is asked here for a frozen forecaster, where the
+  attachment point is the only free variable.
 + A *counterfactual reliance measure* that quantifies how much of a trained model's accuracy
   depends on the imagery, by re-evaluating the same frozen weights with the visual pathway switched
-  off (@sec-instrument).
-+ A *consolidated cross-region multimodal photovoltaic corpus* — 110 installations on two
-  continents, satellite frames co-registered per site and stored with timestamp-exact pointers,
-  infrared bands that remain informative at night, and a cross-plant generalisation split
-  (@sec-data-novelty, @tbl-data-novelty).
-+ A *full-suite comparison* against 32 baselines spanning statistical references, classical machine
+  off (@sec-instrument). The instrument adapts to forecasting the modality-ablation diagnostics
+  developed for multimodal classification @perceptualscore @emap.
++ A *consolidated multimodal photovoltaic corpus* — 110 installations across a UK and a US track,
+  satellite frames co-registered per site and stored with timestamp-exact pointers, infrared bands
+  that remain informative at night, a measured bound on how far ahead cloud motion remains
+  informative, and a cross-plant generalisation split (@sec-data-novelty, @tbl-data-novelty). The
+  experiments in this report use the UK track only; the US track is released but not yet evaluated.
++ A *full-suite comparison* against 27 baselines spanning statistical references, classical machine
   learning, supervised deep forecasters, time-series foundation models, retrieval-augmented
   adaptation and published multimodal forecasters (@tbl-leaderboard-multimodal to
   @tbl-leaderboard-baselines).
@@ -346,9 +350,12 @@ dimensionless and comparable across installations of very different size.
 
 == What is new about it <sec-data-novelty>
 
-Four properties distinguish this corpus from the public multimodal PV datasets it is closest to.
-They are summarised in @tbl-data-novelty; @tbl-data-compare places the corpus against those datasets
-directly.
+Four properties characterise this corpus relative to the public multimodal PV datasets it is
+closest to. They are summarised in @tbl-data-novelty; @tbl-data-compare places the corpus against
+those datasets directly. Not all four are unprecedented — @tbl-data-compare is explicit about which
+are shared with SolarCube @solarcube, the closest prior release — but each is a prerequisite for a
+claim this report makes, and the third is, to our knowledge, not reported for any other solar
+corpus.
 
 #tbl(
   [The four properties that are new, and what each one makes measurable. Each is a prerequisite for
@@ -357,11 +364,12 @@ directly.
   align: (left, left, left),
   table.header[Property][What it is][What it enables],
   [Cross-region, single schema],
-  [110 installations on two continents — 100 UK residential rooftops at 1.5--4.0 kW and 10 US
+  [110 installations across two tracks — 100 UK residential rooftops at 1.5--4.0 kW and 10 US
   systems at 1.8--408 kW — in one table with one column contract, one normalisation and one set of
   quality flags.],
   [Capacity- and climate-transfer questions can be asked without an ETL rewrite; the same model code
-  consumes both regions.],
+  consumes both tracks. The transfer question itself is left open here: every experiment in this
+  report runs on the UK track.],
 
   [Multi-band infrared imagery],
   [Three genuinely distinct bands (inter-channel correlation 0.67--0.91, mean $|R-G| = 16.1$ DN)
@@ -380,13 +388,15 @@ directly.
   [Cross-plant split by design],
   [Train, validation and test partitions are disjoint *by installation*, not by time; all three
   share the same two calendar years and share no rooftop.],
-  [The evaluation measures generalisation to an unseen installation, which is the deployment case,
-  and removes the per-site memorisation that a chronological split leaves available.],
+  [The evaluation measures generalisation to an unseen installation, which is the deployment case
+  targeted by zero-shot solar transfer work @fusionsf @spirit, and removes the per-site memorisation
+  that a chronological split leaves available. What is new is not the question but that the corpus
+  ships the split, so every model in @tbl-leaderboard-multimodal answers it on identical plants.],
 ) <tbl-data-novelty>
 
 #tbl(
   [Positioning against the public multimodal PV corpora. The comparison is structural: each of the
-  others is organised as fixed short windows for a fixed task, whereas this corpus is a tall
+  others is organised as pre-cut tensors for a fixed task, whereas this corpus is a tall
   `(site, timestamp)` table from which any window definition can be cut.],
   columns: (auto, auto, 1.15fr, 1.15fr, 0.95fr),
   align: (left, left, left, left, left),
@@ -397,6 +407,8 @@ directly.
   table.header[Corpus][Sites / region][Imagery][Layout][Split],
   [*This work*], [110, UK + US], [SEVIRI non-HRV 128², GOES-16 256², 15-min], [tall table + frame
   pointer; any window], [*cross-plant*, disjoint sites],
+  [SolarCube @solarcube], [19 areas, four continents], [GOES-16/17, Himawari-8, multi-band, 30-min],
+  [pre-cut cubes for 30 min--6 h and day-ahead tasks], [as released],
   [ClimateHackAI 2023 @climatehackai], [Great Britain], [SEVIRI HRV + 11-band non-HRV, 5-min],
   [fixed 1 h in #sym.arrow.r 4 h out windows, plus NWP and air-quality tensors],
   [competition split; no paper],
@@ -405,6 +417,17 @@ directly.
   [Sky-camera corpora @skippd], [single site each], [ground fisheye RGB, sub-minute],
   [continuous, single location], [chronological, within site],
 ) <tbl-data-compare>
+
+SolarCube is the closest prior corpus and the reason two of the four properties in
+@tbl-data-novelty are differences of kind rather than of novelty. It already covers more regions
+than this corpus does and its geostationary imagery is multi-band and night-covered, so neither
+"cross-region" nor "multi-band infrared" is claimed here as unprecedented. Two differences remain.
+Its target is *irradiance* recorded at monitoring stations, whereas the target here is *power* from
+operating installations normalised by audited installed capacity, which is the quantity a system
+operator actually schedules against and which carries the array's own orientation, soiling and
+inverter clipping. And its release is organised as pre-cut cubes for two fixed tasks, whereas this
+corpus is a tall table from which any window definition can be cut — the property the 14-day-history
+protocol of @sec-protocol depends on.
 
 Neither ClimateHackAI nor MMSP is unusable for the question posed here, but both would require
 re-windowing and re-sampling before they could serve a long-history cross-plant protocol: they are
@@ -633,6 +656,19 @@ enrich the context before a separate prediction stage. In S2c the queries origin
 positions and read an unpooled memory directly, so each horizon can retrieve different visual
 evidence.
 
+Outside forecasting, the machinery S2c uses is established. Flamingo @flamingo bridges a frozen
+vision encoder to a frozen language model with gated cross-attention in which the generation
+positions query unpooled visual tokens, and Perceiver IO @perceiverio decodes a latent memory
+through per-position output queries; S2c is that pattern with lead-time slots in place of generated
+tokens. The novelty claimed here is therefore not the operator but three things it is put to. First,
+the queries carry a *learned lead-time identity*, so which visual evidence is retrieved is a
+function of how far ahead the slot is predicting — a distinction that separates S2c from the
+cross-attention forecasters whose queries come from a learned global endogenous token @timexer or
+from the history representation @crossvivit @s2tx. Second, the placement is varied while everything
+else is held frozen, which turns "where should the modalities meet" — asked for video classification
+in @mbt — into a measurable question for a frozen forecaster. Third, the answer is measured with the
+counterfactual instrument of @sec-instrument rather than inferred from a leaderboard delta.
+
 = Measuring reliance <sec-instrument>
 
 After training, the model is frozen and the test set is evaluated twice: once normally, and once
@@ -642,6 +678,14 @@ share of the model's accuracy that depends on it having seen the sky.
 This is a stronger instrument than comparing a multimodal model to a unimodal one, because it holds
 every weight fixed. It cannot be confounded by capacity, initialisation or training schedule; the
 two passes differ only in whether the imagery was available.
+
+The idea is not new in itself. Multimodal classification has the same problem and has answered it
+the same way: the perceptual score @perceptualscore perturbs one modality at test time on a trained
+model to measure how far the prediction depends on it, and EMAP @emap projects out cross-modal
+interactions post hoc to test whether they contributed at all. What is transferred here is the
+protocol rather than the metric — the ablated quantity is the visual query of a frozen forecaster,
+and the score is expressed in the ramp error that the imagery is supposed to improve, so reliance is
+denominated in the units the modality was introduced to fix.
 
 = Results
 
@@ -655,7 +699,7 @@ and rises by an order of magnitude only when the forecast positions query the me
 #tbl(
   [The placement ladder. Reliance is the ramp-error improvement attributable to the imagery,
   measured by switching the visual pathway off at inference on frozen weights. Intervals are across
-  seeds 42--44.],
+  seeds 42--44; the single-token S2b row is one seed (44) and therefore carries none.],
   columns: (auto, auto, auto),
   align: (left, left, center),
   table.header[Arm][Where vision enters][Reliance (ramp)],
@@ -668,22 +712,35 @@ and rises by an order of magnitude only when the forecast positions query the me
 == Ablation status
 
 @tbl-done reports the two controls that have been executed. The temporal-shuffle control confirms
-that the arms whose reliance is zero are genuinely not reading the imagery, and the stale-sky
-control establishes that S2c's gain is timing-dependent rather than a plant-level constant.
-@tbl-open lists the four further ablations that are configured but not yet launched, together with
-the outcome each would produce under the hypothesis that the forecast-side query is the operative
-mechanism.
+that the arms whose reliance is zero are genuinely not reading the imagery, and the swapped-plant
+control establishes that S2c reads *this* installation's sky rather than a regional cloudiness prior
+that any contemporaneous frame would supply. @tbl-open lists the three further ablations that are
+configured but not yet launched, together with the outcome each would produce under the hypothesis
+that the forecast-side query is the operative mechanism.
 
 #tbl(
-  [Executed ablations and their measured outcomes.],
+  [Executed ablations and their measured outcomes. Both are evaluated under @tbl-setup on the same
+  14 test installations as @tbl-ladder; figures are seed means over 42--44, with intervals across
+  seeds.],
   columns: (auto, 1fr, 1fr),
   align: (center, left, left),
   table.header[\#][Question it answers][Result],
-  [1], [Does frame order matter to S2c? (temporal shuffle)],
-  [Bit-identical to the unperturbed run at every digit.],
-  [2], [Is the model reading the sky, or is it reading a plant-level constant?],
-  [A stale sky is worse than no sky — vision is read, and read for its timing.],
+  [1], [Does frame order matter to S2c? (temporal shuffle of the 8-frame clip)],
+  [Bit-identical to the unperturbed run at every digit — the two evaluations agree to the seventh
+  decimal on skill score, ramp NMAE and reliance alike. The clip is read as a set, not as a
+  sequence.],
+  [2], [Is the model reading *this plant's* sky, or any sky at that instant? (frames swapped with a
+  contemporaneous frame from another installation)],
+  [Skill score falls to 0.4222 ± 0.0148, below the vision-free S1 control at 0.5230; ramp NMAE rises
+  to 0.1599 ± 0.0006; reliance turns *negative* at −0.0082 ± 0.0016. A stale sky is worse than no
+  sky, so the visual pathway is both used and spatially grounded.],
 ) <tbl-done>
+
+The sign of the second result is what makes it informative. Indifference to the swap would have
+indicated a generic cloudiness prior — useful, but not evidence that the grid is read spatially. A
+negative reliance instead means the model actively trusts the imagery it is given and is misled when
+that imagery belongs to somewhere else, which is the behaviour a spatially grounded query should
+exhibit and which the pooled arms, reading nothing, cannot exhibit at all.
 
 #tbl(
   [Open ablations, configured but not launched.],
@@ -696,17 +753,15 @@ mechanism.
   [Reliance falls to the S2b level if the grid is what matters; holds if the decoder is.], [≈ 24],
   [5], [Grid held at 4 × 4, decoder collapsed to one position.],
   [Reliance holds if the grid is the mechanism; falls if the 3-slot decoder is.], [≈ 24],
-  [6], [Is the grid spatially grounded? Frames swapped with another plant's.],
-  [NMAE degrades below the vision-free control and reliance turns negative if the gain is
-  plant-specific; indifference would indicate a generic cloudiness prior.], [< 1],
 ) <tbl-open>
 
 == Placement against the baseline suite
 
-The four arms are scored against 32 baselines under the identical protocol of @tbl-setup.
+The four arms are scored against 27 baselines under the identical protocol of @tbl-setup.
 @tbl-leaderboard-multimodal reports the multimodal field, @tbl-leaderboard-deep the unimodal deep
 and foundation-model field, and @tbl-leaderboard-baselines the tabular, classical and reference
-tiers. Rank is the global position by skill score across all three tables.
+tiers. Rank is the global position by skill score across all three tables, so it runs to 32: the 27
+baselines plus the five MMTSFM arms.
 
 Three observations follow. First, the ordering of the four arms in @tbl-leaderboard-multimodal
 matches the reliance ordering of @tbl-ladder exactly, which is what makes the reliance measure
@@ -718,6 +773,17 @@ Third, the best ramp NMAE in the entire suite belongs to a unimodal supervised m
 with forward-shifted covariates (@fig-itransformer), so S2c's advantage is specific to the reliance
 measurement and does not yet translate into a ramp-metric win; the gap is against an exogenous
 channel that is aligned to the forecast interval by construction rather than by architecture.
+
+Four entries carry caveats that are stated rather than hidden, and none of them affects the
+placement result of @tbl-ladder, which is measured entirely within the MMTSFM arms on the same 14
+installations. The S2b single-token row is a single seed (44) where every other MMTSFM row is a mean
+over seeds 42--44, so it has no interval and should be read as provisional. Time-VLM's skill score
+is carried over from the vendor evaluation and has not been re-scored into the common result format
+used by every other row, so its rank 2 is not yet on the same footing as the rest of the table.
+TS-RAG was aggregated over 19 installations and CrossViViT, SUNSET and UniCast over 15, rather than
+the 14 test installations of @tbl-setup; the extra plants are validation or training sites, so those
+four skill scores are optimistic and their ranks are upper bounds. All remaining rows are aggregated
+on exactly the 14 test installations.
 
 #tbl(
   [Multimodal leaderboard.],
@@ -732,19 +798,27 @@ channel that is aligned to the forecast interval by construction rather than by 
   table.cell(colspan: 6, fill: luma(240))[*This work (MMTSFM placement arms)*],
   [1], [*MMTSFM S2c* (ours)], [satellite], [cross-attention from *future* positions to unpooled memory], [*0.5470*], [0.1461],
   [3], [MMTSFM S2b wide (ours)], [satellite], [sequence axis, 16 appended tokens (self-attention)], [0.5352], [0.1484],
-  [4], [MMTSFM S2b (ours)], [satellite], [sequence axis, 1 appended token (self-attention)], [0.5322], [0.1487],
+  [4], [MMTSFM S2b (ours)#super[†]], [satellite], [sequence axis, 1 appended token (self-attention)], [0.5322], [0.1487],
   [5], [MMTSFM S2a (ours)], [satellite], [batch axis, pooled vector (group self-attention)], [0.5258], [0.1487],
   [7], [MMTSFM S1 control (ours)], [none], [— (vision-free control)], [0.5230], [0.1506],
 
   table.cell(colspan: 6, fill: luma(240))[*Multimodal forecasters (satellite & pseudo-image)*],
-  [2], [Time-VLM @timevlm], [series *rendered as* images], [pooled vision + text, query on the temporal side (@fig-timevlm)], [0.5404], [—],
+  [2], [Time-VLM @timevlm#super[‡]], [series *rendered as* images], [pooled vision + text, query on the temporal side (@fig-timevlm)], [0.5404], [—],
   [13], [Solar-VLM @solarvlm], [satellite + text], [vision–language fusion, multi-site (@fig-solarvlm)], [0.4396], [0.1514],
-  [21], [CrossViViT @crossvivit], [satellite], [cross-attention from history timesteps (@fig-crossvivit)], [0.3491], [—],
+  [21], [CrossViViT @crossvivit#super[§]], [satellite], [cross-attention from history timesteps (@fig-crossvivit)], [0.3491], [—],
   [26], [Aurora @aurora], [several], [joint multimodal pretraining], [0.2324], [—],
-  [27], [SUNSET @sunset], [satellite], [convolutional precedent, sky images in the original; joint encoding (@fig-sunset)], [0.2162], [—],
-  [28], [UniCast @unicast], [several], [prompting a foundation forecaster], [0.1211], [—],
+  [27], [SUNSET @sunset#super[§]], [satellite], [convolutional precedent, sky images in the original; joint encoding (@fig-sunset)], [0.2162], [—],
+  [28], [UniCast @unicast#super[§]], [several], [prompting a foundation forecaster], [0.1211], [—],
   [30], [VisionTS++ @visionts], [series *rendered as* images], [continual pretraining of a visual backbone], [0.0167], [—],
 ) <tbl-leaderboard-multimodal>
+
+#block(inset: (left: 0.4em), text(size: 8.6pt)[
+  #super[†] single seed (44); every other MMTSFM row is a mean over seeds 42--44. \
+  #super[‡] carried over from the vendor evaluation, not re-scored into the common result format. \
+  #super[§] aggregated over 15 installations rather than the 14 test installations of @tbl-setup
+  (TS-RAG in @tbl-leaderboard-deep over 19); the surplus plants are validation or training sites, so
+  these skill scores are optimistic.
+])
 
 #tbl(
   [Unimodal deep learning and foundation model baselines.],
@@ -764,7 +838,7 @@ channel that is aligned to the forecast interval by construction rather than by 
   [22], [DLinear @dlinear], [none], [—], [0.3231], [0.1746],
 
   table.cell(colspan: 6, fill: luma(240))[*Retrieval & frozen-backbone adaptation*],
-  [9], [TS-RAG @tsrag], [retrieved *numeric* history], [concatenated to the context], [0.4779], [—],
+  [9], [TS-RAG @tsrag#super[§]], [retrieved *numeric* history], [concatenated to the context], [0.4779], [—],
   [10], [Cross-RAG @crossrag], [retrieved *numeric* history], [cross-attention between query and retrievals], [0.4768], [—],
   [18], [CoRA @cora], [covariates], [residual adapter on frozen backbone], [0.3798], [0.1624],
 
@@ -809,7 +883,15 @@ by the forecast positions themselves. The shared assumption of the prior archite
 @sec-related — one visual summary, fixed before the horizon is resolved — is therefore a plausible
 explanation for why frozen multimodal forecasters so often fail to use the modality they were given.
 
-The open ablations of @tbl-open are what would separate the two candidate mechanisms inside S2c, the
-unpooled spatial grid and the per-lead-time decoder, and they are the immediate next step.
+The swapped-plant control of @tbl-done settles what the reliance measured for S2c is made of: with
+another installation's contemporaneous frames the skill score falls below the vision-free control
+and reliance turns negative, so the model is reading its own site's sky rather than a regional
+cloudiness prior. What remains open is which half of S2c produces that behaviour. The unpooled
+spatial grid and the per-lead-time decoder are confounded in the current design, and the three
+ablations of @tbl-open separate them; they are the immediate next step. The measurement in
+@tbl-data-novelty bounds how much is available to be won — frame-to-frame differences decay into the
+within-frame noise floor by roughly two hours — so the honest reading of this report is that
+placement decides whether a frozen forecaster uses vision at all, while the size of the prize is set
+by the imagery, and it is small.
 
 #bibliography("refs.bib", title: "References", style: "ieee")
