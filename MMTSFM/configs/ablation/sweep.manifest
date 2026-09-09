@@ -111,6 +111,10 @@
 # match), so no fit is needed to ask whether the SELECTION RULE matters at
 # inference. Escalate to A38t only if ramp NMAE moves by more than the seed
 # floor 0.0011.
+# STATUS 2026-09-09: seeds 42 and 43 have landed and refute the null (ramp
+# +0.0039, SS -0.0152, both >3x their floors). ROW LEFT LIVE for seed 44 only —
+# the section protocol is n=3 and s44 is missing. Re-submit with ONLY="A38"
+# SEEDS="44"; re-scoring 42/43 is idempotent but wastes the allocation.
 A38 | eval  | s2d | vision_chronos2_s2d        | 42,43,44 | uk_pv_s2d_s2d_s{seed}
 
 # --- 2. cheap config-only trains: one knob, no new code ----------------------
@@ -151,5 +155,10 @@ A37 | train | s2d | vision_chronos2_s2d        | 42,43,44 | uk_pv_s1_selfattn_s{
 # intended behaviour rather than a failure.
 A36s2d| train | s2d | vision_chronos2_s2d       | 42,43,44 | uk_pv_s1_a36_s{seed}
 
-# --- 4. conditional: only if A38's eval moves ramp NMAE > 0.0011 -------------
-# A38t | train | s2d | vision_chronos2_s2d      | 42,43,44 | uk_pv_s1_selfattn_s{seed}
+# --- 4. conditional: FIRED. A38's eval moved ramp NMAE +0.0039 = 3.6x the -----
+# 0.0011 floor (n=2 seeds, 42/43; SS -0.0152 = 4.1x its floor), so the selection
+# rule is not inert and A38t is live. A38 asked whether random selection hurts
+# weights TRAINED on novelty-selected tokens; A38t retrains under random and
+# asks whether novelty selection is better on its own terms, or whether s2d had
+# merely co-adapted to it. Both readings survive A38; only A38t separates them.
+A38t | train | s2d | vision_chronos2_s2d       | 42,43,44 | uk_pv_s1_selfattn_s{seed}

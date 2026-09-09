@@ -4,10 +4,22 @@
 # start instead of being handed it at test time.
 #
 # Launch this only if A38 (eval-only) moves ramp NMAE by more than the seed
-# floor (0.0011). If A38 is null and A38t is also null, EVS's novelty score is
-# doing nothing and the manuscript must say so. If A38 is null but A38t is not,
-# the novelty rule shapes what the projector learns rather than what the
-# encoder attends to — a different and more interesting claim.
+# floor (0.0011). **It did — LIVE as of 2026-09-09.** A38 came back at
+# ramp NMAE +0.0039 (3.6x floor) and SS -0.0152 (4.1x floor) over 2 seeds, both
+# in the same direction, so the selection rule is not inert at inference.
+#
+# What A38 CANNOT tell us, and this arm can: s2d's projector and its 3 unfrozen
+# encoder blocks were trained on novelty-selected tokens. Handing them a random
+# subset at test time is a distribution shift, and some of A38's degradation is
+# that shift rather than the rule being worse. A38t removes the shift by
+# training under random selection from the start. If A38t recovers s2d's ramp
+# number, the novelty rule is a co-adaptation the model could have learned
+# around and the honest claim is "EVS is one workable token budget, not a
+# necessary one". If A38t still loses, novelty selection carries real
+# information and the ablation supports the mechanism as written.
+#
+# (The pre-run branches this file used to list — A38 null / A38t null — are
+# moot; A38 was not null.)
 #
 # Base: uk_pv_s1_selfattn_s{seed}/best.ckpt (NOT the s2d checkpoint — this arm
 # must learn under random selection, not inherit a novelty-trained projector).
