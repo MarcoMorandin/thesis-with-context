@@ -1,7 +1,7 @@
 \chapter{MMTSFM: Deep Multimodal Fusion on Frozen Backbones}
 \label{cha:method}
 
-This chapter presents the proposed architecture. MMTSFM couples a frozen time-series
+This chapter presents the proposed architecture. MMTSFM couples a largely fixed time-series
 foundation model with a frozen video foundation model through two mechanisms that, to the
 best of this work's knowledge, have not previously been combined: \emph{selective temporal
 interleaving}, which places visual tokens inside the time-series sequence but only within a
@@ -377,10 +377,10 @@ magnitude. The design is built for the second regime.
 \hline
 \textbf{Component} & \textbf{Origin} & \textbf{Status by stage} \\
 \hline
-Chronos-2 patch embedding & pretrained & frozen from S2a \\
-Group self-attention ($\times 12$) & pretrained & frozen S2a--S2b, trainable S3 \\
-Feed-forward ($\times 12$) & pretrained & frozen S2a--S2b, trainable S3 \\
-Temporal mixer ($\times 12$) & \textbf{from scratch} (Grassmann) & trainable throughout \\
+Chronos-2 patch embedding & \textbf{reinitialised} & trainable throughout \\
+Group self-attention & pretrained & last 3 of 6 blocks trainable at $0.1\times$ LR \\
+Feed-forward & pretrained & last 3 of 6 blocks trainable at $0.1\times$ LR \\
+Temporal mixer ($\times 6$) & \textbf{from scratch} (Grassmann) & trainable throughout \\
 V-JEPA 2.1 ViT-L/16 & pretrained & frozen; last four blocks unfrozen in S2a \\
 Latent summariser & \textbf{from scratch} & trainable from S2a \\
 Cross-modal adapter (late only) & \textbf{from scratch} & trainable in S2a \\
@@ -400,6 +400,19 @@ stack'' in the research question --- the claim is not that no parameter is updat
 the pretrained representations are preserved and the new machinery is confined to the
 interfaces between them.
 
+Stated precisely, so that the word ``frozen'' is not read more strongly than the
+implementation supports: Chronos-2 is \emph{fine-tuned on the train plants in Stage~1}, and
+thereafter held fixed \emph{except} its last three of six encoder blocks, which continue to
+train at $0.1\times$ the base learning rate together with the re-initialised patch
+embeddings. Two consequences follow, and both are stated rather than elided. The weights
+held fixed are not the pretrained ones but a PV-adapted checkpoint; and half the encoder is
+still adapting while the visual path is learned. Whether the visual path in fact
+\emph{needs} that adaptation capacity --- that is, whether a genuinely frozen backbone
+($n_{\text{unfreeze}} = 0$) reads the sky as well --- is measured directly by the ablation
+study and is not assumed here. V-JEPA~2.1, by contrast, is frozen in
+the literal sense: it is consumed from a precomputed latent cache and receives no gradient
+in any stage.
+
 \subsection{The failure mode this guards against}
 
 An untrained module inserted into a pretrained residual stream produces two problems at once.
@@ -412,9 +425,10 @@ built to exploit.
 Three mechanisms guard against it here. The gated fusion in the Grassmann mixer
 (Section~\ref{sec:grassmann}) allows the operator to behave as the identity, so the block can
 pass the residual stream through unchanged until the mixer is useful. The warmup schedule in
-Stage~1 anneals that gate over two thousand steps. And the curriculum freezes the pretrained
-backbone entirely while the visual interface is learned, so that gradients from the newly
-initialised summariser cannot reach it.
+Stage~1 anneals that gate over two thousand steps. And the curriculum holds the pretrained
+backbone fixed apart from its top three encoder blocks, which train at $0.1\times$ LR, while
+the visual interface is learned --- so gradients from the newly initialised summariser reach
+at most the top half of the encoder, and never at full step size.
 
 \section{Group attention and the encoder block}
 \label{sec:block}

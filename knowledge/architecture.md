@@ -172,9 +172,34 @@ initialized modules corrupt pretrained residual streams.
 | Stage | Fusion | Vision | Chronos | Purpose |
 |-------|--------|--------|---------|---------|
 | **S1** | — (vision skipped) | off | trainable + Grassmann warmup (2000 steps) | TS pretraining; anchor the mixer before it can corrupt the residual stream |
-| **S2a** | late | V-JEPA last-4 unfrozen *(intended — see ⚠ below)* | frozen | learn the V-JEPA→Chronos mapping against a stable late-fusion target |
-| **S2b** | interleaved | V-JEPA re-frozen | frozen except mixer | teach the mixer cross-modal (TS↔visual) geometry |
+| **S2a** | late | V-JEPA last-4 unfrozen *(intended — see ⚠ below)* | "frozen" *(see ⚠ freeze semantics)* | learn the V-JEPA→Chronos mapping against a stable late-fusion target |
+| **S2b** | interleaved | V-JEPA re-frozen | "frozen" except mixer | teach the mixer cross-modal (TS↔visual) geometry |
+| **S2d** | interleaved_raw | V-JEPA frozen (cached latents) | "frozen" *(same policy as S2b — `stage/s2d.yaml` sets it deliberately identical)* | learn the pixel-shuffle projector; the arm of record |
 | **S3** | interleaved | progressive unfreeze *(intended — see ⚠ below)* | all trainable | full joint fine-tuning |
+
+> ⚠ **"Frozen Chronos-2" is not literally true, in two separate ways. Do not write it
+> unqualified.** (Ticket 43.)
+>
+> 1. **`freeze_chronos: true` is a partial freeze.** Every vision model config
+>    (`vision_chronos2_{s2d,s2c,timeselfattn,grassmann,headline,narrow,wide}.yaml`) sets
+>    `n_unfreeze_encoder_blocks: 3`, and the backbone is `num_layers: 6`, so **half the
+>    encoder trains** — at `backbone_lr_ratio: 0.1`, i.e. 0.1× LR, not zero
+>    (`lightning_module.py:245-254`). `input_patch_embedding`, `output_patch_embedding`,
+>    `shared` and (s2c only) `visual_cross_attn` are held trainable by name on top of that
+>    (`lightning_module.py:225-243`), because they are re-initialised or new.
+>    (Several of those configs' inline comments say "last 3/12 encoder blocks" — stale;
+>    the stack has been 6 blocks in every arm.)
+> 2. **The weights being frozen are not the pretrained ones.** `stage/s1.yaml` sets
+>    `freeze_chronos: false`, so the s1 checkpoint that every vision arm warm-starts from is
+>    a **fully fine-tuned** Chronos-2. `stage/s3.yaml` likewise.
+>
+> Correct wording, to be used verbatim in the manuscript and the paper: *"Chronos-2
+> fine-tuned on the train plants (s1), then held fixed except its last 3 of 6 encoder blocks
+> at 0.1× LR while the visual path trains."*
+>
+> Whether the strong claim is *also* true — i.e. whether s2d needs those 3 blocks — is
+> what **A39** (`n_unfreeze_encoder_blocks: 0`) measures. The prose fix above ships
+> regardless of A39's outcome.
 
 > ⚠ **The V-JEPA unfreeze never happens in the runs of record.**
 > `slurm_curriculum.sh` exports `VJEPA_CACHE` for s2a/s2b/s3 → `data.vjepa_cache_dir`
