@@ -280,6 +280,15 @@ class VisionChronos2Config:
     #                     visual tokens come from VisualPatchProjector (pixel shuffle
     #                     + MLP + EVS) instead of the LatentSummarizer, and they carry
     #                     FRACTIONAL positions. No resampler anywhere in the path.
+    # "late_raw"        → ticket 28 / A43, s2d's payload with s2b's PLACEMENT: the
+    #                     same projector tokens in the same sequence order, but all
+    #                     sharing ONE integer position at the co-temporal TS token
+    #                     instead of spreading fractionally across it. Completes the
+    #                     payload x position 2x2 against s2b (pooled+integer) and
+    #                     s2d (raw+fractional), so H2 is testable with one knob.
+    #                     A literal group-axis late fusion (s2a's mechanism) is not
+    #                     buildable here: K=98 visual tokens do not fit a T_full=45
+    #                     group row without inventing a spurious time axis for them.
 
     # --- s2d / A30 (fusion_mode="interleaved_raw") ---
     # Pixel-shuffle factor: 2 gives Nemotron's 4x token reduction, 14x14 -> 7x7.
@@ -296,6 +305,16 @@ class VisionChronos2Config:
     # slot [T_M, T_M+0.99]; a wrong value rescales the visual positions but keeps
     # their order.
     visual_position_span_seconds: float = 28800.0
+    # A37 / ticket 41 — how the r*r patch block is merged before the projector.
+    # "shuffle" concatenates (lossless, s2d); "avg" mean-pools (lossy foil, same
+    # token count). Changes proj[0].in_features, so "avg" cannot warm-start from
+    # an s2d checkpoint.
+    visual_pool_mode: str = "shuffle"
+    # A38 / ticket 42 — EVS selection rule. "novelty" is the shipped temporal
+    # dissimilarity score; "random" keeps the same COUNT at uniform random, which
+    # is the length-matched foil the (length-confounded) A30-d q-sweep lacked.
+    # Parameter-free either way, so this is a pure eval-time knob.
+    visual_evs_mode: str = "novelty"
 
     visual_encoder_ckpt_path: str = ""
     freeze_visual_encoder: bool = True
@@ -487,11 +506,18 @@ class VisionChronos2Model(nn.Module):
             # a summarizer left in the module would put unused `latent_queries` in
             # the state_dict and, worse, make "did the summarizer cause it?" ask a
             # question about a tensor that is still there.
-            self.raw_visual: bool = vision_config.fusion_mode == "interleaved_raw"
+            # Both raw arms build the projector and skip the summarizer; they
+            # differ only in how the resulting tokens are positioned (see the
+            # fusion_mode comment above and the position_ids branch in forward).
+            self.raw_visual: bool = vision_config.fusion_mode in (
+                "interleaved_raw",
+                "late_raw",
+            )
+            self.late_raw: bool = vision_config.fusion_mode == "late_raw"
             if self.raw_visual:
                 if vision_config.n_soft_tokens > 1:
                     raise ValueError(
-                        "fusion_mode='interleaved_raw' with n_soft_tokens="
+                        f"fusion_mode='{vision_config.fusion_mode}' with n_soft_tokens="
                         f"{vision_config.n_soft_tokens}: the adapter fan-out copies "
                         "one vector N times and adds no information (A13 was null by "
                         "construction). Widen with visual_evs_keep instead."
@@ -504,6 +530,8 @@ class VisionChronos2Model(nn.Module):
                     n_cells=vision_config.visual_n_cells,
                     evs_keep=vision_config.visual_evs_keep,
                     dropout=vision_config.dropout,
+                    pool_mode=vision_config.visual_pool_mode,
+                    evs_mode=vision_config.visual_evs_mode,
                 )
                 n_sub = 1
             else:
@@ -583,6 +611,7 @@ class VisionChronos2Model(nn.Module):
             self.latent_summarizer = None
             self.patch_projector = None
             self.raw_visual = False
+            self.late_raw = False
             self.cross_modal_adapter = None
 
         self.multimodal_embed = MultimodalEmbedding(
@@ -1043,7 +1072,11 @@ class VisionChronos2Model(nn.Module):
             # see s2c the same way they see every other arm.
             visual_active = vis_on
 
-        if use_video and self.vcfg.fusion_mode in ("interleaved", "interleaved_raw"):
+        if use_video and self.vcfg.fusion_mode in (
+            "interleaved",
+            "interleaved_raw",
+            "late_raw",
+        ):
             # --- Interleaved fusion path (s2b, and s2d via `raw_visual`) ---
             # Works for both Variant A (use_grassmann=True) and Variant B (use_grassmann=False)
             #
@@ -1058,7 +1091,8 @@ class VisionChronos2Model(nn.Module):
             n_vis = min(self.vcfg.n_visual_context_steps, T_ctx)
             if self.raw_visual and n_vis != 1:
                 raise ValueError(
-                    f"fusion_mode='interleaved_raw' needs n_visual_context_steps=1, "
+                    f"fusion_mode='{self.vcfg.fusion_mode}' needs "
+                    f"n_visual_context_steps=1, "
                     f"got {self.vcfg.n_visual_context_steps}. The whole visual window "
                     "falls inside ONE 8-hour TS patch, so there is exactly one "
                     "co-temporal TS token to interleave against (design doc §3.3); "
@@ -1265,7 +1299,7 @@ class VisionChronos2Model(nn.Module):
             all_group_ids = group_ids
 
             # Position IDs: TS and vis tokens at same step share position
-            if self.raw_visual:
+            if self.raw_visual and not self.late_raw:
                 # s2d: the K visual tokens spread across [T_M, T_M+0.99] by Δt, so a
                 # frame permutation (A09) changes the sequence — `_apply_eval_control`
                 # permutes video_latents and visual_mask but NOT video_delta_t, so the
@@ -1279,6 +1313,10 @@ class VisionChronos2Model(nn.Module):
                     span_seconds=self.vcfg.visual_position_span_seconds,
                 )
             else:
+                # s2b and late_raw (A43): every visual token in the block shares the
+                # co-temporal TS position, so RoPE sees them as order-free and the
+                # future token stays at T_M+1 exactly as in s2d — the ONLY thing
+                # that differs from s2d is that the positions are integer.
                 position_ids = build_interleaved_position_ids(
                     T_M, n_vis, T_fut, device, n_soft=N_vis_tok
                 ).expand(B, -1)

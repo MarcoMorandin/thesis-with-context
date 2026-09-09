@@ -1,0 +1,24 @@
+# @package _global_
+# A38-eval — random EVS selection, EVAL ONLY (ticket 42). Kills: "EVS is just a
+# sequence-length knob; the novelty score does no work."
+#
+# evs_mode="random" keeps the SAME 98-token budget but draws the subset
+# uniformly at random instead of by temporal cosine dissimilarity. The rule is
+# parameter-free, so it can be swapped in on an already-trained s2d checkpoint:
+# no retrain needed to ask whether the selection RULE matters at inference.
+# That is what A30-d's q-sweep could not answer, because varying q varies the
+# sequence length at the same time.
+#
+# Run this FIRST — minutes per seed, eval only. Train the A38t variant only if
+# this moves ramp NMAE by more than the seed floor (0.0011); a null here means
+# the trained model works with whatever tokens it is handed, and the retrain is
+# the only way to separate "rule matters during learning" from "rule matters at
+# inference" — a second, cheaper-to-skip question.
+#
+# Base: uk_pv_s2d_s2d_s{seed}/best.ckpt, seeds 42/43/44.
+train: false
+test: true
+model:
+  vision_cfg:
+    visual_evs_mode: random
+  compute_marginal_gain: true

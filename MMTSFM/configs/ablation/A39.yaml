@@ -1,0 +1,23 @@
+# @package _global_
+# A39 — genuinely frozen TSFM (ticket 43). Kills: "the paper says the time-series
+# backbone is frozen while the visual path trains, and it is not."
+#
+# s2d sets freeze_chronos: true but n_unfreeze_encoder_blocks: 3, so 3 of the 6
+# encoder blocks keep training at 0.1x LR (lightning_module.py:245-254). The
+# claim "frozen TSFM" appears twice in the writeup and is false as written.
+# Two fixes, both required:
+#   (a) prose — knowledge/architecture.md 2.6 and the manuscript must say
+#       "Chronos-2 fine-tuned on train plants (s1), then held fixed except its
+#       last 3 encoder blocks while the visual path trains";
+#   (b) this arm — the number for what the honest-strong version of the claim
+#       would have been, so the paper can report both.
+#
+# n_unfreeze_encoder_blocks: 0 makes the encoder actually frozen. Pure config,
+# no code. If A39 retains most of s2d's gain, the strong claim is recoverable
+# and worth reporting as the headline; if it collapses, the 3-block unfreeze is
+# load-bearing and the corrected wording is the only honest option.
+#
+# Base: uk_pv_s1_selfattn_s{seed}/best.ckpt, seeds 42/43/44.
+model:
+  n_unfreeze_encoder_blocks: 0
+  compute_marginal_gain: true

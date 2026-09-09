@@ -1,0 +1,15 @@
+# A36 — the s1 (vision-free) arm of the history-only-covariates ablation, ticket 40.
+#
+# Byte-identical model to vision_chronos2_timeselfattn by inheritance, NOT by copy:
+# A36 changes `data.future_cov`, nothing about the model, so any drift between the
+# two files would silently turn a covariate ablation into a model ablation.
+#
+# It exists only so the run gets a DIFFERENT NAME. slurm_curriculum.sh derives both
+# the checkpoint directory and the results tag from MODEL_CFG (`variant_slug` ->
+# ARM_SUFFIX), so launching A36's s1 as timeselfattn would write into
+# `uk_pv_s1_selfattn_s{seed}` and over `mmtsfm_s1_ukpv_selfattn_s{seed}.json` —
+# clobbering the shipped s1 that A37/A39/A43 warm-start from. With this file the run
+# lands in `uk_pv_s1_a36_s{seed}` / `mmtsfm_s1_ukpv_a36_s{seed}` instead.
+defaults:
+  - vision_chronos2_timeselfattn
+  - _self_

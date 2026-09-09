@@ -56,6 +56,15 @@ class MMTSFMDataModule(LightningDataModule):
         visual_frame_spacing_min: float | None = None,  # None -> window / Tv
         vjepa_cache_dir: Optional[str] = None,
         emit_vision: bool = True,  # False for vision-free runs (skip frame decode + latents)
+        # A36 / ticket 40 — what the covariate block carries over the HORIZON.
+        # "all" (default, and what every recorded MMTSFM number was produced
+        # under) exposes the full 14-covariate protocol block as known future,
+        # NWP-style irradiance included. "deterministic" zeroes everything that
+        # is not knowable in advance and keeps only solar geometry / calendar /
+        # clearsky GHI (`baselines/common/config.py::DETERMINISTIC_COVS`), which
+        # is the history-only regime ticket 40 asks about. Validated downstream
+        # by `WindowDataset`; ignored by the synthetic dataset.
+        future_cov: str = "all",
         # pv_record TRAIN window stride. Default None → stride 1 (every step is a
         # window origin). uk_pv stride-1 ≈ 1.36M train windows — set >1 to bound
         # epoch size AND the pre-extracted V-JEPA cache (extractor must use the
@@ -106,6 +115,7 @@ class MMTSFMDataModule(LightningDataModule):
                 h5_path=self.hparams.h5_path,
                 vjepa_cache_dir=self.hparams.vjepa_cache_dir,
                 emit_vision=self.hparams.emit_vision,
+                future_cov=self.hparams.future_cov,
                 stride=self.hparams.train_stride if split == "train" else None,
             )
         return MMTSFMDataset(

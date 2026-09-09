@@ -1,0 +1,28 @@
+# @package _global_
+# A36s2d — history-only covariates, VISION arm (ticket 40). Kills: "the vision gain is an
+# artefact of being handed next-6h NWP irradiance as a known future input."
+#
+# Every recorded MMTSFM number was produced at future_cov="all": the full
+# 14-covariate protocol block, cloudcover and the four irradiance channels
+# included, is exposed over the horizon. "deterministic" zeroes every covariate
+# that is not knowable in advance and keeps solar_zenith / solar_azimuth /
+# doy_sin / doy_cos / solar_time / clearsky_ghi
+# (baselines/common/config.py::DETERMINISTIC_COVS). That is the "history-only"
+# regime ticket 40 asks for; the ticket's word "history" is the
+# tier2/nf_itransformer vocabulary, WindowDataset's is "deterministic" — same
+# thing, and the datamodule passes the string through unvalidated so the wrong
+# one raises at dataset construction rather than training a silent confound.
+#
+# Two arms, and the second MUST warm-start from the first:
+#   A36-s1  — +stage=s1, no vision, seeds 42/43/44, model=vision_chronos2_a36
+#   A36-s2d — model=vision_chronos2_s2d +stage=s2d, warm start uk_pv_s1_a36_s{seed}
+# That base name is not a choice: slurm_curriculum.sh builds it from MODEL_CFG via
+# variant_slug(), so A36's s1 must run under vision_chronos2_a36 (an inheritance-only
+# copy of vision_chronos2_timeselfattn) or it overwrites the shipped s1 that A37/A39/A43
+# warm-start from.
+# Warm-starting A36-s2d from the EXISTING s1 would carry an all-covariate
+# numeric optimum into the history-only comparison and confound the whole point.
+data:
+  future_cov: deterministic
+model:
+  compute_marginal_gain: true

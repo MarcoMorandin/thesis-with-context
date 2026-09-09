@@ -1,0 +1,18 @@
+# @package _global_
+# A38-train — random EVS selection, TRAINED (ticket 42). The follow-up arm to
+# A38: same knob, but the model gets to adapt to random selection from the
+# start instead of being handed it at test time.
+#
+# Launch this only if A38 (eval-only) moves ramp NMAE by more than the seed
+# floor (0.0011). If A38 is null and A38t is also null, EVS's novelty score is
+# doing nothing and the manuscript must say so. If A38 is null but A38t is not,
+# the novelty rule shapes what the projector learns rather than what the
+# encoder attends to — a different and more interesting claim.
+#
+# Base: uk_pv_s1_selfattn_s{seed}/best.ckpt (NOT the s2d checkpoint — this arm
+# must learn under random selection, not inherit a novelty-trained projector).
+# Seeds 42/43/44.
+model:
+  vision_cfg:
+    visual_evs_mode: random
+  compute_marginal_gain: true

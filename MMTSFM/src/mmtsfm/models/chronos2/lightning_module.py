@@ -1146,6 +1146,14 @@ class VisionChronos2LightningModule(LightningModule):
                     "progressive_vision_unfreeze",
                 )
             },
+            # Data-side provenance. Only the keys that change what the model
+            # SEES and that an ablation actually varies — the rest of the data
+            # config is fixed by the protocol and already pinned by the dataset
+            # of record. `future_cov` is A36 / ticket 40: with "all" the horizon
+            # carries NWP-style irradiance as known input, with "deterministic"
+            # it carries solar geometry only, and two runs that differ in it are
+            # not comparable. Absent datamodule (unit tests) → None, not a crash.
+            "data": self._data_cfg(),
             "eval_control": getattr(hp, "eval_control", "none"),
             # True marks a control that is a no-op on this architecture: the Δ
             # in this file is an ARCHITECTURAL null, not an empirical one, and
@@ -1154,6 +1162,26 @@ class VisionChronos2LightningModule(LightningModule):
                 getattr(hp, "eval_control_allow_inert", False)
             ),
             "compute_marginal_gain": getattr(hp, "compute_marginal_gain", False),
+        }
+
+    def _data_cfg(self) -> Dict[str, Any]:
+        """Datamodule keys that change the model's inputs, for the manifest."""
+        dm = getattr(getattr(self, "trainer", None), "datamodule", None)
+        dm_hp = getattr(dm, "hparams", None)
+        if dm_hp is None:
+            return {}
+        return {
+            key: getattr(dm_hp, key, None)
+            for key in (
+                "dataset_name",
+                "future_cov",
+                "visual_window_hours",
+                "visual_frame_spacing_min",
+                "video_frames",
+                "emit_vision",
+                "train_stride",
+                "num_entities",
+            )
         }
 
     def on_test_epoch_end(self):

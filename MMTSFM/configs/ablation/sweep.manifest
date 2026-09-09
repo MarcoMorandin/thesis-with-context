@@ -32,15 +32,15 @@
 # is that null recorded deliberately as an ARCHITECTURAL claim; one seed is
 # enough because the output equals the plain s2c test JSON exactly, for every
 # seed, by construction. See configs/ablation/A09.yaml.
-A09i| eval  | s2c | vision_chronos2_s2c        | 42       | uk_pv_s2c_s2c_s{seed}
+# RETIRED 2026-09-07 (s2b/s2c out of scope): A09i| eval  | s2c | vision_chronos2_s2c        | 42       | uk_pv_s2c_s2c_s{seed}
 # A10 needs data.shuffle_test=true (set in its own config): the protocol test
 # loader is series-major, so an ordered batch is ONE plant and no sample can be
 # handed a DIFFERENT plant's sky.
-A10 | eval  | s2c | vision_chronos2_s2c        | 42,43,44 | uk_pv_s2c_s2c_s{seed}
+# RETIRED 2026-09-07 (s2b/s2c out of scope): A10 | eval  | s2c | vision_chronos2_s2c        | 42,43,44 | uk_pv_s2c_s2c_s{seed}
 # A10b = same plant, sky one horizon stale. This is what the pre-2026-09 runs
 # labelled A10 actually measured; it separates "reads THIS sky" from "reads A
 # sky from this site", which is the claim the 4x4 grid has to support.
-A10b| eval  | s2c | vision_chronos2_s2c        | 42,43,44 | uk_pv_s2c_s2c_s{seed}
+# RETIRED 2026-09-07 (s2b/s2c out of scope): A10b| eval  | s2c | vision_chronos2_s2c        | 42,43,44 | uk_pv_s2c_s2c_s{seed}
 # A09 on s2a is the negative control's own control: if late fusion degrades as
 # much as s2c under shuffling, the control measures something other than motion.
 # It is ALSO the only arm where A09 is falsifiable at all — and only if that arm
@@ -59,33 +59,97 @@ A10b| eval  | s2c | vision_chronos2_s2c        | 42,43,44 | uk_pv_s2c_s2c_s{seed
 # A10 | eval  | s2a | <MODEL_CFG>              | 42,43,44 | uk_pv_s2a<SUFFIX>
 
 # --- 2. the attribution pair: grid vs decoder granularity --------------------
-A17 | train | s2c | vision_chronos2_s2c        | 42,43,44 | uk_pv_s1_selfattn_s{seed}
-A22 | train | s2c | vision_chronos2_s2c        | 42,43,44 | uk_pv_s1_selfattn_s{seed}
+# RETIRED 2026-09-07 (s2b/s2c out of scope): A17 | train | s2c | vision_chronos2_s2c        | 42,43,44 | uk_pv_s1_selfattn_s{seed}
+# RETIRED 2026-09-07 (s2b/s2c out of scope): A22 | train | s2c | vision_chronos2_s2c        | 42,43,44 | uk_pv_s1_selfattn_s{seed}
 # A29 is the third leg: A17/A22 split grid vs decoder INSIDE s2c, A29 splits the
 # spatially resolved payload from the forecast-side query by giving s2b s2c's exact
 # 4x4x4 payload through a widened LatentSummarizer. STAGE is s2b (interleaved) but
 # MODEL_CFG is s2c's, so everything except the fusion route is held fixed against
 # A16. See knowledge/ablations.md §2.2.2.
-A29 | train | s2b | vision_chronos2_s2c        | 42,43,44 | uk_pv_s1_selfattn_s{seed}
+# RETIRED 2026-09-07 (s2b/s2c out of scope): A29 | train | s2b | vision_chronos2_s2c        | 42,43,44 | uk_pv_s1_selfattn_s{seed}
 
 # --- 3. is A01's negative result clean? -------------------------------------
-A23 | train | s2a | vision_chronos2            | 42,43,44 | uk_pv_s1_selfattn_s{seed}
+# RETIRED 2026-09-07 (s2b/s2c out of scope): A23 | train | s2a | vision_chronos2            | 42,43,44 | uk_pv_s1_selfattn_s{seed}
 
 # --- 4. mechanism honesty ----------------------------------------------------
-A19 | train | s2c | vision_chronos2_s2c        | 42,43,44 | uk_pv_s1_selfattn_s{seed}
-A27 | train | s2c | vision_chronos2_s2c        | 42,43,44 | uk_pv_s1_selfattn_s{seed}
+# RETIRED 2026-09-07 (s2b/s2c out of scope): A19 | train | s2c | vision_chronos2_s2c        | 42,43,44 | uk_pv_s1_selfattn_s{seed}
+# RETIRED 2026-09-07 (s2b/s2c out of scope): A27 | train | s2c | vision_chronos2_s2c        | 42,43,44 | uk_pv_s1_selfattn_s{seed}
 
 # --- 5. component-by-component effectiveness table (n=1 look, not a verdict) --
-A24 | train | s2c | vision_chronos2_s2c        | 42       | uk_pv_s1_selfattn_s{seed}
-A25 | train | s2c | vision_chronos2_s2c        | 42       | uk_pv_s1_selfattn_s{seed}
-A26 | train | s2c | vision_chronos2_s2c        | 42       | uk_pv_s1_selfattn_s{seed}
-A18a| train | s2c | vision_chronos2_s2c        | 42       | uk_pv_s1_selfattn_s{seed}
-A18b| train | s2c | vision_chronos2_s2c        | 42       | uk_pv_s1_selfattn_s{seed}
+# RETIRED 2026-09-07 (s2b/s2c out of scope): A24 | train | s2c | vision_chronos2_s2c        | 42       | uk_pv_s1_selfattn_s{seed}
+# RETIRED 2026-09-07 (s2b/s2c out of scope): A25 | train | s2c | vision_chronos2_s2c        | 42       | uk_pv_s1_selfattn_s{seed}
+# RETIRED 2026-09-07 (s2b/s2c out of scope): A26 | train | s2c | vision_chronos2_s2c        | 42       | uk_pv_s1_selfattn_s{seed}
+# RETIRED 2026-09-07 (s2b/s2c out of scope): A18a| train | s2c | vision_chronos2_s2c        | 42       | uk_pv_s1_selfattn_s{seed}
+# RETIRED 2026-09-07 (s2b/s2c out of scope): A18b| train | s2c | vision_chronos2_s2c        | 42       | uk_pv_s1_selfattn_s{seed}
 
 # --- 6. follow-ups -----------------------------------------------------------
-A20 | train | s2c | vision_chronos2_s2c        | 42       | uk_pv_s1_selfattn_s{seed}
-A28 | train | s2c | vision_chronos2_s2c        | 42       | uk_pv_s1_selfattn_s{seed}
+# RETIRED 2026-09-07 (s2b/s2c out of scope): A20 | train | s2c | vision_chronos2_s2c        | 42       | uk_pv_s1_selfattn_s{seed}
+# RETIRED 2026-09-07 (s2b/s2c out of scope): A28 | train | s2c | vision_chronos2_s2c        | 42       | uk_pv_s1_selfattn_s{seed}
 # A21 (visual_grid=14) is deliberately COMMENTED OUT: it is only worth running if
 # A17 comes back positive, and its KV token count is ~784/sample against s2c's 64
 # — it needs its own BATCH_SIZE. Uncomment and set SWEEP_BATCH once A17 lands.
 # A21 | train | s2c | vision_chronos2_s2c      | 42       | uk_pv_s1_selfattn_s{seed}
+
+
+# =============================================================================
+# WAVE 3 — s2d (A30 / interleaved_raw). The only arms in scope for the paper.
+# =============================================================================
+# Everything above this line is the s2b/s2c wave and is commented out: those
+# arms answer questions about a destination the project no longer has. Rows
+# below are ordered by decision value per GPU-hour — cheapest kill first, so an
+# early null stops the wave instead of being discovered after 30 node-hours.
+#
+# BASE, verified against `ls $CKPT_DIR`:
+#   uk_pv_s1_selfattn_s{seed}  — the s1 fine-tune every s2* arm warm-starts from
+#   uk_pv_s2d_s2d_s{seed}      — the shipped s2d checkpoint (MODEL_CFG
+#                                vision_chronos2_s2d → `_s2d_` infix, per the
+#                                naming rule in the ⚠ note above)
+
+# --- 1. eval-only: minutes, and A38 can retire ticket 42 on its own ----------
+# A38 swaps EVS's novelty rule for uniform random ON THE TRAINED s2d WEIGHTS.
+# Parameter-free (tests/test_s2d_component_ablations.py asserts the state_dicts
+# match), so no fit is needed to ask whether the SELECTION RULE matters at
+# inference. Escalate to A38t only if ramp NMAE moves by more than the seed
+# floor 0.0011.
+A38 | eval  | s2d | vision_chronos2_s2d        | 42,43,44 | uk_pv_s2d_s2d_s{seed}
+
+# --- 2. cheap config-only trains: one knob, no new code ----------------------
+# A39 — n_unfreeze_encoder_blocks=0, i.e. the "frozen TSFM" the writeup already
+# claims twice. Ticket 43. The prose fix lands regardless; this row decides
+# whether the strong claim is also TRUE.
+A39 | train | s2d | vision_chronos2_s2d        | 42,43,44 | uk_pv_s1_selfattn_s{seed}
+# A43 — late_raw. s2d's payload at s2b's integer position: isolates H2
+# (fractional sub-patch placement) with one knob. Ticket 28.
+A43 | train | s2d | vision_chronos2_s2d        | 42,43,44 | uk_pv_s1_selfattn_s{seed}
+# A37 — avg pooling instead of pixel shuffle. Isolates H1 (sub-cell detail)
+# with token count held fixed. Ticket 41. proj[0].in_features changes, so this
+# CANNOT warm-start from s2d — s1 base is mandatory, not a convenience.
+A37 | train | s2d | vision_chronos2_s2d        | 42,43,44 | uk_pv_s1_selfattn_s{seed}
+
+# --- 3. the expensive one: two chained arms, both seeds-complete -------------
+# A36 — history-only covariates (ticket 40). The s2d arm MUST warm-start from
+# the A36 s1 arm, not from the existing all-covariate s1, or the comparison
+# inherits an optimum found under the covariates it is meant to remove. That
+# dependency is why these are two rows and why the second cannot be submitted
+# until the first has written its checkpoints.
+# A36s1 is NOT submittable through this sweep and is commented out on purpose:
+# the BASE column is a mandatory, submit-time-checked checkpoint file, and an s1
+# arm starts from the PRETRAINED Chronos-2, not from a checkpoint on scratch.
+# Launch it with slurm_curriculum.sh, once per seed:
+#   START_STAGE=s1 END_STAGE=s1 SEED=<42|43|44> \
+#   MODEL_CFG=vision_chronos2_a36 EXTRA_OVERRIDES="+ablation=A36s1" \
+#   bash scripts/slurm_curriculum.sh
+# MODEL_CFG is vision_chronos2_a36, NOT vision_chronos2_timeselfattn, even though
+# the two compose to an identical model: slurm_curriculum.sh derives the
+# checkpoint dir and the results tag from MODEL_CFG, so timeselfattn would write
+# straight into uk_pv_s1_selfattn_s{seed} and destroy the s1 that A37/A39/A43
+# warm-start from. Listed here so the wave is readable in one place.
+# A36s1 | train | s1  | vision_chronos2_a36     | 42,43,44 | <pretrained Chronos-2>
+# A36s2d BASE is A36s1's output directory — uk_pv_s1_a36_s{seed}, the name
+# variant_slug() gives that MODEL_CFG. Submit only after A36s1 completes; the
+# manifest's submit-time existence check will refuse it otherwise, which is the
+# intended behaviour rather than a failure.
+A36s2d| train | s2d | vision_chronos2_s2d       | 42,43,44 | uk_pv_s1_a36_s{seed}
+
+# --- 4. conditional: only if A38's eval moves ramp NMAE > 0.0011 -------------
+# A38t | train | s2d | vision_chronos2_s2d      | 42,43,44 | uk_pv_s1_selfattn_s{seed}

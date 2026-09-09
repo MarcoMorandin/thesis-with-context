@@ -1,0 +1,23 @@
+# @package _global_
+# A37 — average pooling instead of pixel shuffle (ticket 41). Kills: "the gain
+# comes from having 98 visual tokens, not from what is inside them."
+#
+# avg mean-pools each 2x2 patch block to [B,T,49,1024] and projects 1024 ->
+# d_model -> d_model. Token COUNT, token ORDER, fractional positions, EVS rule,
+# cell embedding and the whole interleaved assembly are byte-identical to s2d.
+# The single difference is that the four sub-cells are averaged rather than
+# concatenated, i.e. the pooling operation s2d exists to remove is put back in
+# the one place it can be isolated.
+#
+# Prediction under H1 (content grounding is real): A37 loses most of s2d's ramp
+# gain (0.1440 -> back toward s2a's 0.1503) while sequence length is unchanged.
+# If A37 matches s2d, the ramp gain is a length/attention-budget effect and the
+# "resampler-free detail" story in the manuscript is dead.
+#
+# proj[0].in_features becomes 1024 (not 4096), so this arm CANNOT warm-start
+# from an s2d checkpoint. Base is uk_pv_s1_selfattn_s{seed}/best.ckpt, exactly
+# like s2d itself. Train, n=3, seeds 42/43/44.
+model:
+  vision_cfg:
+    visual_pool_mode: avg
+  compute_marginal_gain: true

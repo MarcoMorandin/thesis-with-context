@@ -1,0 +1,26 @@
+# @package _global_
+# A43 — late_raw: s2d's payload at s2b's position (ticket 28). Isolates H2
+# ("fractional positions inside the last context patch are what makes the raw
+# tokens usable") with exactly one knob.
+#
+# The 2x2 this completes:
+#                   pooled payload      raw payload
+#   integer pos     s2b (out of scope)  A43  <- this arm
+#   fractional pos  --                  s2d
+#
+# Mechanically: identical projector, identical 98 tokens, identical sequence
+# ORDER (interleave_sequences at n_vis=1 already emits [ctx..., v_1..v_K]).
+# The only difference is that build_interleaved_position_ids puts all 98 tokens
+# at the single integer position T_M instead of spreading them fractionally
+# across [T_M, T_M+0.99] by frame delta-t. Future token stays at T_M+1 either way.
+#
+# NOTE a literal group-axis late fusion (s2a's mechanism, rows stacked on dim=0)
+# is not buildable for this payload: 98 visual tokens do not fit a T_full=45
+# group row without inventing a spurious time axis for them. That is why "late"
+# here means "one shared integer position", not "a separate group row".
+#
+# Base: uk_pv_s1_selfattn_s{seed}/best.ckpt, seeds 42/43/44.
+model:
+  vision_cfg:
+    fusion_mode: late_raw
+  compute_marginal_gain: true
