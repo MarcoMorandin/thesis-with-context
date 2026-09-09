@@ -21,16 +21,25 @@
 #
 # What it does, and what it does NOT buy you
 # ------------------------------------------
-# Each pack is `--nodes=1 --gres=gpu:4 --cpus-per-task=32` and runs a work queue:
-# four ablations at a time, a freed GPU takes the next. Against four separate
-# `--gres=gpu:1` jobs that is the SAME node-hours — Leonardo bills allocated
-# resources and four quarter-nodes equal one node — so this is not a way to
-# stretch the IscrC_MTSFM budget. What it buys:
+# A TRAIN pack is `--nodes=1 --gres=gpu:4 --cpus-per-task=32` and runs a work
+# queue: four ablations at a time, a freed GPU takes the next. Against four
+# separate `--gres=gpu:1` jobs that is the SAME node-hours — Leonardo bills
+# allocated resources and four quarter-nodes equal one node — so this is not a
+# way to stretch the IscrC_MTSFM budget. What it buys:
 #
 #   - one queue wait per pack instead of one per ablation;
 #   - one env + data warm-up amortised over every run in the pack;
 #   - no hand-typed sbatch line (and so no hand-typed wrong PREV_CKPT);
 #   - a continuation chain that resumes whatever the 24 h cap cut off.
+#
+# An EVAL pack is sized separately: `--gres=gpu:${EVAL_GPUS}` (1),
+# `--cpus-per-task=${EVAL_GPUS} * ${CPUS_PER_GPU}` (8) and
+# `--time=${EVAL_TIME}` (00:30:00). Scoring a handful of existing checkpoints is
+# minutes of work; asking backfill for a whole node for 24 h to do it is how
+# `ONLY=A38 NPACKS=1` came to sit PENDING for 1h30. The class is re-derived per
+# pack from the MODE column of the lines that actually landed in it, so it is
+# right even when NPACKS=1 collapses the eval/train split. A MIXED pack takes
+# the train sizing — one train row needs the full node and the full walltime.
 #
 # What it can COST, if used carelessly: tail idle. When a pack runs out of queued
 # jobs, finished GPUs sit allocated and idle until the last run ends. Keep
@@ -68,8 +77,18 @@ DS="${DS:-uk_pv}"
 TRAIN_STRIDE="${TRAIN_STRIDE:-12}"
 ACCOUNT="${ACCOUNT:-IscrC_MTSFM}"
 PARTITION="${PARTITION:-boost_usr_prod}"
-SWEEP_TIME="${SWEEP_TIME:-24:00:00}"     # boost_usr_prod cap
-GPUS="${GPUS:-4}"                        # GPUs per pack = Booster node width
+SWEEP_TIME="${SWEEP_TIME:-24:00:00}"     # boost_usr_prod cap — TRAIN packs
+GPUS="${GPUS:-4}"                        # GPUs per TRAIN pack = Booster node width
+# Eval packs are minutes of work, not hours. Asking for a whole node for 24 h to
+# score three checkpoints is unschedulable by backfill: A38's 3-run eval sat
+# PENDING 1h30 behind a reservation it could not possibly need. The manifest
+# already knows which rows are `eval`; these are what that knowledge buys.
+EVAL_TIME="${EVAL_TIME:-00:30:00}"
+EVAL_GPUS="${EVAL_GPUS:-1}"
+# A Booster node is 4x A100 / 32 cores, so a GPU's share is 8 cores. Requesting
+# 32 with `gpu:1` reserves a whole node's CPUs anyway and defeats the point —
+# which is why lowering GPUS alone did not fix the pending.
+CPUS_PER_GPU="${CPUS_PER_GPU:-8}"
 NPACKS="${NPACKS:-4}"                    # nodes to spread the sweep over
 CHAIN="${CHAIN:-1}"                      # linked resubmissions per pack
 # Per-stage micro-batch + accumulation, matching slurm_curriculum.sh so an
@@ -191,9 +210,13 @@ _assign "$P_SHORT" "$P_LONG" ${IDX_LONG[@]+"${IDX_LONG[@]}"}
 echo "=============================================================="
 echo " MMTSFM ABLATION SWEEP   ${SWEEP_ID}"
 echo " manifest=${MANIFEST}   ds=${DS}   jobs=${NJOBS}"
-echo " packs=${NPACKS} x ${GPUS} GPU   chain=${CHAIN}   walltime=${SWEEP_TIME}"
+echo " packs=${NPACKS}   chain=${CHAIN}"
+echo " sizing: train pack = ${GPUS} GPU / $(( GPUS * CPUS_PER_GPU )) cores / ${SWEEP_TIME}"
+echo "         eval  pack = ${EVAL_GPUS} GPU / $(( EVAL_GPUS * CPUS_PER_GPU )) cores / ${EVAL_TIME}"
 echo " layout: ${n_short} eval → ${P_SHORT} pack(s), $(( NJOBS - n_short )) train → ${P_LONG} pack(s)"
-echo " concurrency=$(( NPACKS * GPUS )) runs at once   job files → ${SWEEP_DIR}/pack*.jobs"
+echo " (a pack's class is re-read from its own job lines below, so an all-eval"
+echo "  pack gets eval sizing even when the split above put it in the long group)"
+echo " job files → ${SWEEP_DIR}/pack*.jobs"
 echo "=============================================================="
 
 [[ "$DRY_RUN" == "1" ]] || command -v sbatch >/dev/null || {
@@ -209,8 +232,26 @@ for (( p=0; p<NPACKS; p++ )); do
   # A group can end up with fewer jobs than packs. Submitting the empty one
   # would allocate a whole node for a worker that exits FATAL on an empty slice.
   (( n_in_pack > 0 )) || { echo "  pack ${p} empty — not submitted"; continue; }
+
+  # Cost class is read from what actually LANDED in this pack, not from the
+  # P_SHORT/P_LONG split: when NPACKS=1 the split collapses and every job —
+  # eval rows included — is assigned to the "long" group, which is precisely the
+  # `ONLY=A38 NPACKS=1` case that queued for 1h30. A pack every one of whose
+  # jobs is `eval` is an eval pack however it got that way; a MIXED pack must
+  # take the train sizing, because one train row needs the full walltime.
+  if [[ -z "$(cut -d'|' -f2 "$job_file" | grep -v '^eval$' || true)" ]]; then
+    pack_class="eval"; pack_gpus="$EVAL_GPUS"; pack_time="$EVAL_TIME"
+  else
+    pack_class="train"; pack_gpus="$GPUS"; pack_time="$SWEEP_TIME"
+  fi
+  # Never allocate more GPUs than there are runs to put on them: those slots are
+  # idle from the first second, not merely at the tail.
+  (( pack_gpus > n_in_pack )) && pack_gpus="$n_in_pack"
+  (( pack_gpus < 1 )) && pack_gpus=1
+  pack_cpus=$(( pack_gpus * CPUS_PER_GPU ))
+
   exports="ALL,JOB_FILE=${job_file},DATA_DIR=${DATA_DIR},CKPT_DIR=${CKPT_DIR}"
-  exports+=",RESULTS_DIR=${RESULTS_DIR},GPUS=${GPUS},TRAIN_STRIDE=${TRAIN_STRIDE}"
+  exports+=",RESULTS_DIR=${RESULTS_DIR},GPUS=${pack_gpus},TRAIN_STRIDE=${TRAIN_STRIDE}"
   exports+=",VJEPA_CACHE=${VJEPA_CACHE_ROOT}/${DS}/${VJEPA_CACHE_VER}"
   exports+=",N_VIS=$(nvis_for "$DS")"
   sp="$(sp_ref_for "$DS")"; [[ -n "$sp" ]] && exports+=",SP_REF=${sp}"
@@ -231,8 +272,10 @@ for (( p=0; p<NPACKS; p++ )); do
       echo "  PACK=${p}"
       echo "  JOB_FILE=${job_file}"
       echo "  NJOBS_IN_PACK=${n_in_pack}"
-      echo "  GPUS=${GPUS}"
-      echo "  TIME=${SWEEP_TIME}"
+      echo "  CLASS=${pack_class}"
+      echo "  GPUS=${pack_gpus}"
+      echo "  CPUS=${pack_cpus}"
+      echo "  TIME=${pack_time}"
       echo "  DEPENDENCY=${DEP[*]:-<none>}"
       while IFS='|' read -r t _; do echo "  TAG=${t}"; done < "$job_file"
       prev_jid="dry$((p * 100 + c))"
@@ -240,10 +283,10 @@ for (( p=0; p<NPACKS; p++ )); do
     fi
     jid="$(sbatch --parsable "${DEP[@]}" "${MAIL[@]}" \
       --job-name="$name" --account="$ACCOUNT" --partition="$PARTITION" \
-      --nodes=1 --gres="gpu:${GPUS}" --cpus-per-task=32 \
-      --time="$SWEEP_TIME" --export="$exports" \
+      --nodes=1 --gres="gpu:${pack_gpus}" --cpus-per-task="${pack_cpus}" \
+      --time="$pack_time" --export="$exports" \
       scripts/ablation_pack.sbatch)" || { echo "sbatch failed for ${name}"; exit 1; }
-    echo "  submitted ${name}  jid=${jid}  (${n_in_pack} runs)${prev_jid:+  afterany:${prev_jid}}"
+    echo "  submitted ${name}  jid=${jid}  (${n_in_pack} runs, ${pack_class}, ${pack_gpus} GPU, ${pack_time})${prev_jid:+  afterany:${prev_jid}}"
     prev_jid="$jid"
   done
 done
