@@ -1,0 +1,69 @@
+# @package _global_
+# Stage 2e — canonical multi-anchor interleaving, still without a resampler.
+#
+# s2d put ONE visual anchor in the sequence, at fractional positions inside the
+# last context patch. A43 then moved that anchor to an integer position and
+# measured null on every metric, which retired "placement" as a contribution.
+# It did not retire interleaving: with n_visual_context_steps=1 there is exactly
+# one (sky, power) pair in context, and a mapping cannot be fitted from one
+# point. s2e builds the layout the literature means by the word —
+#
+#   TS x37 | TS V | TS V | TS V | TS V | TS V | future        (n_vis = 5)
+#
+# — and is the first time this repo runs it on the raw path. Ticket 45 / A44.
+#
+# The freeze policy, the projector, the payload and the optimiser are held
+# identical to s2d. The ONLY things that move are the anchor count and the data
+# ladder that makes 5 anchors physically available.
+#
+# Warm-start from the STAGE-1 checkpoint, exactly as s2d, s2c and A29 do — not
+# from s2d itself. s2d's projector was fit against fractional sub-patch
+# positions and a single anchor; importing it would carry the single-anchor
+# optimum into the comparison it is supposed to be measured against.
+#   START_STAGE=s2e END_STAGE=s2e INIT_CKPT=<uk_pv_s1_selfattn_sNN/best.ckpt>
+model:
+  freeze_chronos: true
+  grassmann_warmup_steps: 0
+  # Same LR-gated projector warmup as s2d (Nemotron §3.1.1). An LR gate, not a
+  # requires_grad toggle — flipping requires_grad mid-run re-buckets DDP grads.
+  projector_warmup_steps: 500
+  vision_cfg:
+    skip_vision_stack: false
+    fusion_mode: interleaved_raw
+    freeze_visual_encoder: true
+    visual_dropout_prob: 0.5
+    numeric_dropout_prob: 0.1
+data:
+  emit_vision: true
+  # --- Burst ladder (ticket 45) ---------------------------------------------
+  # 20 frames drawn as FIVE dense bursts of 4, each burst starting 8 h before the
+  # last, with the proven 45-min step kept INSIDE each burst. Offsets are
+  # (k // 4) * 8 h + (k % 4) * 45 min, so the oldest frame sits at 34.25 h.
+  #
+  # Not a stretched uniform ladder, and that distinction is the whole design:
+  #   * csi autocorrelation is ~0.78 at 45 min and ~0 at 5 h (s2d design §3.3),
+  #     and V-JEPA tubelets span temporal stride 2 — a uniform 5 h ladder would
+  #     decorrelate the two frames inside a single tubelet, degrading the
+  #     LATENTS before any of this arm's code runs;
+  #   * EVS scores cosine dissimilarity to the previous frame, so decorrelated
+  #     frames score ~1.0 everywhere and the ranking becomes noise. That is
+  #     A38's `random` arm, measured at +0.0039 ramp NMAE, 3.6x the seed floor.
+  # Bursts spend the distance on the GAPS, where no frame is drawn at all.
+  #
+  # An anchor must be CO-TEMPORAL with its TS token, not tile it: the burst
+  # start carries the integer position id, so the stride is 8.0 h exactly —
+  # one input_patch_size * 30 min patch. A mislabelled age is A10b (-0.135 SS).
+  #
+  # Night is not a gap: v2 non-HRV channels are IR, not visible
+  # (knowledge/dataset.md:117-130), so every anchor carries real cloud signal.
+  #
+  # Disk: T_lat = 20/2 = 10 against s2d's 4, i.e. 525 G against the control's
+  # measured 210 G. Extract to a SEPARATE directory — cache keys are
+  # {dataset}_{site}_{origin} and do NOT encode the ladder, so only the
+  # directory name keeps the two apart:
+  #   VJEPA_CACHE_VER=vit_large_f20_s224_nonhrv_sp45_a8h
+  video_frames: 20
+  visual_window_hours: 36.0        # covers 4*8 h + 2.25 h burst span = 34.25 h
+  visual_frame_spacing_min: 45.0   # UNCHANGED from s2d — the proven in-burst step
+  visual_anchor_stride_hours: 8.0  # exactly one Chronos-2 input patch
+  visual_frames_per_anchor: 4      # 20 / 4 = 5 bursts = 5 anchors

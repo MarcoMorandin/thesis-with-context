@@ -1,0 +1,129 @@
+_target_: mmtsfm.models.chronos2.lightning_module.VisionChronos2LightningModule
+
+# ---- Chronos-2 backbone ----
+# Byte-for-byte vision_chronos2_s2d.yaml's backbone. s2e is the canonical
+# multi-anchor arm (ticket 45 / A44) and exists to answer one question that A43
+# could not: does interleaving help when there is more than ONE (sky, power) pair
+# in the sequence? A43 moved a single anchor between two positions and measured
+# null, which falsifies *placement*, not interleaving — a mapping cannot be
+# fitted from one point. Everything below that is not the anchor count is held
+# identical to s2d on purpose.
+pretrained_model_name_or_path: "amazon/chronos-2"
+chronos_core_cfg:
+  d_model: 512
+  d_kv: 64
+  d_ff: 2048
+  num_layers: 6
+  num_heads: 8
+  dropout_rate: 0.1
+  layer_norm_epsilon: 1.0e-6
+  initializer_factor: 0.05
+  feed_forward_proj: relu
+  rope_theta: 10000.0
+  use_grassmann: false
+  grassmann_reduced_dim: 32
+  grassmann_window_offsets: [1, 2, 4, 8, 12, 16]
+  grassmann_modality_pair_bias: true
+  attn_implementation: sdpa
+  # 0: no cross-attention module is built. Vision goes into the sequence, not
+  # through a side channel — same as s2d.
+  visual_cross_attn_blocks: 0
+  chronos_config:
+    context_length: 2048   # covers the 14-day protocol history (uk_pv 672 steps)
+    input_patch_size: 16
+    input_patch_stride: 16
+    output_patch_size: 16
+    quantiles: [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+    use_reg_token: false
+    use_arcsinh: true
+    max_output_patches: 4
+
+# ---- Vision modules ----
+vision_cfg:
+  visual_encoder_ckpt_path: ""
+  freeze_visual_encoder: true
+  skip_vision_stack: false
+
+  # No LatentSummarizer, no CrossModalAdapter — the user constraint that defines
+  # this line of arms. The V-JEPA patch field goes pixel-shuffle -> MLP projector
+  # -> sequence. s2b's ~800:1 learned-query bottleneck is what ticket 13 measured
+  # as the ceiling, so no resampler appears anywhere in this arm either.
+  fusion_mode: "interleaved_raw"
+
+  # THE change. One TS token spans input_patch_size * cadence = 16 * 30 min = 8 h,
+  # so 5 anchors need a visual window reaching back 5 patches = 40 h; the burst
+  # ladder in stage/s2e.yaml supplies 36 h of coverage (oldest frame at 34.25 h),
+  # which clears the (n_vis - 1) * 8 h data-coverage guard at
+  # vision_chronos2.py:1184. That guard is not cosmetic: pointing n_vis=5 at
+  # s2d's 6 h cache would emit five tokens describing the SAME recent sky under
+  # five different claimed timestamps, which is A10b's stale-sky condition
+  # (-0.135 SS, worse than no sky at all). It raises rather than runs.
+  #
+  # Sequence: T_M = T_ctx - n_vis = 42 - 5 = 37 macro TS tokens, then five
+  # (TS, 20 visual) blocks, then the future token:
+  #   TS x37 | TS V*20 | TS V*20 | TS V*20 | TS V*20 | TS V*20 | future  = 143
+  # against s2d's 141. Positions are INTEGER — one shared id per (TS, V) block,
+  # via build_interleaved_position_ids — not s2d's fractional sub-patch scheme,
+  # which was the single-anchor workaround. With real anchors the canonical
+  # integer scheme is the correct one and is what the word "interleaving" names.
+  n_visual_context_steps: 5
+
+  # Meaningless on the raw path (it fans a pooled vector out downstream of a
+  # summarizer that does not exist here) and >1 raises.
+  n_soft_tokens: 1
+  adapter_type: linear
+  adapter_n_layers: 2
+  summarizer_n_heads: 4
+
+  # --- Resampler-free visual path (VisualPatchProjector) ---
+  # r=2 space-to-depth: 14x14x1024 -> 7x7x4096, the four merged sub-patches
+  # CONCATENATED. Note honestly: A37 (2026-09-11) found average pooling is not
+  # worse but BETTER (+0.0054 SS past the 0.0037 floor), so the "concatenation
+  # preserves detail" motivation is withdrawn as stated. r=2 is kept here anyway
+  # because A44's comparand is s2d, and swapping the payload at the same time as
+  # the anchor count would confound the one variable this arm exists to move.
+  # An A37-style avg-pool variant of s2e is a follow-up, not this run.
+  visual_shuffle_r: 2
+  visual_n_cells: 49          # (14/2)^2; asserted against the real grid at forward time
+  # 100, not s2d's 98, because EVS now budgets PER ANCHOR: evs_groups is wired to
+  # n_visual_context_steps, so keep must divide by 5 (20 tokens per anchor drawn
+  # from that anchor's own frames). A global top-K over all anchors would slice a
+  # globally-ranked list arbitrarily and group i would not hold anchor i's tokens.
+  # Each anchor offers T_lat/n_vis * n_cells = 2 * 49 = 98 candidates for its 20.
+  # Sequence length is static at 42 + 100 + 1 = 143.
+  visual_evs_keep: 100
+  # One TS patch = 8 h. Here this is the ANCHOR STRIDE as well as the position
+  # span: bursts start exactly 8 h apart so each is co-temporal with exactly one
+  # TS token. A burst straddling two patches would mislabel its own age.
+  visual_position_span_seconds: 28800.0
+
+  visual_dropout_prob: 0.5   # matches s2b/s2c/s2d
+  numeric_dropout_prob: 0.1
+  dropout: 0.1
+  n_entities: 0
+
+# ---- Optimiser & schedule ----
+lr: 1.0e-4
+weight_decay: 1.0e-2
+warmup_steps: 500
+min_lr_ratio: 0.1
+horizon: ${data.horizon}
+
+# ---- Training strategy ----
+# Identical to s2b / s2c / s2d. The attribution only holds if the freeze policy
+# is the same everywhere. (A39 showed n_unfreeze_encoder_blocks=0 is null on
+# accuracy and costs calibration; 3 stays for comparability with s2d.)
+freeze_chronos: true
+n_unfreeze_encoder_blocks: 3
+backbone_lr_ratio: 0.1
+
+# ---- Protocol evaluation ----
+results_dir: results
+# Overridden by the launcher's TAG (stage_cmd.sh sets model.results_tag), kept
+# consistent here so a hand-run without a launcher still lands somewhere sane.
+results_tag: mmtsfm_A44_s2e_ukpv
+sp_reference_path: null
+
+# The forced vision-OFF pass is what separates "five anchors taught the model to
+# calibrate on sky" from "the recipe happened to help".
+compute_marginal_gain: true
