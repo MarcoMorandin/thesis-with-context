@@ -280,3 +280,139 @@ class TestVisionOffPreservesLength:
             m.forward(**kw)
             m.forward(**kw, force_vision_off=True)
         assert store["seq"][0] == store["seq"][1]
+
+
+# ---------------------------------------------------------------------------
+# Ticket 45 — canonical multi-anchor interleaving on the raw path
+# ---------------------------------------------------------------------------
+
+
+def _wide_inputs(B: int = 2, n_vis: int = 2, span: float = 28800.0):
+    """`_inputs` with a visual window actually wide enough for `n_vis` anchors.
+
+    The shipped fixture spans 3 h (one 8 h TS patch), which is the s2d geometry.
+    Multi-anchor needs `n_vis` patches of coverage or the data-coverage guard
+    fires — deliberately, since that is the A10b stale-sky condition.
+    """
+    kw = _inputs(B=B)
+    newest, oldest = 1800.0, n_vis * span
+    kw["video_delta_t"] = torch.linspace(oldest, newest, T_LAT)[None, :].expand(B, -1)
+    return kw
+
+
+class TestPerAnchorEVS:
+    """EVS must budget per anchor, not rank globally, once `n_vis > 1`.
+
+    The caller regroups the flat kept tokens with
+    `vis_summary.reshape(B, n_vis, N_vis_tok, d)`. A global top-K over
+    `T*n_cells` would slice one ranked list arbitrarily, so block *i* would not
+    hold anchor *i*'s tokens and the interleaved sequence would be temporally
+    scrambled while still having the right shape — a silent failure.
+    """
+
+    def test_each_group_contributes_its_own_frames(self):
+        torch.manual_seed(0)
+        B, T, C, d = 2, 4, 16, 8
+        tokens = torch.randn(B, T, C, d)
+        keep, n_groups = 8, 2
+        _, frame_idx, _ = evs_select(tokens, keep, n_groups=n_groups)
+        assert frame_idx.shape == (B, keep)
+        per = keep // n_groups
+        # First half must come from frames [0, 2), second half from [2, 4).
+        assert (frame_idx[:, :per] < T // n_groups).all()
+        assert (frame_idx[:, per:] >= T // n_groups).all()
+        assert (frame_idx < T).all()
+
+    def test_frame_zero_of_every_anchor_is_pinned(self):
+        torch.manual_seed(1)
+        tokens = torch.randn(1, 4, 16, 8)
+        _, frame_idx, _ = evs_select(tokens, 8, n_groups=2)
+        # novelty pins each anchor's own first frame, not just the global first
+        assert 0 in frame_idx[0, :4].tolist()
+        assert 2 in frame_idx[0, 4:].tolist()
+
+    def test_n_groups_one_is_the_shipped_behaviour(self):
+        torch.manual_seed(2)
+        tokens = torch.randn(2, 4, 16, 8)
+        a = evs_select(tokens, 8)
+        b = evs_select(tokens, 8, n_groups=1)
+        for x, y in zip(a, b):
+            assert torch.equal(x, y)
+
+    @pytest.mark.parametrize(
+        "keep,n_groups,match", [(7, 2, "divisible"), (8, 3, "evenly")]
+    )
+    def test_rejects_ragged_splits(self, keep, n_groups, match):
+        tokens = torch.randn(1, 4, 16, 8)
+        with pytest.raises(ValueError, match=match):
+            evs_select(tokens, keep, n_groups=n_groups)
+
+
+class TestMultiAnchorInterleaving:
+    def test_sequence_is_canonical_and_positions_are_integer(self):
+        n_vis, evs_keep = 2, 8
+        m = _make_raw_model(evs_keep=evs_keep, n_vis=n_vis)
+        m.eval()
+        store = {}
+        _seq_len_hook(m, store)
+        with torch.no_grad():
+            m.forward(**_wide_inputs(n_vis=n_vis))
+        # T_ctx = CTX_LEN / input_patch_size = 8, so T_M = 8 - n_vis.
+        n_tok = evs_keep // n_vis
+        expected = (8 - n_vis) + n_vis * (1 + n_tok) + 1
+        assert store["seq"][0] == expected, (
+            f"expected TS TS .. | TS V*{n_tok} | TS V*{n_tok} | future = {expected}"
+        )
+        # Multi-anchor uses the canonical integer scheme, not s2d's fractional
+        # sub-patch workaround — that existed only because n_vis was pinned to 1.
+        assert store["frac"][0] == 0
+
+    def test_single_anchor_still_fractional(self):
+        m = _make_raw_model(evs_keep=8, n_vis=1)
+        m.eval()
+        store = {}
+        _seq_len_hook(m, store)
+        with torch.no_grad():
+            m.forward(**_inputs())
+        assert store["frac"][0] > 0, "s2d must keep its sub-patch positions"
+
+    def test_narrow_window_refused(self):
+        """A10b guard: a 3 h cache at n_vis=2 would mislabel stale sky as current."""
+        m = _make_raw_model(evs_keep=8, n_vis=2)
+        m.eval()
+        with pytest.raises(ValueError, match="stale-sky|visual window spans"):
+            with torch.no_grad():
+                m.forward(**_inputs())
+
+    def test_indivisible_keep_refused(self):
+        m = _make_raw_model(evs_keep=7, n_vis=2)
+        m.eval()
+        with pytest.raises(ValueError, match="not divisible"):
+            with torch.no_grad():
+                m.forward(**_wide_inputs(n_vis=2))
+
+    def test_late_raw_still_single_anchor(self):
+        from mmtsfm.models.chronos2 import VisionChronos2Config, VisionChronos2Model
+
+        vcfg = VisionChronos2Config(
+            fusion_mode="late_raw",
+            n_visual_context_steps=2,
+            n_soft_tokens=1,
+            visual_shuffle_r=2,
+            visual_n_cells=N_CELLS,
+            visual_evs_keep=8,
+            visual_position_span_seconds=28800.0,
+            visual_dropout_prob=0.0,
+            dropout=0.0,
+        )
+        m = VisionChronos2Model(
+            chronos_model=_make_chronos2(d_model=D_MODEL, context_length=CTX_LEN),
+            vision_config=vcfg,
+            video_encoder=_make_fake_video_encoder(
+                d_v=D_V, t_lat=T_LAT, h_lat=GRID0, w_lat=GRID0
+            ),
+        )
+        m.eval()
+        with pytest.raises(ValueError, match="late_raw"):
+            with torch.no_grad():
+                m.forward(**_wide_inputs(n_vis=2))

@@ -65,7 +65,7 @@ def avg_pool_tokens(x: torch.Tensor, r: int) -> torch.Tensor:
 
 
 def evs_select(
-    tokens: torch.Tensor, keep: int, mode: str = "novelty"
+    tokens: torch.Tensor, keep: int, mode: str = "novelty", n_groups: int = 1
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Efficient Video Sampling — keep ``keep`` tokens out of ``T*n_cells``.
 
@@ -83,6 +83,16 @@ def evs_select(
     re-sorted ascending, so the kept sequence stays in (frame, cell) order and
     the sequence length is a fixed ``keep``.
 
+    ``n_groups > 1`` (ticket 45, canonical multi-anchor interleaving) splits the
+    frame axis into ``n_groups`` contiguous temporal anchors and gives each its
+    own budget of ``keep // n_groups``, ranked only against its own frames. A
+    global top-K would slice one ranked list arbitrarily, so the caller's later
+    ``reshape(B, n_vis, N_vis_tok, d)`` would not put anchor *i*'s tokens in
+    block *i* — the blocks would be temporally scrambled. Folding groups into the
+    batch axis and recursing keeps every rule identical per anchor: novelty's
+    pinned frame-0 ``+inf`` becomes a per-anchor pin for free, and ``"random"``
+    stays uniform within each anchor.
+
     Nemotron applies EVS at runtime only (§2.3); here it is inside training too —
     a deliberate deviation, flagged in the design doc §5.2.
 
@@ -90,15 +100,47 @@ def evs_select(
         tokens: ``[B, T, n_cells, d]``
         keep: number of tokens to retain; ``>= T*n_cells`` is a no-op.
         mode: ``"novelty"`` | ``"random"``.
+        n_groups: temporal anchors to budget separately. ``1`` (default) is the
+            shipped s2d behaviour — one global ranking over the whole window.
 
     Returns:
         kept:      ``[B, keep, d]``
-        frame_idx: ``[B, keep]`` long — source frame of each kept token
+        frame_idx: ``[B, keep]`` long — source frame of each kept token, in the
+                   ORIGINAL ``[0, T)`` numbering even when grouped
         cell_idx:  ``[B, keep]`` long — source spatial cell of each kept token
     """
     if mode not in EVS_MODES:
         raise ValueError(f"unknown EVS mode: {mode!r}; expected one of {EVS_MODES}")
     B, T, C, d = tokens.shape
+
+    if n_groups > 1:
+        if T % n_groups != 0:
+            raise ValueError(
+                f"cannot split {T} latent frames into {n_groups} anchors evenly"
+            )
+        if keep % n_groups != 0:
+            raise ValueError(
+                f"EVS keep={keep} is not divisible by n_groups={n_groups}; every "
+                "anchor must carry the same token count or the interleaved blocks "
+                "are ragged"
+            )
+        T_g, keep_g = T // n_groups, keep // n_groups
+        grouped = tokens.reshape(B * n_groups, T_g, C, d)
+        kept, frame_idx, cell_idx = evs_select(grouped, keep_g, mode=mode)
+        # keep_g >= T_g*C is a no-op inside the recursion and returns the whole
+        # anchor, so read the realised count back rather than trusting keep_g.
+        keep_g = kept.shape[1]
+        # Frame indices come back local to each anchor; lift them back onto the
+        # original [0, T) clock so the caller's Δt gather still lines up.
+        offset = (
+            torch.arange(n_groups, device=tokens.device).repeat_interleave(keep_g) * T_g
+        )
+        return (
+            kept.reshape(B, n_groups * keep_g, d),
+            frame_idx.reshape(B, n_groups * keep_g) + offset[None, :],
+            cell_idx.reshape(B, n_groups * keep_g),
+        )
+
     N = T * C
     flat = tokens.reshape(B, N, d)
     if keep >= N:
@@ -142,6 +184,11 @@ class VisualPatchProjector(nn.Module):
             cannot warm-start from an s2d checkpoint — train it from s1.
         evs_mode: ``"novelty"`` (s2d) | ``"random"`` (A38). Parameter-free, so
             an ``evs_mode`` foil CAN be evaluated on an existing s2d checkpoint.
+        evs_groups: temporal anchors to budget EVS over separately — set this to
+            ``n_visual_context_steps``. ``1`` (s2d) ranks the whole window at
+            once; ``>1`` (ticket 45) gives each interleaved anchor its own
+            ``evs_keep // evs_groups`` tokens drawn from its own frames, which is
+            what makes the caller's per-anchor regrouping temporally coherent.
     """
 
     def __init__(
@@ -154,6 +201,7 @@ class VisualPatchProjector(nn.Module):
         dropout: float = 0.1,
         pool_mode: str = "shuffle",
         evs_mode: str = "novelty",
+        evs_groups: int = 1,
     ):
         super().__init__()
         if pool_mode not in POOL_MODES:
@@ -167,6 +215,7 @@ class VisualPatchProjector(nn.Module):
         self.shuffle_r = int(shuffle_r)
         self.n_cells = int(n_cells)
         self.evs_keep = int(evs_keep)
+        self.evs_groups = max(1, int(evs_groups))
         self.pool_mode = pool_mode
         self.evs_mode = evs_mode
         d_in = d_v * self.shuffle_r * self.shuffle_r if pool_mode == "shuffle" else d_v
@@ -202,4 +251,4 @@ class VisualPatchProjector(nn.Module):
         x = self.dropout(self.proj(x))
         x = x + self.cell_embed[None, None, :, :]
         keep = self.evs_keep if self.evs_keep > 0 else x.shape[1] * self.n_cells
-        return evs_select(x, keep, mode=self.evs_mode)
+        return evs_select(x, keep, mode=self.evs_mode, n_groups=self.evs_groups)

@@ -19,6 +19,12 @@
 #
 #   sbatch scripts/extract_vjepa.sbatch                       # uk_pv, all splits
 #   DATASET=uk_pv SPLITS="train val test" TRAIN_STRIDE=12 sbatch scripts/extract_vjepa.sbatch
+#
+# Burst ladder (ticket 45) — dense bursts one TS patch apart instead of a uniform
+# ladder. --time below is sized for the 8-frame pass; override it for more frames.
+#   VIDEO_FRAMES=20 VISUAL_SPACING_MIN=45 ANCHOR_STRIDE_H=8.0 FRAMES_PER_ANCHOR=4 \
+#   VISUAL_WINDOW_H=36.0 VJEPA_CACHE_VER=vit_large_f20_s224_nonhrv_sp45_a8h \
+#     sbatch --time=20:00:00 scripts/extract_vjepa.sbatch
 # =============================================================================
 set -uo pipefail
 
@@ -46,6 +52,14 @@ VISUAL_WINDOW_H="${VISUAL_WINDOW_H:-6.0}"
 # VISUAL_WINDOW_H (6h / 8 = 45 min). Latents from one spacing are meaningless
 # for another, so the spacing is part of the cache identity below.
 VISUAL_SPACING_MIN="${VISUAL_SPACING_MIN:-}"
+# Burst sampling (ticket 45). Both empty => the uniform ladder, unchanged. Set
+# together to draw VIDEO_FRAMES as VIDEO_FRAMES/FRAMES_PER_ANCHOR dense bursts,
+# each starting ANCHOR_STRIDE_H before the last. The stride must equal the
+# Chronos-2 patch span (8 h on uk_pv) so each burst is co-temporal with exactly
+# one TS token; a burst that straddles two patches mislabels its own age, which
+# A10b priced at -0.135 SS.
+ANCHOR_STRIDE_H="${ANCHOR_STRIDE_H:-}"
+FRAMES_PER_ANCHOR="${FRAMES_PER_ANCHOR:-}"
 VJEPA_CACHE_ROOT="${VJEPA_CACHE_ROOT:-/leonardo_work/IscrC_MTSFM/vjepa_cache}"
 CACHE_VER="${VJEPA_CACHE_VER:-${VJEPA_ARCH}_f${VIDEO_FRAMES}_s${IMG_SIZE}}"
 CACHE_DIR="${CACHE_DIR:-${VJEPA_CACHE_ROOT}/${DATASET}/${CACHE_VER}}"
@@ -53,6 +67,7 @@ CACHE_DIR="${CACHE_DIR:-${VJEPA_CACHE_ROOT}/${DATASET}/${CACHE_VER}}"
 echo ">>> extract V-JEPA latents  dataset=${DATASET}  splits=[${SPLITS}]"
 echo "    cache_dir=${CACHE_DIR}  train_stride=${TRAIN_STRIDE}  frames=${VIDEO_FRAMES}  img=${IMG_SIZE}"
 echo "    data_dir=${DATA_DIR}  window_h=${VISUAL_WINDOW_H}  spacing_min=${VISUAL_SPACING_MIN:-auto}"
+echo "    anchor_stride_h=${ANCHOR_STRIDE_H:-none}  frames_per_anchor=${FRAMES_PER_ANCHOR:-none}"
 mkdir -p "$CACHE_DIR"
 
 # ---------------------------------------------------------------------------
@@ -70,6 +85,18 @@ META="${CACHE_DIR}/_extract_meta.txt"
 SIG="data_dir=${DATA_DIR}|arch=${VJEPA_ARCH}|frames=${VIDEO_FRAMES}|img=${IMG_SIZE}"
 SIG="${SIG}|window_h=${VISUAL_WINDOW_H}|spacing_min=${VISUAL_SPACING_MIN:-auto}"
 SIG="${SIG}|train_stride=${TRAIN_STRIDE}"
+# The burst ladder changes WHICH timestamps every latent describes while leaving
+# frames/img/window untouched, so it has to be part of the identity or two
+# different ladders would look identical here. Appended ONLY when set: a uniform
+# run must reproduce the legacy 7-field signature byte for byte, or every cache
+# written before ticket 45 -- the s2d control included -- would fail this guard.
+if [[ -n "$ANCHOR_STRIDE_H" || -n "$FRAMES_PER_ANCHOR" ]]; then
+  [[ -n "$ANCHOR_STRIDE_H" && -n "$FRAMES_PER_ANCHOR" ]] || {
+    echo "FATAL: set ANCHOR_STRIDE_H and FRAMES_PER_ANCHOR together, or neither." >&2
+    exit 1
+  }
+  SIG="${SIG}|anchor_stride_h=${ANCHOR_STRIDE_H}|frames_per_anchor=${FRAMES_PER_ANCHOR}"
+fi
 if [[ -f "$META" ]]; then
   PREV="$(cat "$META")"
   if [[ "$PREV" != "$SIG" ]]; then
@@ -94,12 +121,17 @@ for split in $SPLITS; do
   declare -a STRIDE=(); [[ "$split" == "train" ]] && STRIDE=(--stride "$TRAIN_STRIDE")
   declare -a SPACING=()
   [[ -n "$VISUAL_SPACING_MIN" ]] && SPACING=(--visual-frame-spacing-min "$VISUAL_SPACING_MIN")
+  declare -a BURST=()
+  [[ -n "$ANCHOR_STRIDE_H" ]] && BURST=(
+    --visual-anchor-stride-hours "$ANCHOR_STRIDE_H"
+    --visual-frames-per-anchor "$FRAMES_PER_ANCHOR"
+  )
   echo ">>> [${DATASET}/${split}]"
   uv run python scripts/extract_video_embeddings.py \
     --encoder vjepa2 --vjepa-arch "$VJEPA_ARCH" \
     --dataset "$DATASET" --split "$split" \
     --video-frames "$VIDEO_FRAMES" --img-size "$IMG_SIZE" --imagenet-norm \
-    --visual-window-hours "$VISUAL_WINDOW_H" "${SPACING[@]}" \
+    --visual-window-hours "$VISUAL_WINDOW_H" "${SPACING[@]}" "${BURST[@]}" \
     --data-dir "$DATA_DIR" --cache-dir "$CACHE_DIR" \
     --batch-size "$BATCH_SIZE" --num-workers "$NUM_WORKERS" "${STRIDE[@]}" \
     || { echo "FATAL: extraction failed for ${DATASET}/${split}"; exit 1; }

@@ -532,6 +532,12 @@ class VisionChronos2Model(nn.Module):
                     dropout=vision_config.dropout,
                     pool_mode=vision_config.visual_pool_mode,
                     evs_mode=vision_config.visual_evs_mode,
+                    # One EVS budget per interleaved anchor (ticket 45). At the
+                    # s2d default n_visual_context_steps=1 this is a no-op and
+                    # the global ranking is unchanged.
+                    evs_groups=vision_config.n_visual_context_steps
+                    if vision_config.fusion_mode == "interleaved_raw"
+                    else 1,
                 )
                 n_sub = 1
             else:
@@ -1090,14 +1096,26 @@ class VisionChronos2Model(nn.Module):
             # what makes the s2b vs s2d contrast attributable.
             n_vis = min(self.vcfg.n_visual_context_steps, T_ctx)
             if self.raw_visual and n_vis != 1:
-                raise ValueError(
-                    f"fusion_mode='{self.vcfg.fusion_mode}' needs "
-                    f"n_visual_context_steps=1, "
-                    f"got {self.vcfg.n_visual_context_steps}. The whole visual window "
-                    "falls inside ONE 8-hour TS patch, so there is exactly one "
-                    "co-temporal TS token to interleave against (design doc §3.3); "
-                    "sub-patch position is carried by the fractional position IDs."
-                )
+                if self.late_raw:
+                    raise ValueError(
+                        f"fusion_mode='late_raw' needs n_visual_context_steps=1, got "
+                        f"{self.vcfg.n_visual_context_steps}. A43's whole point is that "
+                        "the payload sits at ONE integer position; more anchors is the "
+                        "interleaved_raw arm, not this one."
+                    )
+                # interleaved_raw with real anchors — ticket 45. The old blanket
+                # refusal here read as an architectural limit, and it is not: the
+                # binding constraint is that `visual_window_hours` must cover
+                # n_vis TS patches, which is data config, not backbone geometry.
+                # What still has to hold is that the EVS budget divides evenly
+                # across anchors, or the interleaved blocks come out ragged.
+                if self.vcfg.visual_evs_keep % n_vis != 0:
+                    raise ValueError(
+                        f"visual_evs_keep={self.vcfg.visual_evs_keep} is not divisible "
+                        f"by n_visual_context_steps={n_vis}; each interleaved anchor "
+                        "must carry the same token count. Pick a keep that divides "
+                        f"(e.g. {n_vis * round(self.vcfg.visual_evs_keep / n_vis)})."
+                    )
 
             # Encode video
             if video_latents is not None:
@@ -1147,12 +1165,40 @@ class VisionChronos2Model(nn.Module):
                 lat_delta_t = reduce_delta_t_to_latents(video_delta_t, T_lat)
 
             if self.raw_visual:
+                if n_vis > 1:
+                    # DATA-COVERAGE GUARD, not a shape check. `validate_n_visual_
+                    # context_steps` only tests n_vis <= T_ctx, so a multi-anchor
+                    # config pointed at a narrow visual cache would run happily and
+                    # emit n_vis tokens describing the SAME recent sky at n_vis
+                    # different claimed timestamps. That is exactly A10b's stale-sky
+                    # condition (ticket 22), which measured worse than no sky at all
+                    # — a silent −0.13 skill score, not a crash. Refuse it.
+                    if T_lat % n_vis != 0:
+                        raise ValueError(
+                            f"{T_lat} latent frames do not split evenly into "
+                            f"n_visual_context_steps={n_vis} anchors."
+                        )
+                    span = float(self.vcfg.visual_position_span_seconds)
+                    if lat_delta_t is not None:
+                        oldest = float(lat_delta_t.max().item())
+                        if oldest < (n_vis - 1) * span:
+                            raise ValueError(
+                                f"visual window spans only {oldest / 3600:.1f} h but "
+                                f"n_visual_context_steps={n_vis} needs ~"
+                                f"{n_vis * span / 3600:.1f} h "
+                                f"({n_vis} x {span / 3600:.1f} h TS patches). Every "
+                                "anchor would carry the same recent sky under a "
+                                "different timestamp — the A10b stale-sky failure. "
+                                "Re-extract the latent cache with "
+                                f"data.visual_window_hours={n_vis * span / 3600:.0f}."
+                            )
                 # s2d: pixel shuffle -> MLP projector -> cell embedding -> EVS.
                 # No pooling over the patch field at any point.
                 vis_summary, vis_frame_idx, _cell_idx = self.patch_projector(
                     video_tokens
                 )  # [B, K, d]
-                N_vis_tok = vis_summary.shape[1]  # n_vis == 1, so K tokens per step
+                # EVS budgets per anchor (evs_groups=n_vis), so K splits evenly.
+                N_vis_tok = vis_summary.shape[1] // n_vis
                 if lat_mask is not None:
                     # Zero the tokens whose source frame was unavailable. EVS already
                     # deprioritises blank frames (they are near-identical to each
@@ -1299,12 +1345,19 @@ class VisionChronos2Model(nn.Module):
             all_group_ids = group_ids
 
             # Position IDs: TS and vis tokens at same step share position
-            if self.raw_visual and not self.late_raw:
+            if self.raw_visual and not self.late_raw and n_vis == 1:
                 # s2d: the K visual tokens spread across [T_M, T_M+0.99] by Δt, so a
                 # frame permutation (A09) changes the sequence — `_apply_eval_control`
                 # permutes video_latents and visual_mask but NOT video_delta_t, so the
                 # clock stays put while the content moves. On s2b every visual token
                 # shares one integer position and A09 is inert by construction.
+                #
+                # This scheme exists ONLY because n_vis == 1: with a 6 h visual window
+                # inside one 8 h TS patch there is no integer position to interleave
+                # at, so sub-patch time had to be smuggled into the fraction. Once
+                # there are real anchors (n_vis > 1, ticket 45) the canonical integer
+                # scheme below is both available and correct, and it is what the word
+                # "interleaving" actually names.
                 position_ids = build_subpatch_position_ids(
                     T_M=T_M,
                     T_fut=T_fut,
@@ -1313,10 +1366,12 @@ class VisionChronos2Model(nn.Module):
                     span_seconds=self.vcfg.visual_position_span_seconds,
                 )
             else:
-                # s2b and late_raw (A43): every visual token in the block shares the
-                # co-temporal TS position, so RoPE sees them as order-free and the
-                # future token stays at T_M+1 exactly as in s2d — the ONLY thing
-                # that differs from s2d is that the positions are integer.
+                # s2b, late_raw (A43), and multi-anchor interleaved_raw (ticket 45):
+                # every visual token in a block shares its co-temporal TS position, so
+                # RoPE sees the (TS, V…) block as one instant and the future token
+                # stays at T_M + n_vis exactly. Across blocks the anchors are a full
+                # patch apart, which is the temporal spread the fractional scheme
+                # could not express.
                 position_ids = build_interleaved_position_ids(
                     T_M, n_vis, T_fut, device, n_soft=N_vis_tok
                 ).expand(B, -1)
