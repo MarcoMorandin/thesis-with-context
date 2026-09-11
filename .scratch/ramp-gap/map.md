@@ -43,12 +43,18 @@ decision here is blocked until a run finishes or a measurement exists.
 
 1. **Two P0 metrics**: generalization skill score *and* ramp NMAE. Neither is subordinate.
    (settled 2026-08-25)
-2. **The contribution is the fusion mechanism**, now specifically s2d's resampler-free
-   interleaved path — selective spatial/temporal fusion over late fusion (H2, provisionally
-   supported per ticket 10, not cleanly isolated from the resampler-removal confound).
-   **Grassmann is cut**, not merely negotiable: selfattn only, everything on disk is
+2. **The contribution is the fusion mechanism** — but *which* mechanism is now open again.
+   "Resampler-free **interleaved** path" no longer survives measurement: A43 (ticket 28,
+   2026-09-11) isolates placement at matched payload and finds it **null on every metric**,
+   so **H2 is falsified**, not provisionally supported. A37 kills sub-cell detail and A39
+   kills the backbone unfreeze in the same wave. What is left of the mechanism is the
+   **token set** — 49 spatially resolved cells, cell embedding, novelty-selected to 98
+   (A38 is the one component with a live effect), projected raw instead of pooled through a
+   `LatentSummarizer`. Naming the contribution and picking the arm the paper reports is
+   ticket [27](issues/27-resampler-foil-and-paper-framing.md)'s call and is **not settled
+   here**. **Grassmann is cut**, not merely negotiable: selfattn only, everything on disk is
    selfattn, reported as a limitation. (settled 2026-08-25; Grassmann cut 2026-09-08 — see
-   closed tickets 08, 09)
+   closed tickets 08, 09; interleaving falsified 2026-09-11 — tickets 28, 41, 43)
 3. **Rigor bar is seeds**, n=3 per config. Controls are cheap and taken anyway, not traded
    against seeds. All five of s2d's planned controls (A30-a through A30-e) are on disk at
    n=3. (settled 2026-08-25)
@@ -181,7 +187,7 @@ decision here is blocked until a run finishes or a measurement exists.
   re-enumerated from config and code, independent of the earlier pass. Three findings that
   change the paper: every MMTSFM arm trains with **future weather covariates known**
   (next-6h cloudcover + irradiance) and no history-only run exists → ticket 40 (A36); the
-  backbone is not frozen — s1 fully fine-tunes Chronos-2 and s2d trains 3 of 6 encoder
+  backbone is not frozen — s1 fully fine-tunes Chronos-2 and s2d trains 3 of 12 encoder
   blocks → ticket 43 (A39) + wording fix; the "concatenate, never average" founding claim
   has no model-level test → ticket 41 (A37). Plus EVS random-keep control (42, A38) and a
   vision-off sequence-length check (44) that gates every Δ. Launch order in audit §6.
@@ -200,7 +206,74 @@ decision here is blocked until a run finishes or a measurement exists.
   decision-value-per-GPU-hour order: **A38 (eval, minutes) → A39 → A43 → A37 → A36s1 →
   A36s2d**, with A38t conditional on A38 clearing the 0.0011 ramp floor.
 
+- [A43 late-raw control: does placement matter?](issues/28-late-raw-control-arm.md):
+  **no — H2 falsified, cleanly, at matched payload.** Moving all 98 raw visual tokens from
+  fractional interleaved positions to s2b's single integer position `T_M` is null on every
+  metric and sign-flipping on every one (SS −0.0002, ramp NMAE +0.0004, Δ ramp +0.0001; all
+  far inside the 0.0037 / 0.0011 floors). A43 keeps the **whole** +0.0252 SS / −0.0047 ramp
+  margin over s2a while using s2a's position scheme (s1 0.5230 / 0.1506 → s2a 0.5258 /
+  0.1487 → A43 0.5508 / 0.1444 → s2d 0.5510 / 0.1441). Ticket 10's confound resolves against
+  the map's headline: the **resampler removal carries all of the s2a→s2d gain, interleaving
+  carries none of it**. Interleaving is now a negative result to report, not a Limitation to
+  state. Unblocks ticket 38 on this dependency.
+
+- [A37 concat vs average at the same grid](issues/41-a37-concat-vs-average.md): **the
+  founding claim is falsified, and backwards** — mean-pooling each 2×2 block (1024-wide
+  payload instead of the 4096-wide pixel shuffle, everything else identical) is **better**:
+  SS +0.0054 mean, all 3 seeds past the 0.0037 floor with no sign flip (0.5564 vs 0.5510),
+  coverage_80 +0.022 and ECE −0.0045, while ramp NMAE and Δ ramp are both inside the floor.
+  Sub-cell spatial detail carries nothing; the r=2 concatenation costs aggregate accuracy and
+  calibration for no ramp return. The config's "CONCATENATED, never averaged" claim, design §1,
+  and the manuscript's "resampler-free detail" motivation are withdrawn as stated — what
+  survives is token *geometry* (49 cells, cell embedding, EVS keep=98), which A37 retains.
+
+- [A39 truly frozen backbone (0 unfreeze blocks)](issues/43-a39-backbone-freeze.md): **null
+  on both P0 metrics** — SS +0.0019 (inside the 0.0037 floor), ramp NMAE +0.0001
+  (sign-flipping, inside 0.0011). The 3 unfrozen encoder blocks are not load-bearing for the
+  fusion gain; they buy **calibration** (removing them costs coverage_80 −0.022, ECE +0.0085).
+  The strong "frozen TSFM" claim is recoverable with one permanent caveat — the frozen
+  backbone is the **s1 fine-tuned** Chronos-2, not the pretrained one. Also the numeric answer
+  to `baselines.md`'s A14 row. Part (b), the 2026-09-09 prose fix, was already done.
+
+- **Three of s2d's four design distinctives measured inert** (2026-09-11, tickets 28/41/43
+  resolved together from one result batch). Placement (A43), sub-cell detail (A37) and
+  backbone unfreeze (A39) are all null or negative; **EVS novelty selection (A38) is the only
+  component with a measured effect**, at 3.6× the ramp floor. The mechanism story the design
+  doc tells does not survive its own ablations, but the *arm* does — s2d/A37/A43 all sit ~0.025
+  SS and ~0.005 ramp NMAE above s2a. Ticket 27 (name the contribution, pick the reported arm)
+  is now the map's binding question and its inputs are all in.
+
+- **A43 falsified placement, not interleaving** (2026-09-11) — opened
+  [Does canonical multi-anchor interleaving rescue the interleaving claim?](issues/45-canonical-multi-anchor-interleaving.md),
+  `Type: task`. With `n_visual_context_steps=1` there is exactly one (sky, power) pair in the
+  sequence; A43 moved that one pair between two positions, and a mapping cannot be fitted from
+  one point. The canonical layout the word names — `TS TS … TS │ TS V │ TS V │ … │ future`,
+  N >= 2 pairs — has never been run on the raw path. A30-a/A30-d don't reach it either, A10b
+  is a *mislabelling* test (this design labels old frames as old, via position IDs), and A30-c
+  is the mechanism's **precondition**, not evidence against it. Token-matched against s2d
+  (100 tokens vs 98, sequence 143 vs 141) so cost is identical and the only difference is
+  temporal spread. Two untested mechanisms motivate it: the sky/power ratio is instantaneous
+  plant efficiency and is not derivable from power history, and Chronos-2 is an in-context
+  forecaster whose 14 covariate rows each get many in-context examples while vision currently
+  gets zero. **Ticket 27 should not be called until this resolves** — if multi-anchor works,
+  the contribution is interleaving after all and 27's premise changes.
+
 ## Not yet specified
+
+- **What the resampler removal actually buys — token count or spatial preservation?** After
+  2026-09-11 this is the only unexplained part of the s2a → s2d margin: placement, sub-cell
+  detail and backbone unfreeze are all measured inert, so the whole +0.025 SS / −0.0047 ramp
+  sits on "49 raw spatially-resolved cells, EVS-selected to 98" versus "`LatentSummarizer`
+  soft tokens". Two candidate causes are still tangled inside that: the **number** of visual
+  tokens reaching the backbone, and the **spatial identity** each one keeps. An s2a variant
+  with the soft-token count raised to 98, or a raw arm with the cell embedding stripped,
+  would separate them. Not yet a ticket — which foil is the right one depends on how ticket
+  27 names the contribution, and it may be answerable from ticket 13's model-free probe
+  without new compute.
+- **Is A37 the arm the paper should report?** A37 dominates s2d on SS, coverage and ECE and
+  ties on both ramp metrics, at a smaller projector. Folded into ticket 27 as an input, but
+  if 27 keeps s2d for continuity, the question of why the paper reports the weaker arm needs
+  an answer in the text. Not a separate ticket unless 27 declines to settle it.
 
 - **Retarget the model to clear-sky index / auxiliary CSI loss.** Every external reviewer's
   top recommendation, and deliberately parked: `P = P_clear * CSI` assumes cloud is the
@@ -281,6 +354,11 @@ decision here is blocked until a run finishes or a measurement exists.
   ticket 32; the configs stay in the repo for provenance.
 - **S4 long-horizon and S5 data-efficiency scenarios** (`baselines.md` §4.1). Not
   load-bearing for a fusion-mechanism claim; future work.
-- **Between-token interleaving.** Chronos-2's `input_patch_size` 16 makes one TS token 8 h on
-  uk_pv, so the 6 h visual window sits inside one patch; genuine inter-token interleaving
-  would need a re-patched backbone. Stated as a limitation (design §3.3), not ablated.
+- ~~**Between-token interleaving.**~~ **Moved back in scope 2026-09-11** — see
+  [Does canonical multi-anchor interleaving rescue the interleaving claim?](issues/45-canonical-multi-anchor-interleaving.md).
+  The entry as written ("would need a re-patched backbone") was wrong. Chronos-2's
+  `input_patch_size` 16 does make one TS token 8 h on uk_pv, but the reason `n_vis` is pinned
+  to 1 is that `visual_window_hours=6.0` covers only one patch — a **data-coverage** limit,
+  not a backbone limit. Widening the window to `n_vis x 8 h` produces the anchors; the
+  sequence-building code (`interleave_sequences`, `build_interleaved_position_ids`, the
+  per-anchor reshape at `:1259`) is already generic and `goes_pvdaq` runs `n_vis=2` today.

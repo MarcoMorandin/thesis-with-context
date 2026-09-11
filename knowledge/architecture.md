@@ -182,19 +182,22 @@ initialized modules corrupt pretrained residual streams.
 >
 > 1. **`freeze_chronos: true` is a partial freeze.** Every vision model config
 >    (`vision_chronos2_{s2d,s2c,timeselfattn,grassmann,headline,narrow,wide}.yaml`) sets
->    `n_unfreeze_encoder_blocks: 3`, and the backbone is `num_layers: 6`, so **half the
->    encoder trains** — at `backbone_lr_ratio: 0.1`, i.e. 0.1× LR, not zero
+>    `n_unfreeze_encoder_blocks: 3`, and the backbone is **`num_layers: 12`** (the hub
+>    checkpoint's, see §1 — the YAML's `num_layers: 6` is silently discarded by
+>    `from_pretrained`), so **a quarter of the encoder trains** — at `backbone_lr_ratio: 0.1`,
+>    i.e. 0.1× LR, not zero
 >    (`lightning_module.py:245-254`). `input_patch_embedding`, `output_patch_embedding`,
 >    `shared` and (s2c only) `visual_cross_attn` are held trainable by name on top of that
 >    (`lightning_module.py:225-243`), because they are re-initialised or new.
->    (Several of those configs' inline comments say "last 3/12 encoder blocks" — stale;
->    the stack has been 6 blocks in every arm.)
+>    (Those configs' inline comments saying "last 3/12 encoder blocks" are **correct**; a
+>    2026-09-09 prose fix in ticket 43 mistakenly "corrected" them to 3/6 by reading the inert
+>    YAML instead of the checkpoint config. Reverted here.)
 > 2. **The weights being frozen are not the pretrained ones.** `stage/s1.yaml` sets
 >    `freeze_chronos: false`, so the s1 checkpoint that every vision arm warm-starts from is
 >    a **fully fine-tuned** Chronos-2. `stage/s3.yaml` likewise.
 >
 > Correct wording, to be used verbatim in the manuscript and the paper: *"Chronos-2
-> fine-tuned on the train plants (s1), then held fixed except its last 3 of 6 encoder blocks
+> fine-tuned on the train plants (s1), then held fixed except its last 3 of 12 encoder blocks
 > at 0.1× LR while the visual path trains."*
 >
 > Whether the strong claim is *also* true — i.e. whether s2d needs those 3 blocks — is
