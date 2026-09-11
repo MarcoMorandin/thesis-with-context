@@ -1,7 +1,7 @@
 # 28 — Build and run the late-fusion, resampler-free control arm (isolates H2)
 
 Type: task
-Status: open
+Status: resolved
 
 ## Question
 
@@ -58,3 +58,45 @@ The test asserts the two properties that make the comparison legitimate: identic
 length to s2d, and **zero** fractional positions.
 
 Status stays **open**: the arm is buildable and tested, the three runs do not exist.
+
+## Answer — H2 is falsified: placement does nothing, the payload is the mechanism (2026-09-11)
+
+n=3 (seeds 42/43/44), `mmtsfm_A43_s2d_ukpv_s{42,43,44}.json`, `git_sha 15673d1`. Manifest
+diff against s2d is exactly one key: `vision_cfg.fusion_mode` `interleaved_raw` → **`late_raw`**
+(all 98 visual tokens at the single integer position `T_M`, zero fractional positions, identical
+sequence length — the two properties `tests/test_s2d_component_ablations.py::TestLateRaw`
+asserts). Same dataset fingerprint, n_plants=14 on every file.
+
+| metric | s2d (fractional) | A43 (integer) | paired Δ per seed | mean Δ | floor |
+|---|---|---|---|---|---|
+| skill score | 0.5510 | 0.5508 | −0.0002 / +0.0010 / −0.0013 | −0.0002 | 0.0037 |
+| ramp NMAE | 0.1441 | 0.1444 | +0.0016 / −0.0009 / +0.0005 | +0.0004 | 0.0011 |
+| Δ ramp (vision marginal) | 0.0064 | 0.0064 | −0.0001 / +0.0006 / −0.0003 | +0.0001 | 0.0011 |
+| NMAE | 0.06971 | 0.06978 | — | +0.00007 | — |
+| coverage_80 | 0.7310 | 0.7325 | — | +0.0015 | — |
+
+**Null on every metric, sign-flipping on every one of them.** This is the ticket's first
+branch, and the reference points make it unambiguous:
+
+| arm | payload | position | SS | ramp NMAE |
+|---|---|---|---|---|
+| s1 | none | — | 0.5230 | 0.1506 |
+| s2a | resampler-pooled soft tokens | late (group axis) | 0.5258 | 0.1487 |
+| **A43** | **raw, 49 cells, EVS 98** | **late (integer `T_M`)** | **0.5508** | **0.1444** |
+| s2d | raw, 49 cells, EVS 98 | interleaved (fractional) | 0.5510 | 0.1441 |
+
+A43 sits on top of s2d and keeps the entire +0.0252 SS / −0.0047 ramp margin over s2a while
+using s2a's position scheme. The confound ticket 10 flagged is now resolved in the direction
+that costs the map its headline: of the two things that moved together between s2a and s2d,
+**the resampler removal carries all of it and the interleaving carries none of it.**
+
+**H2 ("interleaving beats late fusion") is falsified**, cleanly, at matched payload. It is no
+longer a Limitation to state — it is a negative result to report.
+
+**Consequences.** The contribution cannot be named "placement" or "interleaved fusion". What
+is left, with A37 (sub-cell detail inert) and A39 (backbone unfreeze inert) landing the same
+day, is the token set itself: 49 spatially resolved cells with cell embedding, novelty-selected
+to 98 (A38 shows that selection does real work), projected raw instead of pooled through a
+`LatentSummarizer`. Naming the contribution and choosing the reported arm is ticket
+[27](27-resampler-foil-and-paper-framing.md)'s call, which this result forces and does not make.
+Ticket [38](38-rewrite-paper-around-s2d.md) is unblocked on this dependency.

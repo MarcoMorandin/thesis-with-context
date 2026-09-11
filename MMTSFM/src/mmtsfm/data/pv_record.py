@@ -169,6 +169,8 @@ class PVRecordDataset(Dataset):
         future_cov: str = "all",
         visual_window_hours: float = 6.0,
         visual_frame_spacing_min: float | None = None,
+        visual_anchor_stride_hours: float | None = None,
+        visual_frames_per_anchor: int | None = None,
         num_entities: int = 1,
         vjepa_cache_dir: str | None = None,
         emit_vision: bool = True,
@@ -193,6 +195,60 @@ class PVRecordDataset(Dataset):
             if visual_frame_spacing_min is not None
             else None
         )
+        # Burst sampling (ticket 45). Frames are drawn as ``n_anchors`` dense
+        # bursts of ``visual_frames_per_anchor`` at ``visual_frame_spacing_min``,
+        # with burst k starting ``k * visual_anchor_stride_hours`` before t_now.
+        # The gaps between bursts hold no frames at all, which is the point: an
+        # anchor has to be CO-TEMPORAL with its TS patch, not tile it. Uniform
+        # spacing wide enough to reach back N patches would force ~45-min
+        # correlation down to hours, decorrelating consecutive frames — that
+        # starves V-JEPA's stride-2 tubelets and turns EVS novelty scoring into
+        # noise. Both None (the default) reproduces the uniform ladder exactly,
+        # so every existing cache stays bit-valid.
+        self.visual_anchor_stride_hours = (
+            float(visual_anchor_stride_hours)
+            if visual_anchor_stride_hours is not None
+            else None
+        )
+        self.visual_frames_per_anchor = (
+            int(visual_frames_per_anchor)
+            if visual_frames_per_anchor is not None
+            else None
+        )
+        if (self.visual_anchor_stride_hours is None) != (
+            self.visual_frames_per_anchor is None
+        ):
+            raise ValueError(
+                "visual_anchor_stride_hours and visual_frames_per_anchor must be "
+                "set together (burst sampling) or both left None (uniform)"
+            )
+        if self.visual_frames_per_anchor is not None:
+            if self.visual_frames_per_anchor <= 0:
+                raise ValueError("visual_frames_per_anchor must be positive")
+            if self.T_v % self.visual_frames_per_anchor != 0:
+                raise ValueError(
+                    f"video_frames={self.T_v} is not divisible by "
+                    f"visual_frames_per_anchor={self.visual_frames_per_anchor}; "
+                    "a ragged final burst would give one anchor fewer latents "
+                    "than the rest and the interleaved blocks could not be "
+                    "reshaped per anchor"
+                )
+            if self.visual_frame_spacing_min is None:
+                raise ValueError(
+                    "burst sampling needs an explicit visual_frame_spacing_min; "
+                    "the window/Tv default describes a uniform ladder"
+                )
+            burst_span_h = (
+                (self.visual_frames_per_anchor - 1)
+                * self.visual_frame_spacing_min
+                / 60.0
+            )
+            if burst_span_h > self.visual_anchor_stride_hours:
+                raise ValueError(
+                    f"burst spans {burst_span_h:.2f} h but anchors are only "
+                    f"{self.visual_anchor_stride_hours:.2f} h apart; the bursts "
+                    "overlap, so consecutive anchors would share frames"
+                )
         # W4: number of distinct plants assembled per group (cross-plant mixing).
         # >1 groups disjoint plants from THIS split that share a time window so
         # GroupSelfAttention fuses across entities. Disjointness vs other splits
@@ -378,11 +434,18 @@ class PVRecordDataset(Dataset):
         # MASKED rather than quietly duplicating a distant frame.
         tol_sec = spacing_sec / 2.0
 
+        # Burst offsets (ticket 45): slot k lands at anchor a=k//f, position j
+        # inside that anchor, so the ladder is f dense frames, a gap, f more.
+        # Uniform is the f=Tv, stride=0 special case and is left byte-identical.
+        f = self.visual_frames_per_anchor or Tv
+        anchor_sec = (self.visual_anchor_stride_hours or 0.0) * 3600.0
+        offsets = [(k // f) * anchor_sec + (k % f) * spacing_sec for k in range(Tv)]
+
         grid_ts, grid_idx = self._frame_grid.get(key, (None, None))
         sel: list[int] = []
         if grid_ts is not None and len(grid_ts):
             for k in range(Tv):
-                want = t_now - int(round(k * spacing_sec))
+                want = t_now - int(round(offsets[k]))
                 p = int(np.searchsorted(grid_ts, want))
                 best, best_d = None, None
                 for c in (p - 1, p):

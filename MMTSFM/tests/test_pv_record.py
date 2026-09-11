@@ -464,7 +464,16 @@ def test_decode_frame_passes_arrays_through_when_not_png():
     assert np.array_equal(_decode_frame(a, png=False), a)
 
 
-def _spacing_ds(tmp_path, spacing_min, window_h=6.0, frame_step_min=15, gaps=()):
+def _spacing_ds(
+    tmp_path,
+    spacing_min,
+    window_h=6.0,
+    frame_step_min=15,
+    gaps=(),
+    anchor_stride_h=None,
+    frames_per_anchor=None,
+    video_frames=8,
+):
     """A dataset whose frame grid is FINER than the power grid.
 
     That is the v2 situation and the one the old code could not express: frames
@@ -512,9 +521,11 @@ def _spacing_ds(tmp_path, spacing_min, window_h=6.0, frame_step_min=15, gaps=())
         h5_path=str(h5),
         img_size=16,
         img_channels=3,
-        video_frames=8,
+        video_frames=video_frames,
         visual_window_hours=window_h,
         visual_frame_spacing_min=spacing_min,
+        visual_anchor_stride_hours=anchor_stride_h,
+        visual_frames_per_anchor=frames_per_anchor,
     )
 
 
@@ -574,3 +585,101 @@ def test_prep_frame_keeps_three_channels_distinct():
     assert t.shape == (3, 8, 8)
     means = [float(t[c].mean()) for c in range(3)]
     assert means[0] < means[1] < means[2], means
+
+
+# --------------------------------------------------------------------------
+# Burst sampling (ticket 45) — dense anchors, empty gaps
+# --------------------------------------------------------------------------
+
+
+def _ages(ds, i=0):
+    return [round(x / 60) for x in ds[i]["video_delta_t"][0].tolist()]
+
+
+def test_bursts_are_dense_inside_an_anchor_and_empty_between(tmp_path):
+    """The whole point of the burst ladder.
+
+    Reaching 8 h back with a UNIFORM ladder of 8 frames forces ~69-min steps and
+    at five anchors it would force ~5 h steps, which decorrelates neighbouring
+    frames: V-JEPA's stride-2 tubelets see two unrelated skies and EVS novelty
+    scoring ranks noise. Bursts keep the proven 45-min step INSIDE each anchor
+    and spend the distance on the gaps, where no frame is drawn at all.
+    """
+    d = _spacing_ds(tmp_path, spacing_min=45, anchor_stride_h=8.0, frames_per_anchor=4)
+    # 2 anchors x 4 frames: 0/45/90/135 min, then the same ladder 8 h earlier.
+    assert _ages(d) == [615, 570, 525, 480, 135, 90, 45, 0], _ages(d)
+
+
+def test_burst_anchor_starts_land_on_the_ts_patch_grid(tmp_path):
+    """Each anchor must be co-temporal with ONE 8 h Chronos-2 patch.
+
+    A10b showed that labelling a frame with the wrong age costs -0.135 SS. The
+    anchor START is what carries the integer position id, so it is the value
+    that has to be an exact multiple of the patch span.
+    """
+    d = _spacing_ds(
+        tmp_path,
+        spacing_min=45,
+        anchor_stride_h=8.0,
+        frames_per_anchor=2,
+        video_frames=6,
+    )
+    ages = _ages(d)
+    starts = sorted(ages[i] for i in (0, 2, 4))  # oldest frame of each burst
+    assert starts == [45, 525, 1005], ages
+    assert all((s - 45) % (8 * 60) == 0 for s in starts), starts
+
+
+def test_uniform_ladder_is_untouched_when_burst_params_are_absent(tmp_path):
+    """Every existing cache — including the s2d control at sp45 — was built by
+    the uniform path. Burst support must not shift a single timestamp, or the
+    control arm silently stops being a control."""
+    plain = _spacing_ds(tmp_path / "a", spacing_min=45)
+    # frames_per_anchor == video_frames is the degenerate single-burst case and
+    # must reproduce the uniform ladder exactly.
+    single = _spacing_ds(
+        tmp_path / "b", spacing_min=45, anchor_stride_h=8.0, frames_per_anchor=8
+    )
+    assert _ages(plain) == _ages(single) == [315, 270, 225, 180, 135, 90, 45, 0]
+
+
+def test_ragged_final_burst_is_rejected(tmp_path):
+    """A Tv that does not divide evenly would leave the oldest anchor short, so
+    the model's per-anchor reshape would be ragged — caught here, at config
+    time, rather than as a shape error a thousand steps into training."""
+    with pytest.raises(ValueError, match="not divisible by"):
+        _spacing_ds(tmp_path, spacing_min=45, anchor_stride_h=8.0, frames_per_anchor=3)
+
+
+def test_overlapping_bursts_are_rejected(tmp_path):
+    """If the burst is longer than the stride, anchor k reaches into anchor
+    k+1's territory and the two share frames — the anchors stop being distinct
+    observations and the regression sample collapses."""
+    with pytest.raises(ValueError, match="overlap"):
+        _spacing_ds(tmp_path, spacing_min=90, anchor_stride_h=2.0, frames_per_anchor=4)
+
+
+@pytest.mark.parametrize(
+    "stride,per_anchor", [(8.0, None), (None, 4)], ids=["stride-only", "frames-only"]
+)
+def test_burst_params_must_be_given_together(tmp_path, stride, per_anchor):
+    """Half a burst config is ambiguous: one value alone has no meaning and
+    would silently fall back to the uniform ladder under a cache directory
+    named as if it were a burst extraction."""
+    with pytest.raises(ValueError, match="together"):
+        _spacing_ds(
+            tmp_path,
+            spacing_min=45,
+            anchor_stride_h=stride,
+            frames_per_anchor=per_anchor,
+        )
+
+
+def test_burst_needs_explicit_spacing(tmp_path):
+    """The window/Tv default describes a uniform ladder; applying it inside a
+    burst would make the in-anchor step depend on a parameter that no longer
+    describes the span."""
+    with pytest.raises(ValueError, match="explicit visual_frame_spacing_min"):
+        _spacing_ds(
+            tmp_path, spacing_min=None, anchor_stride_h=8.0, frames_per_anchor=4
+        )

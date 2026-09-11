@@ -54,6 +54,10 @@ class MMTSFMDataModule(LightningDataModule):
         imagenet_norm: bool = False,
         visual_window_hours: float = 6.0,  # W5: recency cap on candidate frames
         visual_frame_spacing_min: float | None = None,  # None -> window / Tv
+        # Ticket 45 burst sampling: set together to draw Tv frames as
+        # Tv/frames_per_anchor dense bursts spaced anchor_stride_hours apart.
+        visual_anchor_stride_hours: float | None = None,
+        visual_frames_per_anchor: int | None = None,
         vjepa_cache_dir: Optional[str] = None,
         emit_vision: bool = True,  # False for vision-free runs (skip frame decode + latents)
         # A36 / ticket 40 — what the covariate block carries over the HORIZON.
@@ -109,6 +113,8 @@ class MMTSFMDataModule(LightningDataModule):
                 imagenet_norm=self.hparams.imagenet_norm,
                 visual_window_hours=self.hparams.visual_window_hours,
                 visual_frame_spacing_min=self.hparams.visual_frame_spacing_min,
+                visual_anchor_stride_hours=self.hparams.visual_anchor_stride_hours,
+                visual_frames_per_anchor=self.hparams.visual_frames_per_anchor,
                 # W4: cross-plant mixing is a TRAIN-time mechanism. val/test keep
                 # N=1 so per-plant protocol metrics + site_id collate are unchanged.
                 num_entities=self.hparams.num_entities if split == "train" else 1,

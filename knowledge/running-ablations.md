@@ -378,7 +378,7 @@ tokens never enter the sequence at all and are reached only through cross-attent
 
 ### 4.6 A18a / A18b — cross-attention depth
 
-s2c injects visual KV into the last 4 of 6 encoder blocks; nothing establishes that 4
+s2c injects visual KV into the last 4 of 12 encoder blocks; nothing establishes that 4
 is needed. `{1, 2, 4}` — the k=4 point is the existing s2c number, so only two new runs.
 D15 already shows blocks 1–2 are near-flat, which makes k=1 a live possibility and a
 cheaper published architecture.

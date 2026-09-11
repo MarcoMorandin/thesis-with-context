@@ -378,9 +378,9 @@ magnitude. The design is built for the second regime.
 \textbf{Component} & \textbf{Origin} & \textbf{Status by stage} \\
 \hline
 Chronos-2 patch embedding & \textbf{reinitialised} & trainable throughout \\
-Group self-attention & pretrained & last 3 of 6 blocks trainable at $0.1\times$ LR \\
-Feed-forward & pretrained & last 3 of 6 blocks trainable at $0.1\times$ LR \\
-Temporal mixer ($\times 6$) & \textbf{from scratch} (Grassmann) & trainable throughout \\
+Group self-attention & pretrained & last 3 of 12 blocks trainable at $0.1\times$ LR \\
+Feed-forward & pretrained & last 3 of 12 blocks trainable at $0.1\times$ LR \\
+Temporal mixer ($\times 12$) & \textbf{from scratch} (Grassmann) & trainable throughout \\
 V-JEPA 2.1 ViT-L/16 & pretrained & frozen; last four blocks unfrozen in S2a \\
 Latent summariser & \textbf{from scratch} & trainable from S2a \\
 Cross-modal adapter (late only) & \textbf{from scratch} & trainable in S2a \\
@@ -402,11 +402,11 @@ interfaces between them.
 
 Stated precisely, so that the word ``frozen'' is not read more strongly than the
 implementation supports: Chronos-2 is \emph{fine-tuned on the train plants in Stage~1}, and
-thereafter held fixed \emph{except} its last three of six encoder blocks, which continue to
+thereafter held fixed \emph{except} its last three of twelve encoder blocks, which continue to
 train at $0.1\times$ the base learning rate together with the re-initialised patch
 embeddings. Two consequences follow, and both are stated rather than elided. The weights
-held fixed are not the pretrained ones but a PV-adapted checkpoint; and half the encoder is
-still adapting while the visual path is learned. Whether the visual path in fact
+held fixed are not the pretrained ones but a PV-adapted checkpoint; and a quarter of the
+encoder is still adapting while the visual path is learned. Whether the visual path in fact
 \emph{needs} that adaptation capacity --- that is, whether a genuinely frozen backbone
 ($n_{\text{unfreeze}} = 0$) reads the sky as well --- is measured directly by the ablation
 study and is not assumed here. V-JEPA~2.1, by contrast, is frozen in

@@ -281,11 +281,19 @@ class TestRawVisualModel:
         with pytest.raises(ValueError):
             _make_raw_model(n_soft=4)
 
-    def test_more_than_one_visual_context_step_is_rejected(self):
-        """Checked at forward time, not init: `n_vis` is clamped to T_ctx there,
-        so the constructor cannot know the effective value yet."""
+    def test_more_than_one_visual_context_step_needs_a_wide_enough_window(self):
+        """Was a blanket refusal of `n_vis > 1`; ticket 45 narrowed it.
+
+        The old message said the raw path "needs n_visual_context_steps=1"
+        because the 6 h visual window falls inside one 8 h TS patch. That is a
+        fact about `data.visual_window_hours`, not about the backbone — widen
+        the window and the anchors exist. What survives is the coverage guard:
+        a narrow cache at `n_vis > 1` would emit n_vis tokens describing the
+        SAME recent sky under n_vis different timestamps, which is A10b's
+        stale-sky condition and measured worse than no sky at all.
+        """
         m = _make_raw_model(n_vis=2)
-        with pytest.raises(ValueError, match="n_visual_context_steps=1"):
+        with pytest.raises(ValueError, match="stale-sky"):
             m.forward(**_inputs())
 
     def test_sequence_length_is_ts_plus_kept_visual_plus_future(self):

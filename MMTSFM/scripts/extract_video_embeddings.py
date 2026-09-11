@@ -61,6 +61,8 @@ def extract(args: argparse.Namespace) -> None:
         ("stride", args.stride),
         ("visual_window_hours", args.visual_window_hours),
         ("visual_frame_spacing_min", args.visual_frame_spacing_min),
+        ("visual_anchor_stride_hours", args.visual_anchor_stride_hours),
+        ("visual_frames_per_anchor", args.visual_frames_per_anchor),
     ]:
         if val is not None:
             cfg[key] = val
@@ -74,7 +76,9 @@ def extract(args: argparse.Namespace) -> None:
         f"horizon={cfg['horizon']} video_frames={cfg['video_frames']} "
         f"img_size={cfg['img_size']} stride={cfg.get('stride')} "
         f"window_h={cfg.get('visual_window_hours')} "
-        f"spacing_min={cfg.get('visual_frame_spacing_min')}"
+        f"spacing_min={cfg.get('visual_frame_spacing_min')} "
+        f"anchor_stride_h={cfg.get('visual_anchor_stride_hours')} "
+        f"frames_per_anchor={cfg.get('visual_frames_per_anchor')}"
     )
 
     ds = PVRecordDataset(
@@ -204,6 +208,22 @@ def main() -> None:
         "are NOT valid for another, so give each its own --cache-dir.",
     )
     p.add_argument("--num-entities", type=int, default=1)
+    p.add_argument(
+        "--visual-anchor-stride-hours",
+        type=float,
+        default=None,
+        help="burst sampling (ticket 45): hours between the START of consecutive "
+        "frame bursts. Set with --visual-frames-per-anchor. Use the TS patch "
+        "span (8 h on uk_pv) so each burst is co-temporal with one patch.",
+    )
+    p.add_argument(
+        "--visual-frames-per-anchor",
+        type=int,
+        default=None,
+        help="burst sampling: frames in each burst; must divide --video-frames. "
+        "Bursts keep the proven ~45-min spacing while the gaps between them "
+        "carry the window back N patches without decorrelating neighbours.",
+    )
     p.add_argument(
         "--stride",
         type=int,
