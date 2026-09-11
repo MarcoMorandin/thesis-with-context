@@ -75,16 +75,16 @@ MAIL_TYPE="${MAIL_TYPE:-END,FAIL}"
 # unfreeze) will certainly need several. Both are safe: ModelCheckpoint writes
 # last.ckpt every epoch and curriculum_stage.sbatch resumes from it by default
 # (RESUME=1) — but the afterok chain must be re-submitted after any TIMEOUT.
-declare -A ST_EPOCHS=( [s1]="${S1_EPOCHS:-40}" [s2a]="${S2A_EPOCHS:-20}" [s2b]="${S2B_EPOCHS:-20}" [s3]="${S3_EPOCHS:-50}" [s2c]="${S2C_EPOCHS:-20}" [s2d]="${S2D_EPOCHS:-20}" )
-declare -A ST_TIME=(   [s1]="${S1_TIME:-20:00:00}" [s2a]="${S2A_TIME:-24:00:00}" [s2b]="${S2B_TIME:-24:00:00}" [s3]="${S3_TIME:-24:00:00}" [s2c]="${S2C_TIME:-24:00:00}" [s2d]="${S2D_TIME:-24:00:00}" )
+declare -A ST_EPOCHS=( [s1]="${S1_EPOCHS:-40}" [s2a]="${S2A_EPOCHS:-20}" [s2b]="${S2B_EPOCHS:-20}" [s3]="${S3_EPOCHS:-50}" [s2c]="${S2C_EPOCHS:-20}" [s2d]="${S2D_EPOCHS:-20}" [s2e]="${S2E_EPOCHS:-20}" )
+declare -A ST_TIME=(   [s1]="${S1_TIME:-20:00:00}" [s2a]="${S2A_TIME:-24:00:00}" [s2b]="${S2B_TIME:-24:00:00}" [s3]="${S3_TIME:-24:00:00}" [s2c]="${S2C_TIME:-24:00:00}" [s2d]="${S2D_TIME:-24:00:00}" [s2e]="${S2E_TIME:-24:00:00}" )
 # Per-stage micro-batch + grad accumulation (effective batch = batch*accum ≈ 16).
 # GroupSelfAttention flattens BS*num_entities*(1+covariates) rows into one attention
 # axis (uk_pv: 16*4*15 = 960 rows) → O(rows²) activations OOM a 64 GB A100 at
 # batch 16. Small micro-batches keep it on-GPU; accumulation preserves the effective
 # batch. Vision stages (s2a+) add V-JEPA + visual rows, so they go smaller. Set
 # BATCH_SIZE to override all stages; drop to 2 (accum 8) if a stage still OOMs.
-declare -A ST_BATCH=( [s1]="${S1_BATCH:-8}" [s2a]="${S2A_BATCH:-4}" [s2b]="${S2B_BATCH:-4}" [s3]="${S3_BATCH:-4}" [s2c]="${S2C_BATCH:-4}" [s2d]="${S2D_BATCH:-4}" )
-declare -A ST_ACCUM=( [s1]="${S1_ACCUM:-2}" [s2a]="${S2A_ACCUM:-4}" [s2b]="${S2B_ACCUM:-4}" [s3]="${S3_ACCUM:-4}" [s2c]="${S2C_ACCUM:-4}" [s2d]="${S2D_ACCUM:-4}" )
+declare -A ST_BATCH=( [s1]="${S1_BATCH:-8}" [s2a]="${S2A_BATCH:-4}" [s2b]="${S2B_BATCH:-4}" [s3]="${S3_BATCH:-4}" [s2c]="${S2C_BATCH:-4}" [s2d]="${S2D_BATCH:-4}" [s2e]="${S2E_BATCH:-4}" )
+declare -A ST_ACCUM=( [s1]="${S1_ACCUM:-2}" [s2a]="${S2A_ACCUM:-4}" [s2b]="${S2B_ACCUM:-4}" [s3]="${S3_ACCUM:-4}" [s2c]="${S2C_ACCUM:-4}" [s2d]="${S2D_ACCUM:-4}" [s2e]="${S2E_ACCUM:-4}" )
 # s2c is deliberately LAST, after s3, even though it is an alternative to s2b
 # rather than a successor to s3. The default chain stops at END_STAGE=s3, so this
 # ordering leaves every existing full-chain run byte-identical while still making
@@ -106,7 +106,16 @@ declare -A ST_ACCUM=( [s1]="${S1_ACCUM:-2}" [s2a]="${S2A_ACCUM:-4}" [s2b]="${S2B
 #   START_STAGE=s2d END_STAGE=s2d SEED=42 MODEL_CFG=vision_chronos2_s2d \
 #     INIT_CKPT=${CKPT_DIR}/uk_pv_s1_selfattn_s42/best.ckpt MARGINAL_GAIN=1 \
 #     bash scripts/slurm_curriculum.sh
-STAGES=(s1 s2a s2b s3 s2c s2d)
+# s2e (A44, canonical multi-anchor interleaving) sits last for the same reason
+# again: an ALTERNATIVE to s2d, not a successor, and the chain still stops at
+# END_STAGE=s3. It needs its OWN latent cache (20 frames drawn as five 4-frame
+# bursts 8 h apart) and N_VIS=5 — see the guard below for why the N_VIS is not
+# optional:
+#   START_STAGE=s2e END_STAGE=s2e SEED=42 MODEL_CFG=vision_chronos2_s2e N_VIS=5 \
+#     VJEPA_CACHE_VER=vit_large_f20_s224_nonhrv_sp45_a8h \
+#     INIT_CKPT=${CKPT_DIR}/uk_pv_s1_selfattn_s42/best.ckpt MARGINAL_GAIN=1 \
+#     bash scripts/slurm_curriculum.sh
+STAGES=(s1 s2a s2b s3 s2c s2d s2e)
 
 # START_STAGE: resume the curriculum from a later stage (e.g. after S1 is done).
 # RUN_STAGES = STAGES from START_STAGE onward; STAGE_BEFORE_START = the stage just
@@ -126,6 +135,19 @@ done
 [[ ${#RUN_STAGES[@]} -gt 0 ]] || { echo "FATAL: START_STAGE='${START_STAGE}' not in [${STAGES[*]}]"; exit 1; }
 printf '%s\n' "${STAGES[@]}" | grep -qx "$END_STAGE" || {
   echo "FATAL: END_STAGE='${END_STAGE}' not in [${STAGES[*]}]"; exit 1; }
+
+# s2e is the only stage whose anchor count is not the dataset default. nvis_for()
+# is keyed by DATASET (uk_pv -> 1) and lib/stage_cmd.sh appends N_VIS to the Hydra
+# command AFTER `model=`, so an unset N_VIS silently overrides
+# vision_chronos2_s2e's n_visual_context_steps=5 back down to 1. The run would
+# not fail: it would train s2d's single-anchor geometry, write it under the A44
+# tag, and the only record of the difference would be one line of a Hydra log.
+# Five, specifically, because the cache ladder is 20 frames / 4 per anchor.
+if printf '%s\n' "${RUN_STAGES[@]}" | grep -qx s2e && [[ "${N_VIS:-}" != "5" ]]; then
+  echo "FATAL: stage s2e requires N_VIS=5 (got '${N_VIS:-<unset>}')." >&2
+  echo "  Without it the arm trains single-anchor s2d geometry under the A44 tag." >&2
+  exit 1
+fi
 
 # ---- arm identity -----------------------------------------------------------
 # Wave runs submit several chains that differ ONLY in MODEL_CFG and SEED. Both
