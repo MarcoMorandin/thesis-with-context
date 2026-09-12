@@ -50,22 +50,25 @@ vision_cfg:
   # as the ceiling, so no resampler appears anywhere in this arm either.
   fusion_mode: "interleaved_raw"
 
-  # THE change. One TS token spans input_patch_size * cadence = 16 * 30 min = 8 h,
-  # so 5 anchors need a visual window reaching back 5 patches = 40 h; the burst
-  # ladder in stage/s2e.yaml supplies 36 h of coverage (oldest frame at 34.25 h),
-  # which clears the (n_vis - 1) * 8 h data-coverage guard at
-  # vision_chronos2.py:1184. That guard is not cosmetic: pointing n_vis=5 at
+  # THE change. One TS token spans input_patch_size * cadence = 16 * 30 min = 8 h.
+  # Anchors are laid every visual_anchor_patch_stride=3 TS patches, i.e. 24 h
+  # apart, so 5 anchors reach back (5-1)*3*8 h = 96 h; the burst ladder in
+  # stage/s2e.yaml supplies 100 h of coverage (oldest frame at 98.25 h), which
+  # clears the (n_vis - 1) * stride * 8 h data-coverage guard in
+  # vision_chronos2.forward. That guard is not cosmetic: pointing n_vis=5 at
   # s2d's 6 h cache would emit five tokens describing the SAME recent sky under
   # five different claimed timestamps, which is A10b's stale-sky condition
   # (-0.135 SS, worse than no sky at all). It raises rather than runs.
   #
-  # Sequence: T_M = T_ctx - n_vis = 42 - 5 = 37 macro TS tokens, then five
-  # (TS, 20 visual) blocks, then the future token:
-  #   TS x37 | TS V*20 | TS V*20 | TS V*20 | TS V*20 | TS V*20 | future  = 143
-  # against s2d's 141. Positions are INTEGER — one shared id per (TS, V) block,
-  # via build_interleaved_position_ids — not s2d's fractional sub-patch scheme,
-  # which was the single-anchor workaround. With real anchors the canonical
-  # integer scheme is the correct one and is what the word "interleaving" names.
+  # Sequence at T_ctx=42: anchors sit on context patches 29, 32, 35, 38, 41 —
+  # newest co-temporal with the origin, then one per day back — and each carries
+  # its own 20-token visual block inserted immediately after it:
+  #   TS x30 | V*20 | TS x3 | V*20 | TS x3 | V*20 | TS x3 | V*20 | TS x3 | V*20 | future
+  # = 42 + 100 + 1 = 143, against s2d's 141. TS patches 0..29 run uninterrupted;
+  # the stream is interrupted five times after that, which is the layout the
+  # word "interleaving" names. Positions are INTEGER — a visual block shares the
+  # position id of its anchor patch, via build_interleaved_position_ids — not
+  # s2d's fractional sub-patch scheme, which was the single-anchor workaround.
   n_visual_context_steps: 5
 
   # Meaningless on the raw path (it fans a pooled vector out downstream of a
@@ -92,10 +95,27 @@ vision_cfg:
   # Each anchor offers T_lat/n_vis * n_cells = 2 * 49 = 98 candidates for its 20.
   # Sequence length is static at 42 + 100 + 1 = 143.
   visual_evs_keep: 100
-  # One TS patch = 8 h. Here this is the ANCHOR STRIDE as well as the position
-  # span: bursts start exactly 8 h apart so each is co-temporal with exactly one
-  # TS token. A burst straddling two patches would mislabel its own age.
+  # Seconds spanned by ONE TS input patch: 16 * 30 min = 8 h. Unchanged from
+  # every other arm — it is a property of the backbone geometry, not of the
+  # ladder. The anchor stride below multiplies it.
   visual_position_span_seconds: 28800.0
+  # A44 / ticket 45, option A: anchors every THREE TS patches = 24 h apart,
+  # matching data.visual_anchor_stride_hours=24.0 in stage/s2e.yaml. 1 is the
+  # contiguous tail s2b / s2d / A43 used.
+  #
+  # 3 rather than 1 because the 8 h ladder is unrealizable on uk_pv, not because
+  # a wider view is nicer. Satellite frames exist 02:00-16:00 UTC only
+  # (knowledge/dataset.md), so an 8 h ladder puts anchors 1 and 4 in daylight
+  # only when the origin is 10:00-16:00 while anchor 2 needs 02:00-08:00 —
+  # mutually exclusive. Replayed over 24,605 real origins: all five anchors
+  # populated 0.0% of the time. At 24 h each anchor sits at the origin's own
+  # clock time, so it shares its solar geometry: 94.4%.
+  #
+  # Nothing is given up. Advection is exhausted by ~2 h (knowledge/dataset.md),
+  # so the closer anchors were never nowcasting; the extra anchors exist to give
+  # the sky -> power mapping more than ONE point, which is exactly what A43's
+  # null result says a single anchor cannot do.
+  visual_anchor_patch_stride: 3
 
   visual_dropout_prob: 0.5   # matches s2b/s2c/s2d
   numeric_dropout_prob: 0.1

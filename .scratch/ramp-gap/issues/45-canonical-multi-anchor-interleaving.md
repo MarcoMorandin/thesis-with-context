@@ -73,7 +73,8 @@ patch ⇒ `n_vis` can only be 1. Hence the `ValueError` at `vision_chronos2.py:1
 
 That guard has been read as an architectural limit — the map's Out-of-scope entry says
 between-token interleaving "would need a re-patched backbone". **It would not.** It is a
-*data-coverage* limit. Widen the visual window to `n_vis × 8 h` and the anchors exist. The
+*data-coverage* limit. Widen the visual window to `(n_vis - 1) × stride × 8 h` and the
+anchors exist (the stride is 3 — see the option-A correction below — so 96 h, not 32 h). The
 sequence-building code is already generic:
 
 - `interleave_sequences` (`:77-117`) — its docstring at `:86` is literally the target layout;
@@ -118,13 +119,30 @@ This is the controlled experiment A43 could not be.
 
 ```yaml
 model.vision.n_visual_context_steps:  1    -> 5
+model.vision.visual_anchor_patch_stride: 1 -> 3      # 3 Chronos-2 patches = 24 h
 model.vision.visual_evs_keep:         98   -> 100    # divisible by 5 => 20/anchor
 data.video_frames:                    8    -> 20     # 5 bursts x 4
 data.visual_frame_spacing_min:        45   -> 45     # UNCHANGED - the proven step
-data.visual_anchor_stride_hours:      -    -> 8.0    # one Chronos-2 patch
+data.visual_anchor_stride_hours:      -    -> 24.0   # three Chronos-2 patches
 data.visual_frames_per_anchor:        -    -> 4
-data.visual_window_hours:             6.0  -> 36.0   # (5-1)*8 + burst span
+data.visual_window_hours:             6.0  -> 100.0  # (5-1)*24 + 2.25 burst span
 ```
+
+**Why 24 h and not 8 h — the option-A correction (2026-09-12).** The first cut of this
+ticket put the stride at one Chronos-2 patch, 8.0 h, on the reasoning that the position ids
+are built in patch units. That ladder is *unrealizable on uk_pv* and job 57357373 killed all
+three seeds in the coverage guard (`ValueError: visual window spans only 26.2 h but
+n_visual_context_steps=5 needs ~40.0 h`). The measurement behind it is now
+`knowledge/dataset.md` §2.3: uk_pv satellite frames exist **02:00–16:00 UTC only** (39,991
+frames/site over 731 days = 54.7/day = 13.7 h/day at 15 min). At an 8 h stride the −8 h and
+−32 h anchors need an origin in [10:00, 16:00] while the −16 h anchor needs [02:00, 08:00] —
+mutually exclusive, so **all five anchors are populated for 0.0 % of 24,605 real origins**.
+At 24 h every anchor sits at the origin's own clock time and shares its solar geometry:
+**94.4 %**. Nothing is surrendered by the wider stride, because advection is exhausted by
+~2 h (`knowledge/dataset.md` §2.1) — the near anchors were never nowcasting. The stride is
+carried in the model config as `visual_anchor_patch_stride=3`; `visual_position_span_seconds`
+stays 28800.0, which remains "seconds spanned by ONE TS input patch", and the stride
+multiplies it. At `T_ctx=42` the anchors land on patches **29, 32, 35, 38, 41**.
 
 **Frames are drawn as five dense bursts, not as a stretched uniform ladder.** This is the
 correction to the first draft of this ticket, which specified "the same 8 frames at 5 h
@@ -142,8 +160,13 @@ spacing, same cache size". That was wrong three ways:
 
 The burst ladder keeps the 45-min step *inside* each anchor and spends the distance on the
 gaps, where no frame is drawn at all. An anchor has to be **co-temporal** with its TS patch,
-not tile it. The anchor START carries the integer position id, so the stride is 8.0 h exactly
-— A10b priced a mislabelled age at **-0.135 SS**.
+not tile it. The anchor START carries the integer position id, so the stride is 24.0 h exactly
+— A10b priced a mislabelled age at **-0.135 SS**. Nothing at runtime reconciles the data-side
+`visual_anchor_stride_hours` (hours) with the model-side `visual_anchor_patch_stride`
+(patches), and a mismatch does **not** crash — it hands each anchor a sky from the wrong hour
+under a position id claiming otherwise, which is exactly A10b. The identity
+`stride_hours == patch_stride x 8 h` is therefore asserted in
+`MMTSFM/tests/test_a44_strided_anchors.py::TestS2eConfigGeometry`.
 
 Night is not a blocker: `knowledge/dataset.md:117-130` — v2 non-HRV channels are **IR bands,
 not visible**, so cloud fields are observable through the night. Every anchor carries real
@@ -173,8 +196,11 @@ overflowed once (32.84 TB view-save incident).** Before extraction:
       (`scripts/prune_recompress_vjepa_cache.py`).
 - [ ] Account checkpoints/logs against the remaining ~265 G.
 - [ ] Extract to a NEW directory — cache keys are `{dataset}_{site}_{origin}` and do **not**
-      encode spacing, so only the directory name separates ladders. Suggested:
-      `vit_large_f20_s224_nonhrv_sp45_a8h`.
+      encode spacing, so only the directory name separates ladders:
+      `vit_large_f20_s224_nonhrv_sp45_a24h`.
+- [ ] **Delete `vit_large_f20_s224_nonhrv_sp45_a8h` if the first attempt got far enough to
+      write it.** That extraction is KNOWN-WRONG (unreachable anchors, see the option-A
+      correction above) and is ~525 G of quota that the `_a24h` build needs.
 
 **Known confound, stated rather than hidden:** each anchor carries `T_lat=2`, against the
 control's 4. This arm is "half-depth s2d x 5", not "s2d x 5". If it wins, a follow-up at

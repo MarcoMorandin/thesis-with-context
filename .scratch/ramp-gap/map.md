@@ -256,7 +256,11 @@ decision here is blocked until a run finishes or a measurement exists.
   plant efficiency and is not derivable from power history, and Chronos-2 is an in-context
   forecaster whose 14 covariate rows each get many in-context examples while vision currently
   gets zero. **Ticket 27 should not be called until this resolves** — if multi-anchor works,
-  the contribution is interleaving after all and 27's premise changes.
+  the contribution is interleaving after all and 27's premise changes. **Geometry revised
+  2026-09-12**: anchors are one *day* apart (stride 3 patches), not one patch, because uk_pv
+  frames exist 02:00-16:00 UTC only and an 8 h ladder fills all five anchors on 0.0 % of
+  origins vs 94.4 % at 24 h. Costs nothing — advection is exhausted by ~2 h — but it does mean
+  a win reads as "more (sky, power) pairs help", not "recent sky helps".
 
 ## Not yet specified
 
@@ -359,6 +363,10 @@ decision here is blocked until a run finishes or a measurement exists.
   The entry as written ("would need a re-patched backbone") was wrong. Chronos-2's
   `input_patch_size` 16 does make one TS token 8 h on uk_pv, but the reason `n_vis` is pinned
   to 1 is that `visual_window_hours=6.0` covers only one patch — a **data-coverage** limit,
-  not a backbone limit. Widening the window to `n_vis x 8 h` produces the anchors; the
-  sequence-building code (`interleave_sequences`, `build_interleaved_position_ids`, the
-  per-anchor reshape at `:1259`) is already generic and `goes_pvdaq` runs `n_vis=2` today.
+  not a backbone limit. Widening the window produces the anchors; the sequence-building code
+  (`interleave_sequences`, `build_interleaved_position_ids`, the per-anchor reshape) is
+  already generic and `goes_pvdaq` runs `n_vis=2` today. Amended 2026-09-12: the anchor
+  stride is **24 h (3 patches)**, not 8 h. An 8 h ladder is unrealizable on uk_pv — frames
+  exist 02:00-16:00 UTC only, so all five anchors are populated for **0.0 %** of 24,605
+  origins against **94.4 %** at 24 h (`knowledge/dataset.md` §2.3). Job 57357373 failed all
+  three seeds in the coverage guard before this was understood.
