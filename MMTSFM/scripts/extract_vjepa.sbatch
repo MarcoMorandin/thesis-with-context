@@ -20,11 +20,15 @@
 #   sbatch scripts/extract_vjepa.sbatch                       # uk_pv, all splits
 #   DATASET=uk_pv SPLITS="train val test" TRAIN_STRIDE=12 sbatch scripts/extract_vjepa.sbatch
 #
-# Burst ladder (ticket 45) — dense bursts one TS patch apart instead of a uniform
-# ladder. --time below is sized for the 8-frame pass; override it for more frames.
-#   VIDEO_FRAMES=20 VISUAL_SPACING_MIN=45 ANCHOR_STRIDE_H=8.0 FRAMES_PER_ANCHOR=4 \
-#   VISUAL_WINDOW_H=36.0 VJEPA_CACHE_VER=vit_large_f20_s224_nonhrv_sp45_a8h \
+# Burst ladder (ticket 45, option A) — dense bursts a whole DAY apart instead of
+# a uniform ladder. --time below is sized for the 8-frame pass; override it for
+# more frames.
+#   VIDEO_FRAMES=20 VISUAL_SPACING_MIN=45 ANCHOR_STRIDE_H=24.0 FRAMES_PER_ANCHOR=4 \
+#   VISUAL_WINDOW_H=100.0 VJEPA_CACHE_VER=vit_large_f20_s224_nonhrv_sp45_a24h \
 #     sbatch --time=20:00:00 scripts/extract_vjepa.sbatch
+#
+# NOTE: the *_a8h cache from the first attempt at this ladder is KNOWN-WRONG
+# (unreachable anchors — see below) and must not be reused; extract to _a24h.
 # =============================================================================
 set -uo pipefail
 
@@ -54,10 +58,16 @@ VISUAL_WINDOW_H="${VISUAL_WINDOW_H:-6.0}"
 VISUAL_SPACING_MIN="${VISUAL_SPACING_MIN:-}"
 # Burst sampling (ticket 45). Both empty => the uniform ladder, unchanged. Set
 # together to draw VIDEO_FRAMES as VIDEO_FRAMES/FRAMES_PER_ANCHOR dense bursts,
-# each starting ANCHOR_STRIDE_H before the last. The stride must equal the
-# Chronos-2 patch span (8 h on uk_pv) so each burst is co-temporal with exactly
-# one TS token; a burst that straddles two patches mislabels its own age, which
-# A10b priced at -0.135 SS.
+# each starting ANCHOR_STRIDE_H before the last. The stride must be an INTEGER
+# NUMBER of Chronos-2 patch spans (8 h on uk_pv) so each burst is co-temporal
+# with exactly one TS token; a burst that straddles two patches mislabels its own
+# age, which A10b priced at -0.135 SS. How many patches is the model side's
+# vision_cfg.visual_anchor_patch_stride, and the two MUST agree:
+#   ANCHOR_STRIDE_H == visual_anchor_patch_stride * 8 h
+# A44 uses 24.0 h = 3 patches, not 8.0 h = 1. One patch is unrealizable on uk_pv:
+# frames exist 02:00-16:00 UTC only, so an 8 h ladder needs anchors at night for
+# whichever origin hour you pick (measured: all five populated on 0.0% of 24,605
+# origins). Daily anchors sit at the origin's own clock time: 94.4%.
 ANCHOR_STRIDE_H="${ANCHOR_STRIDE_H:-}"
 FRAMES_PER_ANCHOR="${FRAMES_PER_ANCHOR:-}"
 VJEPA_CACHE_ROOT="${VJEPA_CACHE_ROOT:-/leonardo_work/IscrC_MTSFM/vjepa_cache}"

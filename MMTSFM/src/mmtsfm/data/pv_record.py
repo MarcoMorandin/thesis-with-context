@@ -441,7 +441,16 @@ class PVRecordDataset(Dataset):
         anchor_sec = (self.visual_anchor_stride_hours or 0.0) * 3600.0
         offsets = [(k // f) * anchor_sec + (k % f) * spacing_sec for k in range(Tv)]
 
+        # A burst ladder needs SLOT-STABLE placement; a uniform one does not and
+        # keeps the historical left-pack byte-for-byte, so every pre-ticket-45 arm
+        # and every cache already on disk is untouched by this branch.
+        burst = bool(self.visual_frames_per_anchor and self.visual_anchor_stride_hours)
+
         grid_ts, grid_idx = self._frame_grid.get(key, (None, None))
+        # sel_ts[j] is the frame for slot j, or None if that slot found nothing.
+        # Slot j carries requested offset offsets[Tv-1-j], so the array runs
+        # OLDEST -> NEWEST and latent group i lines up with anchor i.
+        sel_ts: list[int | None] = [None] * Tv
         sel: list[int] = []
         if grid_ts is not None and len(grid_ts):
             for k in range(Tv):
@@ -457,27 +466,36 @@ class PVRecordDataset(Dataset):
                     t_sel = int(grid_ts[best])
                     fmap.setdefault(t_sel, int(grid_idx[best]))
                     sel.append(t_sel)
-        # Ascending, newest last, matching the left-pad placement below.
-        sel = sorted(set(sel))[-Tv:]
+                    sel_ts[Tv - 1 - k] = t_sel
+        if not burst:
+            # Ascending, newest last, matching the left-pad placement below.
+            sel = sorted(set(sel))[-Tv:]
+            pad_len = Tv - len(sel)
+            sel_ts = [None] * pad_len + list(sel)
 
         V = torch.zeros(1, Tv, C, S, S)
         mask_v = torch.zeros(1, Tv)
         video_delta_t = torch.zeros(1, Tv)
 
-        # Left-pad: place active frames at the end if we have fewer than Tv
-        pad_len = Tv - len(sel)
-        if len(sel) > 0:
-            images = None
-            if load_frames:
-                g = self._group(*key)
-                images = g["images"]
-            for idx_sel, t in enumerate(sel):
-                j = pad_len + idx_sel
-                if images is not None:
-                    raw = _decode_frame(images[fmap[t]], self.png_frames)
-                    V[0, j] = _prep_frame(raw, S, C, self.imagenet_norm)
-                mask_v[0, j] = 1.0
-                video_delta_t[0, j] = float(t_now - t)
+        images = None
+        if load_frames and any(t is not None for t in sel_ts):
+            g = self._group(*key)
+            images = g["images"]
+        for j, t in enumerate(sel_ts):
+            if t is None:
+                # Masked slot. On the burst ladder it still carries its REQUESTED
+                # age: the anchor clock has to be a property of the layout, not of
+                # which frames happened to survive, or lat_delta_t.max() reports
+                # the oldest SURVIVOR and the coverage guard in vision_chronos2
+                # ends up measuring availability instead of span.
+                if burst:
+                    video_delta_t[0, j] = float(offsets[Tv - 1 - j])
+                continue
+            if images is not None:
+                raw = _decode_frame(images[fmap[t]], self.png_frames)
+                V[0, j] = _prep_frame(raw, S, C, self.imagenet_norm)
+            mask_v[0, j] = 1.0
+            video_delta_t[0, j] = float(t_now - t)
 
         return V, mask_v, video_delta_t
 

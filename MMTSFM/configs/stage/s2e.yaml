@@ -8,9 +8,10 @@
 # one (sky, power) pair in context, and a mapping cannot be fitted from one
 # point. s2e builds the layout the literature means by the word —
 #
-#   TS x37 | TS V | TS V | TS V | TS V | TS V | future        (n_vis = 5)
+#   TS x30 | V | TS x3 | V | TS x3 | V | TS x3 | V | TS x3 | V | future   (n_vis = 5)
 #
-# — and is the first time this repo runs it on the raw path. Ticket 45 / A44.
+# — anchors on context patches 29/32/35/38/41 at T_ctx=42, i.e. one per DAY, and
+# is the first time this repo runs it on the raw path. Ticket 45 / A44.
 #
 # The freeze policy, the projector, the payload and the optimiser are held
 # identical to s2d. The ONLY things that move are the anchor count and the data
@@ -35,35 +36,48 @@ model:
     numeric_dropout_prob: 0.1
 data:
   emit_vision: true
-  # --- Burst ladder (ticket 45) ---------------------------------------------
-  # 20 frames drawn as FIVE dense bursts of 4, each burst starting 8 h before the
-  # last, with the proven 45-min step kept INSIDE each burst. Offsets are
-  # (k // 4) * 8 h + (k % 4) * 45 min, so the oldest frame sits at 34.25 h.
+  # --- Burst ladder, DAILY anchors (ticket 45, option A) ---------------------
+  # 20 frames drawn as FIVE dense bursts of 4, each burst starting 24 h before
+  # the last, with the proven 45-min step kept INSIDE each burst. Offsets are
+  # (k // 4) * 24 h + (k % 4) * 45 min, so the oldest frame sits at 98.25 h.
   #
   # Not a stretched uniform ladder, and that distinction is the whole design:
   #   * csi autocorrelation is ~0.78 at 45 min and ~0 at 5 h (s2d design §3.3),
-  #     and V-JEPA tubelets span temporal stride 2 — a uniform 5 h ladder would
-  #     decorrelate the two frames inside a single tubelet, degrading the
-  #     LATENTS before any of this arm's code runs;
+  #     and V-JEPA tubelets span temporal stride 2 — a uniform ladder wide
+  #     enough to reach back days would decorrelate the two frames inside a
+  #     single tubelet, degrading the LATENTS before any of this arm's code runs;
   #   * EVS scores cosine dissimilarity to the previous frame, so decorrelated
   #     frames score ~1.0 everywhere and the ranking becomes noise. That is
   #     A38's `random` arm, measured at +0.0039 ramp NMAE, 3.6x the seed floor.
   # Bursts spend the distance on the GAPS, where no frame is drawn at all.
   #
-  # An anchor must be CO-TEMPORAL with its TS token, not tile it: the burst
-  # start carries the integer position id, so the stride is 8.0 h exactly —
-  # one input_patch_size * 30 min patch. A mislabelled age is A10b (-0.135 SS).
+  # WHY 24 h AND NOT 8 h (one TS patch). The 8 h ladder is unrealizable on
+  # uk_pv. Frames exist 02:00-16:00 UTC only (knowledge/dataset.md:114 —
+  # 39,991 frames/site over 731 days = 54.7/day = 13.7 h/day at 15 min), so for
+  # a daytime origin t the -8 h and -32 h anchors need t in [10:00,16:00] while
+  # the -16 h anchor needs t in [02:00,08:00]: mutually exclusive. Replaying
+  # this selection rule over 24,605 real origins put ALL FIVE anchors populated
+  # at 0.0%, which is exactly the 26.2 h coverage the forward guard rejected on
+  # job 57357373. At 24 h every anchor sits at the origin's own clock time, so
+  # it shares its solar geometry and is always present: 94.4%.
   #
-  # Night is not a gap: v2 non-HRV channels are IR, not visible
-  # (knowledge/dataset.md:117-130), so every anchor carries real cloud signal.
+  # Nothing is lost by the wider stride. Advection is exhausted by ~2 h
+  # (knowledge/dataset.md:132-136: frame-to-frame MAD 8.3 DN at 15 min against
+  # 35.3 DN at 2 h, within-frame std 38.6 DN), so the closer anchors were never
+  # doing nowcasting — the extra anchors exist to give the sky->power mapping
+  # more than ONE point, and same-solar-geometry daily pairs are the cleanest
+  # such set available.
   #
-  # Disk: T_lat = 20/2 = 10 against s2d's 4, i.e. 525 G against the control's
+  # Night is not a gap for the frames that DO exist: v2 non-HRV channels are IR,
+  # not visible (knowledge/dataset.md:117-130).
+  #
+  # Disk: T_lat = 20/2 = 10 against s2d's 4, i.e. ~525 G against the control's
   # measured 210 G. Extract to a SEPARATE directory — cache keys are
   # {dataset}_{site}_{origin} and do NOT encode the ladder, so only the
   # directory name keeps the two apart:
-  #   VJEPA_CACHE_VER=vit_large_f20_s224_nonhrv_sp45_a8h
+  #   VJEPA_CACHE_VER=vit_large_f20_s224_nonhrv_sp45_a24h
   video_frames: 20
-  visual_window_hours: 36.0        # covers 4*8 h + 2.25 h burst span = 34.25 h
+  visual_window_hours: 100.0       # covers 4*24 h + 2.25 h burst span = 98.25 h
   visual_frame_spacing_min: 45.0   # UNCHANGED from s2d — the proven in-burst step
-  visual_anchor_stride_hours: 8.0  # exactly one Chronos-2 input patch
+  visual_anchor_stride_hours: 24.0 # three Chronos-2 input patches (3 * 8 h)
   visual_frames_per_anchor: 4      # 20 / 4 = 5 bursts = 5 anchors

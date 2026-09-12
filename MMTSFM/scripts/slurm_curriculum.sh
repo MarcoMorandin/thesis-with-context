@@ -109,10 +109,11 @@ declare -A ST_ACCUM=( [s1]="${S1_ACCUM:-2}" [s2a]="${S2A_ACCUM:-4}" [s2b]="${S2B
 # s2e (A44, canonical multi-anchor interleaving) sits last for the same reason
 # again: an ALTERNATIVE to s2d, not a successor, and the chain still stops at
 # END_STAGE=s3. It needs its OWN latent cache (20 frames drawn as five 4-frame
-# bursts 8 h apart) and N_VIS=5 — see the guard below for why the N_VIS is not
-# optional:
+# bursts 24 h apart — daily, because uk_pv frames exist 02:00-16:00 UTC only and
+# an 8 h ladder can never fill all five anchors) and N_VIS=5 — see the guard
+# below for why the N_VIS is not optional:
 #   START_STAGE=s2e END_STAGE=s2e SEED=42 MODEL_CFG=vision_chronos2_s2e N_VIS=5 \
-#     VJEPA_CACHE_VER=vit_large_f20_s224_nonhrv_sp45_a8h \
+#     VJEPA_CACHE_VER=vit_large_f20_s224_nonhrv_sp45_a24h \
 #     INIT_CKPT=${CKPT_DIR}/uk_pv_s1_selfattn_s42/best.ckpt MARGINAL_GAIN=1 \
 #     bash scripts/slurm_curriculum.sh
 STAGES=(s1 s2a s2b s3 s2c s2d s2e)

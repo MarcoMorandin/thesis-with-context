@@ -156,6 +156,35 @@ carry all 8 frames**; only 3.7 % of scored steps have no visual input at all.
 > daylight-only archive. It is **false for v2** — the 07:30 window (02:15–07:30) is
 > fully covered by IR frames.
 
+### 2.3 Multi-anchor ladders: only a *daily* stride is realizable
+
+Interleaved arms place `n_vis` visual anchors on TS context patches. One `uk_pv`
+patch is `input_patch_size × cadence = 16 × 30 min = 8 h`, so the obvious ladder is
+one anchor per patch. **It does not exist in this archive.** Frames are diurnal
+(§2, 02:00–16:00 UTC), so an 8 h ladder behind a daytime origin `t` needs the −8 h
+and −32 h anchors in `t ∈ [10:00, 16:00]` *and* the −16 h anchor in
+`t ∈ [02:00, 08:00]` — mutually exclusive. A 24 h ladder instead places every
+anchor at the origin's own clock time, so all five share its solar geometry.
+
+Measured 2026-09-12 by replaying `_load_vision`'s slot rule (4 frames/anchor,
+45-min spacing, ±22.5-min tolerance) over **24,605 origins** against the H5 grid:
+
+| Anchor stride | Anchor offsets | Origins with **all 5** anchors populated |
+|---|---|---:|
+| 8 h (1 patch) | 0 / −8 / −16 / −24 / −32 h | **0.0 %** |
+| 24 h (3 patches) | 0 / −24 / −48 / −72 / −96 h | **94.4 %** |
+
+This is what job 57357373 hit as `visual window spans only 26.2 h` — the guard was
+reporting the oldest *surviving* frame of an unrealizable ladder.
+
+Nothing is lost by the wider stride: advection is exhausted by ~2 h (§2.1), so the
+closer anchors were never nowcasting. Extra anchors exist to give the sky→power
+mapping more than one (sky, power) pair, and same-solar-geometry daily pairs are
+the cleanest such set the archive offers. Consumed by `configs/stage/s2e.yaml`
+(`visual_anchor_stride_hours: 24.0`) and `configs/model/vision_chronos2_s2e.yaml`
+(`visual_anchor_patch_stride: 3`); the two must satisfy
+`stride_hours == patch_stride × 8 h`, asserted in `tests/test_a44_strided_anchors.py`.
+
 Normalize to `[0, 1]` on load (÷255). `pv_record` then applies ImageNet mean/std
 (`data.imagenet_norm: true`) because V-JEPA 2's own transform does — note the
 `visual_encoder.VisualEncoder.forward` docstring still says "normalized to [0, 1]",

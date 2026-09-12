@@ -50,21 +50,32 @@ def t_ctx_from_context(context_length: int, input_patch_size: int) -> int:
 
 
 def validate_n_visual_context_steps(
-    n_visual_context_steps: int, context_length: int, input_patch_size: int
+    n_visual_context_steps: int,
+    context_length: int,
+    input_patch_size: int,
+    anchor_patch_stride: int = 1,
 ) -> int:
     """Assert the visual window fits inside the TS context; return ``T_ctx``.
 
-    ``n_visual_context_steps`` is how many of the most-recent context patches
-    are given visual tokens, so it must not exceed ``T_ctx`` (W7). Fires loudly
-    on an impossible config instead of silently clamping.
+    ``n_visual_context_steps`` anchors are laid down every
+    ``anchor_patch_stride`` context patches ending at the last one, so the
+    oldest anchor sits at patch ``T_ctx - 1 - (n_vis - 1) * stride`` and that
+    index must stay non-negative (W7). ``stride=1`` reduces to the historical
+    "the last n_vis patches" test. Fires loudly on an impossible config instead
+    of silently clamping.
     """
     t_ctx = t_ctx_from_context(context_length, input_patch_size)
-    if n_visual_context_steps > t_ctx:
+    stride = int(anchor_patch_stride)
+    if stride < 1:
+        raise ValueError(f"visual_anchor_patch_stride must be >= 1, got {stride}")
+    span = (int(n_visual_context_steps) - 1) * stride + 1
+    if span > t_ctx:
         raise ValueError(
-            f"n_visual_context_steps={n_visual_context_steps} exceeds the number "
-            f"of TS context patches T_ctx={t_ctx} "
+            f"n_visual_context_steps={n_visual_context_steps} at "
+            f"visual_anchor_patch_stride={stride} spans {span} TS context patches, "
+            f"more than T_ctx={t_ctx} "
             f"(context_length={context_length}, input_patch_size={input_patch_size}). "
-            f"Reduce n_visual_context_steps to <= {t_ctx}."
+            f"Reduce n_visual_context_steps to <= {(t_ctx - 1) // stride + 1}."
         )
     return t_ctx
 
@@ -74,16 +85,81 @@ def validate_n_visual_context_steps(
 # ---------------------------------------------------------------------------
 
 
+def anchor_patch_indices(
+    T_ctx: int, n_vis: int, anchor_patch_stride: int, device: torch.device
+) -> torch.Tensor:
+    """Which context patches carry a visual anchor, oldest -> newest.
+
+    The newest anchor is always the last context patch (it is co-temporal with
+    ``t_now``); earlier anchors step back ``anchor_patch_stride`` patches at a
+    time. ``stride=1`` returns the contiguous tail
+    ``[T_ctx-n_vis, ..., T_ctx-1]`` — the layout every pre-ticket-45 arm was
+    built on — so that case is byte-identical to the old hardwired tail.
+
+    A44 / option A uses ``stride=3`` on uk_pv: one patch is 8 h, so three
+    patches put the anchors 24 h apart. That is forced by the data, not by
+    taste — uk_pv frames only exist 02:00-16:00 UTC (knowledge/dataset.md),
+    so an 8 h ladder asks for anchors at clock times that are night for some
+    of them and can never fill all five. Daily anchors always land at the same
+    solar geometry as the origin, hence always exist.
+    """
+    stride = int(anchor_patch_stride)
+    if stride < 1:
+        raise ValueError(f"anchor_patch_stride must be >= 1, got {stride}")
+    idx = T_ctx - 1 - stride * torch.arange(n_vis - 1, -1, -1, device=device)
+    if int(idx[0].item()) < 0:
+        raise ValueError(
+            f"{n_vis} anchors at stride {stride} reach back to patch "
+            f"{int(idx[0].item())} of T_ctx={T_ctx}; the oldest anchor falls off "
+            "the front of the context."
+        )
+    return idx
+
+
+def interleaved_slot_indices(
+    T_ctx: int, anchor_idx: torch.Tensor, n_soft: int
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Positions of the TS and visual tokens in the interleaved sequence.
+
+    One shared geometry for all four constructions that have to agree —
+    embeddings, modality mask, attention mask, position ids — so they cannot
+    drift apart when the anchor stride changes.
+
+    Returns ``(ts_pos [T_ctx], vis_pos [n_anchor*n_soft])``: TS patch ``t``
+    lands at ``ts_pos[t]``, and anchor ``a``'s ``n_soft`` visual tokens land
+    immediately after their own TS patch. With a contiguous anchor tail this
+    reproduces the historical "macro block, then (TS, V...) blocks" order
+    exactly.
+    """
+    device = anchor_idx.device
+    is_anchor = torch.zeros(T_ctx, dtype=torch.long, device=device)
+    is_anchor[anchor_idx] = 1
+    # Visual tokens inserted strictly BEFORE patch t = n_soft per earlier anchor.
+    n_before = torch.cumsum(is_anchor, 0) - is_anchor
+    ts_pos = torch.arange(T_ctx, device=device) + n_soft * n_before
+    vis_pos = (
+        ts_pos[anchor_idx][:, None] + 1 + torch.arange(n_soft, device=device)[None, :]
+    ).reshape(-1)
+    return ts_pos, vis_pos
+
+
 def interleave_sequences(
     ts_tokens: torch.Tensor,  # [B, T_ctx, d]
     vis_tokens: torch.Tensor,  # [B, n_vis, d] or [B, n_vis, N_soft, d]
     n_vis: int,
+    anchor_idx: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Selectively interleave visual summary tokens into the refinement window.
+    """Selectively interleave visual summary tokens into the context sequence.
 
-    Builds, with N = N_soft visual tokens per refined step:
+    Builds, with N = N_soft visual tokens per anchored step and anchors at the
+    contiguous tail (the ``anchor_idx=None`` default):
 
         [ts_0..ts_{T_M-1}] || [ts_{T_M}, v¹_{T_M}..v^N_{T_M}, ts_{T_M+1}, ...]
+
+    ``anchor_idx`` moves the anchors to arbitrary context patches — A44 spaces
+    them ``visual_anchor_patch_stride`` apart — which spreads the visual tokens
+    through the context instead of packing them at the end. The token COUNT and
+    the per-anchor ordering are unchanged either way.
 
     A 3-D ``vis_tokens`` is treated as N=1, which is the historical shape and
     reproduces the original pairwise interleave exactly.
@@ -93,26 +169,21 @@ def interleave_sequences(
         modality_mask: ``[B, T_ctx + n_vis*N]`` long tensor — 0=TS, 1=visual
     """
     B, T_ctx, d = ts_tokens.shape
-    T_M = T_ctx - n_vis
     if vis_tokens.dim() == 3:
         vis_tokens = vis_tokens.unsqueeze(2)  # [B, n_vis, 1, d]
     n_soft = vis_tokens.shape[2]
-
-    macro = ts_tokens[:, :T_M, :]
-    ts_refine = ts_tokens[:, T_M:, :].unsqueeze(2)  # [B, n_vis, 1, d]
-    blocks = torch.cat([ts_refine, vis_tokens], dim=2)  # [B, n_vis, 1+N, d]
-    refinement = blocks.reshape(B, n_vis * (1 + n_soft), d)
-    interleaved = torch.cat([macro, refinement], dim=1)  # [B, T_ctx+n_vis*N, d]
-
     device = ts_tokens.device
+    if anchor_idx is None:
+        anchor_idx = anchor_patch_indices(T_ctx, n_vis, 1, device)
+    ts_pos, vis_pos = interleaved_slot_indices(T_ctx, anchor_idx, n_soft)
+
     seq_len = T_ctx + n_vis * n_soft
+    interleaved = ts_tokens.new_zeros(B, seq_len, d)
+    interleaved[:, ts_pos] = ts_tokens
+    interleaved[:, vis_pos] = vis_tokens.reshape(B, n_vis * n_soft, d)
+
     modality_mask = torch.zeros(B, seq_len, dtype=torch.long, device=device)
-    # Offsets 1..N inside each (1+N)-token block are the visual ones.
-    block_start = T_M + torch.arange(n_vis, device=device) * (1 + n_soft)
-    vis_positions = (
-        block_start[:, None] + 1 + torch.arange(n_soft, device=device)[None, :]
-    ).reshape(-1)
-    modality_mask[:, vis_positions] = 1
+    modality_mask[:, vis_pos] = 1
 
     return interleaved, modality_mask
 
@@ -123,21 +194,35 @@ def build_interleaved_position_ids(
     T_fut: int,
     device: torch.device,
     n_soft: int = 1,
+    anchor_idx: torch.Tensor | None = None,
+    T_ctx: int | None = None,
 ) -> torch.Tensor:
     """Build temporal position IDs for the interleaved sequence.
 
-    A refined step and ALL of its visual tokens share one position ID, so RoPE
-    treats the whole (1+N_soft)-token block as co-temporal and the N visual
-    tokens are order-free within it.
+    An anchored step and ALL of its visual tokens share one position ID, so
+    RoPE treats the whole (1+N_soft)-token block as co-temporal and the N
+    visual tokens are order-free within it. A TS patch's position id is its own
+    patch index, so the future tokens continue from ``T_ctx``.
+
+    ``anchor_idx`` (with the matching ``T_ctx``) places the anchors at strided
+    context patches; omitting both keeps the contiguous tail, where
+    ``T_ctx = T_M + n_vis``.
 
     Returns:
-        ``[1, T_M + n_vis*(1+n_soft) + T_fut]`` long tensor
+        ``[1, T_ctx + n_vis*n_soft + T_fut]`` long tensor
     """
-    macro_ids = torch.arange(T_M, device=device)
-    refine_ids = torch.arange(T_M, T_M + n_vis, device=device)
-    refine_blocks = refine_ids[:, None].expand(n_vis, 1 + n_soft).reshape(-1)
-    future_ids = torch.arange(T_M + n_vis, T_M + n_vis + T_fut, device=device)
-    return torch.cat([macro_ids, refine_blocks, future_ids]).unsqueeze(0)
+    if anchor_idx is None:
+        T_ctx = T_M + n_vis
+        anchor_idx = anchor_patch_indices(T_ctx, n_vis, 1, device)
+    elif T_ctx is None:
+        raise ValueError("build_interleaved_position_ids: anchor_idx needs T_ctx")
+    ts_pos, vis_pos = interleaved_slot_indices(T_ctx, anchor_idx, n_soft)
+
+    ids = torch.zeros(T_ctx + n_vis * n_soft, dtype=torch.long, device=device)
+    ids[ts_pos] = torch.arange(T_ctx, device=device)
+    ids[vis_pos] = anchor_idx[:, None].expand(n_vis, n_soft).reshape(-1)
+    future_ids = torch.arange(T_ctx, T_ctx + T_fut, device=device)
+    return torch.cat([ids, future_ids]).unsqueeze(0)
 
 
 def reduce_delta_t_to_latents(frame_delta_t: torch.Tensor, T_lat: int) -> torch.Tensor:
@@ -305,6 +390,17 @@ class VisionChronos2Config:
     # slot [T_M, T_M+0.99]; a wrong value rescales the visual positions but keeps
     # their order.
     visual_position_span_seconds: float = 28800.0
+    # A44 / ticket 45 — how many TS patches separate consecutive visual anchors.
+    # 1 is the contiguous tail every arm up to A43 used. 3 is option A on uk_pv:
+    # one patch is 8 h, so three put the anchors 24 h apart, which is the only
+    # ladder whose five anchors are all reachable — uk_pv frames exist 02:00-16:00
+    # UTC only (knowledge/dataset.md), so an 8 h ladder needs anchors at night
+    # for whichever origin hour you pick and never fills all five (measured: 0.0%
+    # of 24,605 origins). Daily anchors sit at the origin's own clock time, so
+    # they share its solar geometry and are always present (94.4%).
+    # The Δt a single anchor spans is still visual_position_span_seconds *
+    # this stride; the guard at forward time checks against that product.
+    visual_anchor_patch_stride: int = 1
     # A37 / ticket 41 — how the r*r patch block is merged before the projector.
     # "shuffle" concatenates (lossless, s2d); "avg" mean-pools (lossy foil, same
     # token count). Changes proj[0].in_features, so "avg" cannot warm-start from
@@ -487,6 +583,7 @@ class VisionChronos2Model(nn.Module):
                 vision_config.n_visual_context_steps,
                 chronos_model.chronos_config.context_length,
                 chronos_model.chronos_config.input_patch_size,
+                anchor_patch_stride=vision_config.visual_anchor_patch_stride,
             )
 
         if not vision_config.skip_vision_stack:
@@ -1179,18 +1276,29 @@ class VisionChronos2Model(nn.Module):
                             f"n_visual_context_steps={n_vis} anchors."
                         )
                     span = float(self.vcfg.visual_position_span_seconds)
+                    stride = int(self.vcfg.visual_anchor_patch_stride)
+                    # Consecutive anchors sit `stride` TS patches apart, so the
+                    # oldest is (n_vis-1)*stride patches back. Report exactly the
+                    # number that is tested — an earlier version advertised
+                    # n_vis*span and sent readers off to re-extract a window a
+                    # whole patch wider than the guard wants.
+                    need = (n_vis - 1) * stride * span
                     if lat_delta_t is not None:
                         oldest = float(lat_delta_t.max().item())
-                        if oldest < (n_vis - 1) * span:
+                        if oldest < need:
                             raise ValueError(
                                 f"visual window spans only {oldest / 3600:.1f} h but "
-                                f"n_visual_context_steps={n_vis} needs ~"
-                                f"{n_vis * span / 3600:.1f} h "
-                                f"({n_vis} x {span / 3600:.1f} h TS patches). Every "
+                                f"n_visual_context_steps={n_vis} at "
+                                f"visual_anchor_patch_stride={stride} needs "
+                                f"{need / 3600:.1f} h "
+                                f"({n_vis - 1} gaps x {stride} x "
+                                f"{span / 3600:.1f} h TS patches). Every "
                                 "anchor would carry the same recent sky under a "
                                 "different timestamp — the A10b stale-sky failure. "
                                 "Re-extract the latent cache with "
-                                f"data.visual_window_hours={n_vis * span / 3600:.0f}."
+                                f"data.visual_anchor_stride_hours="
+                                f"{stride * span / 3600:.1f} and "
+                                f"data.visual_window_hours>={need / 3600:.0f}."
                             )
                 # s2d: pixel shuffle -> MLP projector -> cell embedding -> EVS.
                 # No pooling over the patch field at any point.
@@ -1298,18 +1406,25 @@ class VisionChronos2Model(nn.Module):
                     vis_active_3d, future_embeds_mm, future_embeds
                 )
 
-            # Interleave refinement window. Regroup the flat visual tokens back to
-            # [B, n_vis, N_vis_tok, d] so each refined step gets its own block.
+            # Interleave the anchored context patches. Regroup the flat visual
+            # tokens back to [B, n_vis, N_vis_tok, d] so each anchor gets its own
+            # block. `anchor_idx` names WHICH context patches those are: the tail
+            # at stride 1 (every arm up to A43), every `stride`-th patch for A44.
+            anchor_idx = anchor_patch_indices(
+                T_ctx, n_vis, int(self.vcfg.visual_anchor_patch_stride), device
+            )
             interleaved_ctx, modality_mask_ctx = interleave_sequences(
                 input_embeds_mm,
                 vis_summary.reshape(B, n_vis, N_vis_tok, -1),
                 n_vis,
+                anchor_idx=anchor_idx,
             )
+            ts_pos, vis_pos = interleaved_slot_indices(T_ctx, anchor_idx, N_vis_tok)
 
             # Full sequence: [B, T_ctx + n_vis*N_vis_tok + T_fut, d]
             T_fut = future_embeds_mm.shape[1]
             n_vis_tok = n_vis * N_vis_tok  # visual tokens inserted into the context
-            T_M = T_ctx - n_vis  # macro region: context patches with no visual partner
+            T_M = T_ctx - n_vis  # only the n_vis==1 sub-patch branch still uses this
             all_embeds = torch.cat([interleaved_ctx, future_embeds_mm], dim=1)
             modality_mask_fut = torch.zeros(B, T_fut, dtype=torch.long, device=device)
             modality_mask = torch.cat([modality_mask_ctx, modality_mask_fut], dim=1)
@@ -1323,23 +1438,14 @@ class VisionChronos2Model(nn.Module):
             # tokens for temporal mixing. Note the mask is ALSO a patch feature, so
             # the embedding always reflected it; only the mixing/attention side was
             # wrong, which is why the symptom was subtle rather than catastrophic.
+            # Visual slots default to 1 (they are always attendable); the TS slots
+            # are scattered through the same index map the tokens used, so mask and
+            # token can never disagree about where a patch landed.
             ctx_mask = attention_mask.to(dtype)  # [B, T_ctx]
-            macro_mask = ctx_mask[:, :T_M]
-            refine_mask = torch.cat(
-                [
-                    ctx_mask[:, T_M:, None],  # the TS token opening each block
-                    torch.ones(  # its N_vis_tok visual partners
-                        B, n_vis, N_vis_tok, device=device, dtype=dtype
-                    ),
-                ],
-                dim=2,
-            ).reshape(B, n_vis * (1 + N_vis_tok))
+            ctx_mask_il = torch.ones(B, T_ctx + n_vis_tok, device=device, dtype=dtype)
+            ctx_mask_il[:, ts_pos] = ctx_mask
             all_mask = torch.cat(
-                [
-                    macro_mask,
-                    refine_mask,
-                    torch.ones(B, T_fut, device=device, dtype=dtype),
-                ],
+                [ctx_mask_il, torch.ones(B, T_fut, device=device, dtype=dtype)],
                 dim=1,
             )
             all_group_ids = group_ids
@@ -1368,12 +1474,18 @@ class VisionChronos2Model(nn.Module):
             else:
                 # s2b, late_raw (A43), and multi-anchor interleaved_raw (ticket 45):
                 # every visual token in a block shares its co-temporal TS position, so
-                # RoPE sees the (TS, V…) block as one instant and the future token
-                # stays at T_M + n_vis exactly. Across blocks the anchors are a full
-                # patch apart, which is the temporal spread the fractional scheme
-                # could not express.
+                # RoPE sees the (TS, V…) block as one instant and the future tokens
+                # start at T_ctx exactly. Across blocks the anchors are
+                # visual_anchor_patch_stride patches apart, which is the temporal
+                # spread the fractional scheme could not express.
                 position_ids = build_interleaved_position_ids(
-                    T_M, n_vis, T_fut, device, n_soft=N_vis_tok
+                    T_M,
+                    n_vis,
+                    T_fut,
+                    device,
+                    n_soft=N_vis_tok,
+                    anchor_idx=anchor_idx,
+                    T_ctx=T_ctx,
                 ).expand(B, -1)
 
             # Covariate rows (batch-axis) — the interleaved path previously dropped

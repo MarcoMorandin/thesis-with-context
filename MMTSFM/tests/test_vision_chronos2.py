@@ -1444,19 +1444,27 @@ class TestVisualContextDerivation:
         )
 
         # context_length=16, patch 8 → T_ctx=2; 5 visual steps is impossible
-        with pytest.raises(
-            ValueError, match="exceeds the number of TS context patches"
-        ):
+        with pytest.raises(ValueError, match="more than T_ctx=2"):
             validate_n_visual_context_steps(5, 16, 8)
+
+    def test_validate_counts_the_anchor_stride(self):
+        """A44: anchors every `stride` patches reach back further than n_vis."""
+        from mmtsfm.models.chronos2.vision_chronos2 import (
+            validate_n_visual_context_steps,
+        )
+
+        # uk_pv geometry: T_ctx=42, five daily anchors at 3 patches apart span 13.
+        assert validate_n_visual_context_steps(5, 672, 16, anchor_patch_stride=3) == 42
+        # 15 anchors at stride 3 would reach patch -1.
+        with pytest.raises(ValueError, match="more than T_ctx=42"):
+            validate_n_visual_context_steps(15, 672, 16, anchor_patch_stride=3)
 
     def test_model_init_rejects_impossible_config(self):
         from mmtsfm.models.chronos2 import VisionChronos2Model, VisionChronos2Config
 
         chronos = _make_chronos2(d_model=32, context_length=16)  # patch 8 → T_ctx=2
         vcfg = VisionChronos2Config(n_visual_context_steps=9)
-        with pytest.raises(
-            ValueError, match="exceeds the number of TS context patches"
-        ):
+        with pytest.raises(ValueError, match="more than T_ctx=2"):
             VisionChronos2Model(chronos, vcfg, video_encoder=_make_fake_video_encoder())
 
 
@@ -1534,7 +1542,9 @@ class TestInterleavedRespectsContextMask:
         try:
             with torch.no_grad():
                 model(
-                    context=context, context_mask=mask, video=video,
+                    context=context,
+                    context_mask=mask,
+                    video=video,
                     num_output_patches=2,
                 )
         finally:
