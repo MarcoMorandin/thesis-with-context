@@ -1,0 +1,62 @@
+# @package _global_
+# A45a — "one s2e anchor, on its own". The depth+density control for A44.
+#
+# WHY. A44 (s2e) lost 0.01070 SS against s2d (0.54028 on seeds 42/44 vs 0.55098
+# on 42/43/44). Three things moved at once between the two arms, and the
+# registry row for A44 already concedes the first of them:
+#
+#                        anchors   latents/anchor   EVS keep/anchor   candidates
+#   s2d                    1             4                98              196
+#   s2e (A44)              5             2                20               98
+#   A45a  <- this arm      1             2                20               98
+#
+# s2e is therefore "impoverished s2d x 5", not "s2d x 5": each anchor carries
+# HALF the temporal depth and a FIFTH of the token budget of the s2d anchor it
+# is compared against. A45a holds the anchor count at 1 and applies the other
+# two changes, so the -0.01070 splits cleanly:
+#
+#   A45a ~= s2e   -> the loss is per-anchor impoverishment. Anchor count is
+#                    neutral, and A44 is NOT a negative result about
+#                    interleaving — it never varied interleaving alone.
+#   A45a ~= s2d   -> impoverishment is free, so the -0.01070 IS the anchor
+#                    count. A44 stands as a real negative and ticket 27 can be
+#                    called on it.
+#   in between    -> report the split; neither claim is available whole.
+#
+# Decision floor is the 0.0037 seed floor used everywhere else in this registry.
+#
+# COST. Zero extraction. This arm reuses the EXISTING 210 G s2d cache
+# (vit_large_f20_s224_nonhrv_sp45 — the control's own directory, untouched):
+# visual_latent_keep_newest=2 trims the cached [T_lat=4, P, D_v] stack to its
+# newest 2 latents, which is the exact analogue of one s2e burst (4 frames at
+# 45 min = 2 latents spanning the newest 2.25 h). video_frames=4 is required to
+# match, so video_delta_t describes the same frames the sliced latents do — the
+# loader raises if the two disagree. Sequence is 42 TS + 20 visual + 1 future =
+# 63, the cheapest run on the board.
+#
+# WHAT IS **NOT** CONTROLLED. The anchor STRIDE. s2e's anchors are 24 h apart
+# and A45a has only one anchor, so "daily spacing" is untestable here — as it is
+# anywhere on uk_pv below 24 h (0.0 % origin coverage at 8 h, dataset.md 2.3).
+# A45a separates depth+density from anchor COUNT. It does not separate count
+# from spacing, and no run in this registry can.
+#
+# Base: uk_pv_s1_selfattn_s{seed}/best.ckpt, seeds 42/43/44 — the same
+# stage-1 warm start s2d and s2e use, NOT s2d's checkpoint.
+#   START_STAGE=s2d END_STAGE=s2d +ablation=A45a
+defaults:
+  - /stage/s2d
+
+data:
+  # 4 newest frames at the proven 45-min step = the newest 2.25 h, one s2e
+  # burst exactly. Must equal 2 * visual_latent_keep_newest.
+  video_frames: 4
+  # Trim the s2d cache to one burst's depth instead of re-extracting.
+  visual_latent_keep_newest: 2
+
+model:
+  vision_cfg:
+    # 20 of this anchor's 98 candidates (2 latents * 49 cells), matching one
+    # s2e anchor's budget. s2d keeps 98 of 196.
+    visual_evs_keep: 20
+  results_tag: mmtsfm_A45a_s2d_ukpv
+  compute_marginal_gain: true

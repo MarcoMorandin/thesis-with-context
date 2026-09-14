@@ -422,3 +422,22 @@ cheaper published architecture.
   consume cached latents and never call the encoder; the unfreeze policy flips
   `requires_grad` on modules outside the autograd graph. State it as a limitation.
 - **A07 / A08 / A15 (retrieval)** — deferred, future work.
+
+## A46 — paired-novelty S2E
+
+A46 has a dedicated manifest because it uses S2E's five-burst daily latent cache
+and five visual anchors; the default sweep uses S2D's eight-frame cache and one
+anchor. From `MMTSFM/` on a Leonardo login node, inspect and then submit:
+
+```bash
+MANIFEST=configs/ablation/A46.manifest N_VIS=5 \
+VJEPA_CACHE_VER=vit_large_f20_s224_nonhrv_sp45_a24h \
+NPACKS=1 DRY_RUN=1 bash scripts/ablation_sweep.sh
+
+MANIFEST=configs/ablation/A46.manifest N_VIS=5 \
+VJEPA_CACHE_VER=vit_large_f20_s224_nonhrv_sp45_a24h \
+NPACKS=1 MAIL_USER=you@example.com bash scripts/ablation_sweep.sh
+```
+
+The three runs warm-start from matching seed S1 self-attention checkpoints. Keep
+A46 out of the default manifest: it requires the dedicated cache and `N_VIS=5`.

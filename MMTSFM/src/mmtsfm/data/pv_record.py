@@ -171,6 +171,7 @@ class PVRecordDataset(Dataset):
         visual_frame_spacing_min: float | None = None,
         visual_anchor_stride_hours: float | None = None,
         visual_frames_per_anchor: int | None = None,
+        visual_latent_keep_newest: int | None = None,
         num_entities: int = 1,
         vjepa_cache_dir: str | None = None,
         emit_vision: bool = True,
@@ -249,6 +250,34 @@ class PVRecordDataset(Dataset):
                     f"{self.visual_anchor_stride_hours:.2f} h apart; the bursts "
                     "overlap, so consecutive anchors would share frames"
                 )
+        # --- Latent-depth control (A45a) ------------------------------------
+        # V-JEPA tubelets pool 2 raw frames, so a cache extracted with T_v
+        # frames holds T_lat = T_v // 2 latents. The cache key is
+        # {dataset}_{site}_{origin} and does NOT encode the ladder, so a config
+        # asking for fewer frames than the cache was built with still loads the
+        # full latent stack while ``video_delta_t`` is built from the SHORTER
+        # configured ladder — the two then disagree about what each latent is,
+        # silently. Setting this keeps the NEWEST k latents, which is the exact
+        # analogue of one s2e burst (its 2 latents span the newest 2.25 h of a
+        # 4-frame burst at 45 min). None = load whatever the cache holds, the
+        # pre-A45 behaviour, so every existing run stays bit-identical.
+        self.visual_latent_keep_newest = (
+            int(visual_latent_keep_newest)
+            if visual_latent_keep_newest is not None
+            else None
+        )
+        if self.visual_latent_keep_newest is not None:
+            if self.visual_latent_keep_newest <= 0:
+                raise ValueError("visual_latent_keep_newest must be positive")
+            if self.T_v != 2 * self.visual_latent_keep_newest:
+                raise ValueError(
+                    f"visual_latent_keep_newest={self.visual_latent_keep_newest} "
+                    f"needs video_frames={2 * self.visual_latent_keep_newest} "
+                    f"(V-JEPA pools 2 frames per latent), got video_frames="
+                    f"{self.T_v}; otherwise video_delta_t and the sliced latent "
+                    "stack describe different frames"
+                )
+
         # W4: number of distinct plants assembled per group (cross-plant mixing).
         # >1 groups disjoint plants from THIS split that share a time window so
         # GroupSelfAttention fuses across entities. Disjointness vs other splits
@@ -590,6 +619,19 @@ class PVRecordDataset(Dataset):
                 ],
                 dim=0,
             )
+            # Z: [N, T_lat, P, D_v] — trim the temporal axis to the newest k so
+            # the latent stack and video_delta_t describe the same frames. See
+            # the visual_latent_keep_newest note in __init__.
+            if self.visual_latent_keep_newest is not None:
+                k = self.visual_latent_keep_newest
+                cached = out["Z"].shape[1]
+                if cached < k:
+                    raise ValueError(
+                        f"visual_latent_keep_newest={k} but the cache at "
+                        f"{self._cache_dir} holds only {cached} latents; point "
+                        "at a deeper cache or lower the value"
+                    )
+                out["Z"] = out["Z"][:, -k:]
         return out
 
     def _entity_cache_key(self, win_item: dict) -> str:

@@ -14,7 +14,7 @@ You are a research-rigor reviewer for a PV power forecasting thesis. When invoke
 - Branch column filled (not `-`)
 - Status is not still TODO if the user is about to run
 
-### 2. Config diff (`configs/ablation/<id>.yaml`)
+### 2. Config diff (`MMTSFM/configs/ablation/<id>.yaml`)
 - File exists
 - Contains only the delta from the base config (not a full copy)
 - No hardcoded dataset paths (must use `data.data_dir` override)

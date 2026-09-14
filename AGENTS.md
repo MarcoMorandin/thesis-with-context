@@ -1,4 +1,4 @@
-# AGENTS.md — rules of record
+# AGENTS.md — agent-agnostic rules of record
 
 Applies to every coding agent in this repo. **Rules only.** All *content* lives in
 [`knowledge/`](knowledge/INDEX.md) — read it, do not restate it here.
@@ -68,6 +68,10 @@ cannot do — never loop on a failing `Edit`.
 **Two graphs, never crossed:** GitNexus = code (`.gitnexus/`). Graphify = prose + papers
 (`knowledge/` → `knowledge/graphify-out/`). Never run Graphify over the repo root.
 
+Harness configuration is intentionally separate from policy: Codex loads MCP and hooks from
+`.codex/`; Claude loads the equivalent adapters from `.mcp.json` and `.claude/settings.json`.
+Both use the shared implementations in `.agents/`.
+
 ---
 
 ## 4. Workflow
@@ -88,7 +92,9 @@ cannot do — never loop on a failing `Edit`.
 4. **Baseline** — which standard baseline it is compared against, per
    [`knowledge/protocol.md`](knowledge/protocol.md).
 
-Use `/register-experiment`; pre-flight with the `experiment-reviewer` agent.
+Use the experiment-registration workflow (`$register-experiment` in Codex,
+`/register-experiment` in Claude); pre-flight with `$experiment-review` or Claude's
+`experiment-reviewer` agent.
 
 **Evaluation splits** — `cross_plant` (disjoint held-out plants) is the primary metric.
 `intra_plant` is a sanity check only, never a headline number.
@@ -120,10 +126,15 @@ Never hand-edit generated artifacts: `knowledge/graphify-out/`, `.gitnexus/`,
   their in-process numbers. In-process numbers are the record.
 - Claim a fix works without running the tests and reading the output.
 
-## 7. Agent skills
+## 7. Agent capabilities
 
-Configuration the `mattpocock-skills` engineering skills read. These files are a
-contract for those skills; they restate nothing from `knowledge/` — they point at it.
+Shared skills and hooks live in `.agents/`, which both harnesses can discover. Prefer the
+project workflows `$register-experiment`, `$experiment-review`, `$validate-results`,
+`$triage-slurm-log`, and `$graphify-knowledge` when their explicit task applies. Claude keeps
+matching slash commands and role agents in `.claude/` as compatibility adapters.
+
+The generic engineering skills read the configuration below. These files are a contract for
+those skills; they restate nothing from `knowledge/` — they point at it.
 
 ### Issue tracker
 
@@ -148,7 +159,7 @@ See [`knowledge/agents/domain.md`](knowledge/agents/domain.md).
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **thesis-with-context** (3571 symbols, 6405 relationships, 132 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **thesis-with-context** (3588 symbols, 6438 relationships, 132 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

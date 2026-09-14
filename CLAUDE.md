@@ -20,18 +20,18 @@ Plugins enabled: `superpowers` (plans, TDD, verification), `academic-research-sk
 
 ## Hooks active (`.claude/settings.json`)
 
-Guardrails run automatically; you do not invoke them. If one blocks you it is enforcing an
-AGENTS.md rule — fix the call, do not work around it.
+Guardrails run automatically from `.agents/hooks/`; Claude's settings only bind them to
+Claude events. If one blocks you, fix the call rather than working around it.
 
 | When | Hook | Enforces |
 |---|---|---|
-| SessionStart | `session-brief.py` | branch, graph staleness, results-vs-report drift, routing rule |
-| Before `Bash` | `guard-uv-only.py` | `uv` only — blocks bare `pip` / `python` / `conda` |
-| Before `Edit`/`Write` | `guard-data-readonly.py` | dataset of record is read-only |
-| Before `Edit`/`Write` | `guard-generated-files.py` | no hand-editing `graphify-out/`, `.gitnexus/`, `ALL_RESULTS.md`, compiled PDFs |
-| Before `Read`/`Glob`/`Grep` | `route-exploration.py` | GitNexus / Graphify before raw grep |
-| After `Write` | `check-new-file-size.py` | < 150-line target for new `MMTSFM/src` files |
-| After `Write` | `check-knowledge-index.py` | every `knowledge/` doc has an `INDEX.md` row; no stray prose |
+| SessionStart | `session_brief.py` | branch and routing rule |
+| Before `Bash` | `guard_uv_only.py` | `uv` only — blocks bare `pip` / `python` / `conda` |
+| Before `Edit`/`Write` | `guard_data_readonly.py` | dataset of record is read-only |
+| Before `Edit`/`Write` | `guard_generated_files.py` | no hand-editing `graphify-out/`, `.gitnexus/`, `ALL_RESULTS.md`, compiled PDFs |
+| Before `Read`/`Glob`/`Grep` | `route_exploration.py` | GitNexus / Graphify before raw grep |
+| After `Write` | `check_new_file_size.py` | < 150-line target for new `MMTSFM/src` files |
+| After `Write` | `check_knowledge_index.py` | every `knowledge/` doc has an `INDEX.md` row; no stray prose |
 | After `Edit`/`Write` on `*.py` | `ruff format` | formatting |
 | On stop | gitnexus / graphify refresh | both graphs stay current |
 
@@ -66,7 +66,7 @@ JSON output unless `--format plain`. Sheet/Doc IDs come from the URL.
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **thesis-with-context** (3571 symbols, 6405 relationships, 132 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **thesis-with-context** (3588 symbols, 6438 relationships, 132 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

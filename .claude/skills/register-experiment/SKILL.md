@@ -17,7 +17,7 @@ Read `knowledge/ablations.md` first to see the existing format and confirm the I
    - Config = real path/key (e.g. `configs/ablation/<id>.yaml` or an override key).
    - Branch = `exp/<id>-<short-name>`. Status = `IN PROGRESS`. Result = `-`.
 
-2. **Config diff** (`configs/ablation/<id>.yaml` — confirm the actual ablation config dir from the registry "How to register" section; create the dir if absent):
+2. **Config diff** (`MMTSFM/configs/ablation/<id>.yaml` — confirm the actual ablation config dir from the registry "How to register" section; create the dir if absent):
    - Contains ONLY the delta from the base config, not a full copy.
    - No hardcoded dataset paths (override `data.data_dir` / use env).
    - Seed 42. No energy-domain physics heuristics (CSI, irradiance) unless the hypothesis explicitly ablates them.

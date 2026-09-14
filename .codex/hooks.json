@@ -1,0 +1,31 @@
+{
+  "description": "Shared repository guardrails for Codex.",
+  "hooks": {
+    "SessionStart": [{
+      "hooks": [{
+        "type": "command",
+        "command": "cd \"$(git rev-parse --show-toplevel)\" && uv run --no-sync .agents/hooks/session_brief.py",
+        "timeout": 20,
+        "additionalContextLimit": 1200
+      }]
+    }],
+    "PreToolUse": [
+      {"matcher": "Bash", "hooks": [{"type": "command", "command": "cd \"$(git rev-parse --show-toplevel)\" && uv run --no-sync .agents/hooks/guard_uv_only.py", "timeout": 10}]},
+      {"matcher": "Edit|Write|MultiEdit", "hooks": [
+        {"type": "command", "command": "cd \"$(git rev-parse --show-toplevel)\" && uv run --no-sync .agents/hooks/guard_data_readonly.py", "timeout": 10},
+        {"type": "command", "command": "cd \"$(git rev-parse --show-toplevel)\" && uv run --no-sync .agents/hooks/guard_generated_files.py", "timeout": 10}
+      ]},
+      {"matcher": "Read|Glob|Grep", "hooks": [{"type": "command", "command": "cd \"$(git rev-parse --show-toplevel)\" && uv run --no-sync .agents/hooks/route_exploration.py", "timeout": 10}]}
+    ],
+    "PostToolUse": [
+      {"matcher": "Write", "hooks": [
+        {"type": "command", "command": "cd \"$(git rev-parse --show-toplevel)\" && uv run --no-sync .agents/hooks/check_new_file_size.py", "timeout": 15},
+        {"type": "command", "command": "cd \"$(git rev-parse --show-toplevel)\" && uv run --no-sync .agents/hooks/check_knowledge_index.py", "timeout": 15}
+      ]},
+      {"matcher": "Edit|Write", "hooks": [{"type": "command", "command": "cd \"$(git rev-parse --show-toplevel)\" && uv run --no-sync .agents/hooks/format_python.py", "timeout": 15}]}
+    ],
+    "Stop": [{
+      "hooks": [{"type": "command", "command": "cd \"$(git rev-parse --show-toplevel)\" && uv run --no-sync .agents/hooks/refresh_graphs.py", "timeout": 120}]
+    }]
+  }
+}

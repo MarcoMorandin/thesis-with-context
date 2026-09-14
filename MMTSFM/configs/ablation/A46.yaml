@@ -1,0 +1,26 @@
+# @package _global_
+# A46 — repair S2E's per-anchor EVS degeneracy at matched token budget.
+#
+# S2E gives each two-latent anchor 20 tokens. The shipped novelty rule pins all
+# 49 cells from the first latent at +inf, so top-k retains no token from the
+# second latent. paired_novelty ranks the 49 cell trajectories by cosine change
+# and keeps both endpoints of the 10 most novel trajectories: still 20 tokens
+# per anchor and 100 total, with the same sequence length and daily ladder.
+#
+# Comparator: A44/S2E with ordinary novelty selection. S2D remains the strong
+# forecasting control. Train seeds 42/43/44 from their matching S1 self-attention
+# checkpoints; report cross-plant NMAE, NRMSE, NRMSE skill score, ramp metrics,
+# calibration, and the same-weight vision-off marginal.
+defaults:
+  - /stage/s2e
+
+seed: 42
+train: true
+test: true
+
+model:
+  vision_cfg:
+    n_visual_context_steps: 5
+    visual_evs_mode: paired_novelty
+  results_tag: mmtsfm_A46_s2e_ukpv
+  compute_marginal_gain: true

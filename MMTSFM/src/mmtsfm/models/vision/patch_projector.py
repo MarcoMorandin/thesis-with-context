@@ -23,7 +23,7 @@ import torch
 import torch.nn as nn
 
 POOL_MODES = ("shuffle", "avg")
-EVS_MODES = ("novelty", "random")
+EVS_MODES = ("novelty", "random", "paired_novelty")
 
 
 def _split_blocks(x: torch.Tensor, r: int, what: str) -> tuple[torch.Tensor, int]:
@@ -79,6 +79,11 @@ def evs_select(
     is doing nothing but setting the sequence length", which the length-confounded
     A30-d q-sweep could not separate.
 
+    ``mode="paired_novelty"`` (A46): for a two-latent anchor, rank spatial
+    cells by the change between the pair and retain both endpoints of every
+    selected cell trajectory. This prevents a budget below ``n_cells`` from
+    being exhausted by the first latent's pinned cells.
+
     Scores are ranked globally over ``T*n_cells`` and the surviving indices are
     re-sorted ascending, so the kept sequence stays in (frame, cell) order and
     the sequence length is a fixed ``keep``.
@@ -99,7 +104,7 @@ def evs_select(
     Args:
         tokens: ``[B, T, n_cells, d]``
         keep: number of tokens to retain; ``>= T*n_cells`` is a no-op.
-        mode: ``"novelty"`` | ``"random"``.
+        mode: ``"novelty"`` | ``"random"`` | ``"paired_novelty"``.
         n_groups: temporal anchors to budget separately. ``1`` (default) is the
             shipped s2d behaviour — one global ranking over the whole window.
 
@@ -146,6 +151,21 @@ def evs_select(
     if keep >= N:
         idx = torch.arange(N, device=tokens.device).expand(B, N)
         return flat, idx // C, idx % C
+
+    if mode == "paired_novelty":
+        if T != 2:
+            raise ValueError(
+                "paired_novelty requires exactly two latent frames per anchor"
+            )
+        if keep % 2:
+            raise ValueError("paired_novelty requires an even token budget per anchor")
+        dissim = 1.0 - torch.nn.functional.cosine_similarity(
+            tokens[:, 1], tokens[:, 0], dim=-1, eps=1e-6
+        )
+        cells = dissim.topk(keep // 2, dim=1).indices.sort(dim=1).values
+        idx = torch.cat([cells, cells + C], dim=1)
+        kept = flat.gather(1, idx.unsqueeze(-1).expand(B, keep, d))
+        return kept, idx // C, idx % C
 
     if mode == "random":
         # float32 regardless of autocast dtype: bf16 ties would make the "random"

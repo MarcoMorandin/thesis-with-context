@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run --no-sync .claude/hooks/guard-uv-only.py",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run --no-sync .agents/hooks/guard_uv_only.py",
             "timeout": 10
           }
         ]
@@ -16,12 +16,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run --no-sync .claude/hooks/guard-data-readonly.py",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run --no-sync .agents/hooks/guard_data_readonly.py",
             "timeout": 10
           },
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run --no-sync .claude/hooks/guard-generated-files.py",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run --no-sync .agents/hooks/guard_generated_files.py",
             "timeout": 10
           }
         ]
@@ -31,7 +31,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run --no-sync .claude/hooks/route-exploration.py",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run --no-sync .agents/hooks/route_exploration.py",
             "timeout": 10
           }
         ]
@@ -43,13 +43,13 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run --no-sync .claude/hooks/check-new-file-size.py",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run --no-sync .agents/hooks/check_new_file_size.py",
             "timeout": 15,
             "statusMessage": "Checking new file size..."
           },
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run --no-sync .claude/hooks/check-knowledge-index.py",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run --no-sync .agents/hooks/check_knowledge_index.py",
             "timeout": 15,
             "statusMessage": "Checking knowledge/ index coverage..."
           }
@@ -60,7 +60,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && FILE=$(python3 -c \"import json,sys;d=json.load(sys.stdin);print(d.get('tool_result',{}).get('filePath') or d.get('tool_input',{}).get('file_path',''))\") && echo \"$FILE\" | grep -q '\\.py$' && uv run ruff format \"$FILE\" 2>/dev/null || true",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run --no-sync .agents/hooks/format_python.py",
             "timeout": 10,
             "statusMessage": "Formatting Python file..."
           }
@@ -72,7 +72,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run --no-sync .claude/hooks/session-brief.py",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run --no-sync .agents/hooks/session_brief.py",
             "timeout": 20
           }
         ]
@@ -83,15 +83,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'git diff --name-only HEAD | grep -qE \"\\.(py)$\" && node .gitnexus/run.cjs analyze || true'",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run --no-sync .agents/hooks/refresh_graphs.py",
             "timeout": 120,
-            "statusMessage": "Refreshing GitNexus index..."
-          },
-          {
-            "type": "command",
-            "command": "bash -c 'git diff --name-only HEAD | grep -vE \"graphify-out/\" | grep -qE \"^knowledge/\" && graphify update knowledge/ || true'",
-            "timeout": 120,
-            "statusMessage": "Refreshing Graphify prose graph (knowledge/ only)..."
+            "statusMessage": "Refreshing project graphs..."
           }
         ]
       }

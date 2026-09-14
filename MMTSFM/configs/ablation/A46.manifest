@@ -1,0 +1,8 @@
+# Dedicated manifest: A46 requires S2E's five-burst daily latent cache and
+# N_VIS=5, unlike every arm in sweep.manifest. Launch only with:
+#   MANIFEST=configs/ablation/A46.manifest N_VIS=5 \
+#   VJEPA_CACHE_VER=vit_large_f20_s224_nonhrv_sp45_a24h \
+#   NPACKS=1 bash scripts/ablation_sweep.sh
+#
+# ID  | MODE  | STAGE | MODEL_CFG             | SEEDS    | BASE
+A46   | train | s2e   | vision_chronos2_s2e   | 42,43,44 | uk_pv_s1_selfattn_s{seed}
