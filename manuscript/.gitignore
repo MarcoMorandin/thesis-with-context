@@ -1,0 +1,5 @@
+# Typst output — rebuild with `typst compile thesis.typ`
+thesis.pdf
+
+# macOS
+.DS_Store
