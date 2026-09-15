@@ -301,7 +301,8 @@ if [[ "$STAGE" == "all" || "$STAGE" == "envs" ]]; then
     # the default latest torch (cu124, needs driver 12.4+) silently falls back to
     # CPU. Pin cu121 so Aurora's generate() runs on GPU. (Aurora needs torch>=2.4.)
     make_env aurora  pip install torch==2.4.1 torchvision==0.19.1 'transformers>=4.50,<5' \
-                                 huggingface_hub einops numpy pandas scikit-learn tqdm matplotlib
+                                 huggingface_hub einops numpy pandas h5py pyarrow hydra-core \
+                                 scikit-learn tqdm matplotlib
     make_env crossvivit pip install -r "$BASELINES_DIR/tier6/vendor/crossvivit/requirements.txt"
     make_env sunset    pip install tensorflow h5py pyarrow pandas numpy
     # Solar-VLM (in-tree, Tier-6): its own requirements + h5py/pyarrow for the

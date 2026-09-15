@@ -1,0 +1,19 @@
+data_path: /leonardo_scratch/fast/IscrC_MTSFM/data_v2/dataset_all.parquet
+h5_path: /leonardo_scratch/fast/IscrC_MTSFM/data_v2/images_all.h5
+ckpt_path: ???
+out: tier5/vendor/aurora/results_ukpv
+dataset: uk_pv
+history: 672
+horizon: 12
+stride: 1
+image_size: 128
+visual_history_steps: 8
+inference_token_len: 48
+num_samples: 100
+batch_size: 16
+vision_mode: auto
+seed: 42
+
+hydra:
+  job:
+    chdir: false

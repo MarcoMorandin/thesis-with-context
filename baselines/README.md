@@ -269,7 +269,7 @@ Not in-process registry baselines — `scripts/import_predictions.py` folds thei
 `*_pred.npz` dumps into `results/` JSONs by file stem.
 
 - **Tier 5** (generic multimodal TS): Time-VLM, VisionTS++ (numerical track, runnable),
-  UniCast, Aurora (multimodal track, gated). See `tier5/vendor/VENDOR_NOTICE.md`,
+UniCast and Aurora (multimodal track; Aurora selects pseudo vs real vision on validation). See `tier5/vendor/VENDOR_NOTICE.md`,
   `scripts/slurm_{time_vlm,visionts_pp,unicast,aurora}.sh`.
 - **Tier 6** (PV-specialized multimodal, domain SOTA): CrossViViT (`tier6/vendor/crossvivit`,
   MIT) + SUNSET (`tier6/vendor/sunset`, MIT) — run on the **uk_pv multimodal track**

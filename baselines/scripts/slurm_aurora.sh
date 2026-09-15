@@ -11,16 +11,11 @@
 #SBATCH --output=logs/slurm/%j_%x.out
 #SBATCH --error=logs/slurm/%j_%x.err
 
-# Tier-5 Aurora (decisionintelligence/Aurora, P2) — ZERO-SHOT on uk_pv.
-# Aurora is a multimodal TS foundation model with a zero-shot generate() API; the
-# old runner.py path was *training* (and a no-op — runner.py has no CLI). We use
-# the unimodal TS path on the released DecisionIntelligence/Aurora checkpoint:
-# feed each plant's power history, sample forecasts, average (run_ukpv.py mirrors
-# the upstream TFB wrapper). No training, no images/text — like the other Tier-3/5
-# zero-shot FMs. Dumps aurora_<site>_pred.npz → import_predictions.
+# Tier-5 Aurora zero-shot on uk_pv. Validation plants choose between Aurora's
+# native TS-rendered pseudo-image and the latest real satellite frame; that mode
+# is frozen before test evaluation. Text is intentionally excluded.
 #
-#   sbatch --export=ALL,VENV_NAME=aurora,AURORA_CKPT=<DecisionIntelligence/Aurora dir>,\
-#          DATA=<dataset_all.parquet> scripts/slurm_aurora.sh
+#   sbatch scripts/slurm_aurora.sh
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$0")/..}"
 [[ -f .env ]] && source .env
@@ -35,33 +30,42 @@ export PIP_CACHE_DIR="${PIP_CACHE_DIR:-${TEAM_SCRATCH}/pip_cache}"
 export UV_ENVS_DIR="${UV_ENVS_DIR:-${TEAM_SCRATCH}/uv_envs}"
 export HF_HOME="${HF_HOME:-${TEAM_SCRATCH}/hf_cache}"
 
-: "${VENV_NAME:?set VENV_NAME to the Aurora uv env}"
-: "${AURORA_CKPT:?set AURORA_CKPT to the DecisionIntelligence/Aurora checkpoint dir}"
+VENV_NAME="${VENV_NAME:-aurora}"
+AURORA_CKPT="${AURORA_CKPT:-${TEAM_SCRATCH}/weights/aurora-tsfm}"
 [[ -d "$AURORA_CKPT" ]] || { echo "ERROR: AURORA_CKPT not a dir: $AURORA_CKPT"; exit 1; }
 DATA="${DATA:-${TEAM_SCRATCH}/data_v2/dataset_all.parquet}"
+H5="${H5:-${TEAM_SCRATCH}/data_v2/images_all.h5}"
 CTX="${CTX:-672}"; PRED_LEN="${PRED_LEN:-12}"   # 14-day context / 6h horizon (uk_pv 30-min)
-UKPV_DIR="${UKPV_DIR:-${TEAM_SCRATCH}/data_v2/ukpv_rag_aurora}"
-OUT="${OUT:-tier5/vendor/aurora/results_ukpv}"
+OUT="${OUT:-tier5/vendor/aurora/results_ukpv/${SLURM_JOB_ID:-manual}}"
+VISION_MODE="${VISION_MODE:-auto}"
+BATCH_SIZE="${BATCH_SIZE:-16}"
+NUM_SAMPLES="${NUM_SAMPLES:-100}"
+VISUAL_HISTORY_STEPS="${VISUAL_HISTORY_STEPS:-8}"
+REFERENCE="${REFERENCE:-results/smart_persistence_s2_ukpv.json}"
 [[ -f "$DATA" ]] || { echo "ERROR: DATA parquet not found: $DATA"; exit 1; }
-
-# ---- 1. export uk_pv → per-plant test CSVs (date+OT), reuse the tier-4 bridge --
-uv run python tier4/vendor/export_ukpv.py --data "$DATA" --out "$UKPV_DIR"
+[[ -f "$H5" ]] || { echo "ERROR: image HDF5 not found: $H5"; exit 1; }
+[[ -f "$REFERENCE" ]] || { echo "ERROR: Smart Persistence reference not found: $REFERENCE"; exit 1; }
+[[ -x "$UV_ENVS_DIR/$VENV_NAME/bin/python" ]] || {
+    echo "ERROR: Aurora uv env missing: $UV_ENVS_DIR/$VENV_NAME"; exit 1;
+}
 
 source "$UV_ENVS_DIR/$VENV_NAME/bin/activate"
 
-# ---- 2. zero-shot forecast on each uk_pv test plant -------------------------
-echo ">>> Aurora ZERO-SHOT (uk_pv, ctx=$CTX pred=$PRED_LEN)"
-python tier5/vendor/aurora/run_ukpv.py \
-    --csv_dir "$UKPV_DIR" --ckpt_path "$AURORA_CKPT" \
-    --context_len "$CTX" --pred_len "$PRED_LEN" --out "$OUT"
+# ---- 1. validation selection + frozen-mode zero-shot test -------------------
+echo ">>> Aurora ZERO-SHOT (uk_pv, ctx=$CTX pred=$PRED_LEN vision=$VISION_MODE)"
+uv run --active --no-sync python tier5/vendor/aurora/run_ukpv.py \
+    "data_path=$DATA" "h5_path=$H5" "ckpt_path=$AURORA_CKPT" \
+    "history=$CTX" "horizon=$PRED_LEN" "vision_mode=$VISION_MODE" \
+    "batch_size=$BATCH_SIZE" "num_samples=$NUM_SAMPLES" \
+    "visual_history_steps=$VISUAL_HISTORY_STEPS" "out=$OUT"
 
-# ---- 3. contract-check + import → our NMAE/NRMSE/SS results JSON ------------
+# ---- 2. contract-check + import → NMAE/NRMSE/CRPS/SS results JSON -----------
 shopt -s nullglob
 for npz in "$OUT"/aurora_*_pred.npz; do
-    uv run python tier4/vendor/contract_check.py --predictions "$npz" --horizon "$PRED_LEN" || true
+    uv run python tier4/vendor/contract_check.py --predictions "$npz" --horizon "$PRED_LEN"
 done
 uv run python scripts/import_predictions.py --model aurora --tag s2_ukpv \
     --glob "$OUT/aurora_*_pred.npz" \
-    --reference results/smart_persistence_s2_ukpv.json \
-    --ukpv_dir "$UKPV_DIR" --data "$DATA"
+    --reference "$REFERENCE" \
+    --data "$DATA"
 echo "✓ Aurora done → results/aurora_s2_ukpv.json"

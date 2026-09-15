@@ -1,16 +1,15 @@
 # Vendored Tier-5 baselines (generic multimodal TS) — provenance & licensing
 
-Unmodified **code-only** copies of four upstream repos so Tier-5 runs the authors'
-*original* implementations (knowledge/baselines.md §1, Tier 5), adapted to our
-contract/dataset rather than reimplemented. Stripped on copy: `.git`, images,
-notebooks, PDFs, bundled CSV/parquet datasets, checkpoints. No source edited.
+Pinned **code-only** copies of four upstream repos so Tier-5 starts from the authors'
+implementations (knowledge/baselines.md §1, Tier 5), with the minimal adaptations listed
+below. Stripped on copy: `.git`, images, notebooks, PDFs, bundled datasets, checkpoints.
 
 | Vendor dir | Upstream | Commit SHA | License | Modality / track |
 |---|---|---|---|---|
 | `time_vlm/` | https://github.com/CityMind-Lab/ICML25-TimeVLM | `796e6ec963788657207ea2b5553740993ea3ea2b` | **none stated** ⚠️ (ICML 2025, arXiv:2502.04395) | TS→pseudo-image (+text) — **numerical track (uk_pv)** |
 | `visionts_pp/` | https://github.com/HALF111/VisionTSpp | `484b2ea363b497217d0c3a078494c6af0251c275` | `LICENSE.txt` present (built on Salesforce `uni2ts`, Apache-2.0) | TS→image (vision MAE) — **numerical track (uk_pv)** |
 | `unicast/` | https://github.com/adlnlp/UniCast | `a4af694615fabb9844a1a0f297aca148a3ab9db8` | **none stated** ⚠️ (arXiv:2508.11954) | real vision(CLIP/BLIP)+text soft-prompt into Chronos — **uk_pv multimodal track (images)** |
-| `aurora/` | https://github.com/decisionintelligence/Aurora | `a247760abbc9d17a861bc365c032368d317815f2` | **none stated** ⚠️ (arXiv:2509.22295) | generative **TS + TEXT** TSFM (BERT-tokenized text; *no image input*) — **uk_pv track (text)** |
+| `aurora/` | https://github.com/decisionintelligence/Aurora | `a247760abbc9d17a861bc365c032368d317815f2` | **none stated** ⚠️ (arXiv:2509.22295) | generative TSFM; validation selects its native pseudo-image or a real satellite frame; **text excluded** |
 
 ## Track split (what runs where)
 
@@ -21,10 +20,10 @@ notebooks, PDFs, bundled CSV/parquet datasets, checkpoints. No source edited.
   it needs real frames, available in `images_all.h5` (pointer `image_h5_index`). `tier5/uk_export.py
   --model unicast` emits its native layout (`inputs.pt`/`targets_<H>.pt`/`img/`) from
   the uk multimodal windows, so it runs on uk_pv now.
-- **Aurora** is **TS + TEXT**, not images (`Aurora_Single_Dataset` reads a CSV + a
-  JSON text list, BERT-tokenized — no image branch). uk images do not apply; it was
-  blocked on per-window text. `tier5/uk_export.py --model aurora` emits the per-series
-  CSV + weather text (templated from uk covariates), unblocking it on the same data.
+- **Aurora** runs two no-text validation arms: its paper-native endogenous pseudo-image
+  and the latest available real satellite frame. The lower validation macro-MAE arm is
+  frozen before test inference. The runner retains all 100 generated samples and embeds
+  the exact target-validity/daylight mask in each prediction archive.
 
 ## Licensing caveats (read before any public release)
 
@@ -78,11 +77,15 @@ edits — diff against the pinned upstream SHA to see them:
 - `unicast/test_multi_modal_chronos.py` — added a `--dump_npz` flag (the only in-place
   edit to UniCast): writes `pred`/`true` in our baseline-contract format for
   `scripts/import_predictions.py`. Train/model code unchanged.
-- `tier5/uk_export.py` — **added** (not upstream, lives outside `vendor/`): builds the
-  UniCast (images) and Aurora (TS+text) on-disk formats from `tier6.uk_multimodal`
-  (shared uk window bridge), so both run on uk_pv without further edits to their code.
-
-Aurora's own source is unedited.
+- `tier5/uk_export.py` — **added** (not upstream, lives outside `vendor/`): builds
+  UniCast's on-disk multimodal format. Its legacy Aurora text export is not used by the
+  no-text Aurora comparison.
+- `aurora/run_ukpv.py` — **added**: evaluates pseudo-image and real-satellite arms on
+  validation plants, freezes the winner, then runs the disjoint test plants while
+  retaining all generative samples and exact masks.
+- `aurora/aurora/real_image.py` plus `modality_connector.py` — return Hugging Face's
+  CPU-preprocessed pixels to the input device so the upstream real-image branch works
+  with a GPU-resident Aurora checkpoint. The pseudo-image branch is unchanged.
 
 ## Scoring mask (why the CSV bridge is not enough on its own)
 
@@ -96,7 +99,7 @@ rebuilds the exact mask: it re-derives each window's rows in the exported per-pl
 dumped `true`, and reindexes the parquet's `norm_power`/`clearsky_ghi` onto those rows.
 On a failed check it warns and falls back to the proxy rather than scoring a misaligned
 mask. Every SLURM script that goes through the CSV bridge (`time_vlm`, `visionts_pp`,
-`aurora`, `rag`) passes the flag; the mask actually used is recorded in the result
+`rag`) passes the flag; Aurora embeds its exact mask directly. The mask actually used is recorded in the result
 manifest under `config.daylight_mask`.
 
 ## Off-repo artifacts (NOT in git — see `.gitignore`)
