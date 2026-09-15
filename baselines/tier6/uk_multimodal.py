@@ -6,7 +6,8 @@ dataset of record carries them: each row has an `image_h5_index` pointing into
 `timestamps (N,) S20`), per knowledge/dataset.md §1.0. `uk_pv` frames are
 `(N,128,128)` grayscale (30-min daylight cadence), `goes_pvdaq` `(N,256,256,3)`
 RGB (15-min); with ``to_gray`` (default) both reduce to one channel so a site set
-can span both datasets in one run.
+can span both datasets in one run. `data_v2` stores each frame PNG-encoded (root
+attr ``format == "png"``); `_decode_frame` handles both that and v1's raw arrays.
 
 This module reuses `common.windows` for *all* numerical logic (the disjoint
 plant splits, NaN handling, deterministic-future-covariate masking, seasonal
@@ -49,6 +50,22 @@ def _to_unix_seconds(ts: pd.Series) -> np.ndarray:
         .to_numpy()
         .astype(np.int64)
     )
+
+
+def _decode_frame(raw: np.ndarray, png: bool) -> np.ndarray:
+    """One stored frame -> H,W[,C] uint8.
+
+    `data_v2`'s `images_all.h5` sets the root attribute ``format == "png"`` and
+    stores each frame as a 1-D PNG byte blob; `v1` stored raw arrays. Mirrors
+    `MMTSFM/src/mmtsfm/data/pv_record.py::_decode_frame` so both readers agree.
+    """
+    if not png:
+        return np.asarray(raw)
+    import io
+
+    from PIL import Image
+
+    return np.asarray(Image.open(io.BytesIO(np.asarray(raw, dtype=np.uint8).tobytes())))
 
 
 def _downsample(img: np.ndarray, side: int, to_gray: bool = True) -> np.ndarray:
@@ -160,6 +177,7 @@ class UKMultimodalDataset:
             self.frame_maps[key] = dict(zip(ts.tolist(), idx.tolist()))
 
         self._h5 = None  # opened lazily (h5py handles are not fork-safe)
+        self._png = False  # learned from the H5 root attr on first open
 
     def __len__(self) -> int:
         return len(self.win)
@@ -169,6 +187,8 @@ class UKMultimodalDataset:
 
         if self._h5 is None:
             self._h5 = h5py.File(self.h5_path, "r")
+            # v2 stores PNG byte blobs; v1 stored raw uint8 arrays.
+            self._png = self._h5.attrs.get("format") == "png"
         return self._h5[f"{dataset}_{site}"]
 
     def __getitem__(self, i: int) -> dict:
@@ -186,7 +206,8 @@ class UKMultimodalDataset:
             g = self._h5_group(*key)
             images = g["images"]
             for t, j in sorted(wanted.items(), key=lambda kv: kv[1]):
-                frame = _downsample(np.asarray(images[fmap[t]]), S, self.to_gray)
+                raw = _decode_frame(images[fmap[t]], self._png)
+                frame = _downsample(raw, S, self.to_gray)
                 if V is None:  # learn C from the first frame
                     C = frame.shape[-1]
                     V = np.zeros((Tv, C, S, S), dtype=np.float32)

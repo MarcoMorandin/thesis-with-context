@@ -129,11 +129,56 @@ def test_visual_history_steps_loads_only_latest_frame():
         ]
     )
     ds._h5_group = lambda *_: {"images": images}
+    ds._png = False
 
     item = ds[0]
 
     assert item["V"].shape == (1, 1, 2, 2)
     assert item["mask_visual"].tolist() == [1.0]
+    assert np.allclose(item["V"], 30 / 255.0)
+
+
+def test_png_encoded_frames_are_decoded():
+    """data_v2 stores each frame as a 1-D PNG blob, not a raw (H, W) array."""
+    import io
+
+    from PIL import Image
+
+    from tier6.uk_multimodal import _decode_frame
+
+    def as_png_bytes(arr: np.ndarray) -> np.ndarray:
+        buf = io.BytesIO()
+        Image.fromarray(arr).save(buf, format="PNG")
+        return np.frombuffer(buf.getvalue(), dtype=np.uint8)
+
+    raw = np.full((2, 2), 30, dtype=np.uint8)
+    blob = as_png_bytes(raw)
+    assert blob.ndim == 1  # what h5py hands back for v2
+
+    assert np.array_equal(_decode_frame(blob, png=True), raw)
+    assert np.array_equal(_decode_frame(raw, png=False), raw)
+
+    ds = UKMultimodalDataset.__new__(UKMultimodalDataset)
+    ds.win = [
+        {
+            "dataset": "uk_pv",
+            "site_id": "site",
+            "timestamps": np.array([10, 20]),
+        }
+    ]
+    ds.history = 1
+    ds.visual_history_steps = 1
+    ds.img_size = 2
+    ds.to_gray = True
+    ds.channels = 1
+    ds.coords = {}
+    ds.frame_maps = {("uk_pv", "site"): {10: 0}}
+    ds._h5_group = lambda *_: {"images": [blob]}
+    ds._png = True
+
+    item = ds[0]
+
+    assert item["V"].shape == (1, 1, 2, 2)
     assert np.allclose(item["V"], 30 / 255.0)
 
 
