@@ -5,8 +5,8 @@
   <rect width="1600" height="900" fill="#FFFFFF"/>
   <text x="800" y="42" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="26" font-weight="bold" fill="#242631">Nemotron 3 Nano Omni architecture</text>
   <text x="800" y="70" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="14" fill="#626572">Modality-specific encoders align audio, visual, and text inputs before a shared Nemotron language-model backbone.</text>
-  <rect x="55" y="100" width="1490" height="750" rx="18" fill="#F8F8FA" stroke="#B7BAC5" stroke-width="1.8"/>
-  <text x="62" y="128" font-family="Helvetica, Arial, sans-serif" font-size="18" font-weight="bold" fill="#3E4250">Multimodal input and token construction</text>
+  <rect x="55" y="100" width="1490" height="510" rx="18" fill="#F8F8FA" stroke="#B7BAC5" stroke-width="1.8"/>
+  <text x="62" y="128" font-family="Helvetica, Arial, sans-serif" font-size="18" font-weight="bold" fill="#3E4250">Multimodal input encoders</text>
 
   <g font-family="Helvetica, Arial, sans-serif">
     <!-- audio -->
@@ -33,46 +33,38 @@
   </g>
 
   <!-- visual path -->
-  <rect x="280" y="154" width="1002" height="444" rx="14" fill="#F5F0FA" stroke="#B8A5D1" stroke-width="1.8"/>
+  <rect x="280" y="154" width="1002" height="240" rx="14" fill="#F5F0FA" stroke="#B8A5D1" stroke-width="1.8"/>
   <text x="306" y="187" font-family="Helvetica, Arial, sans-serif" font-size="17" font-weight="bold" fill="#5C477B">Vision path</text>
   <text x="1256" y="187" text-anchor="end" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#746B80">expanded detail</text>
   <g font-family="Helvetica, Arial, sans-serif">
-    <rect x="306" y="226" width="150" height="116" rx="10" fill="#FFFFFF" stroke="#8D8F99" stroke-width="1.5"/>
-    <text x="381" y="258" text-anchor="middle" font-size="15" font-weight="bold" fill="#292B34">Images / video</text>
-    <g fill="#DDE9F5" stroke="#688AB0" stroke-width="1.1"><rect x="333" y="282" width="42" height="32"/><rect x="347" y="274" width="42" height="32"/><rect x="361" y="266" width="42" height="32"/></g>
-    <text x="381" y="329" text-anchor="middle" font-size="11.5" fill="#626572">dynamic resolution</text>
-    <rect x="468" y="226" width="150" height="116" rx="10" fill="#ECEDEF" stroke="#9699A1" stroke-width="1.5"/>
-    <text x="543" y="258" text-anchor="middle" font-size="15" font-weight="bold" fill="#343640">3D convolution</text>
-    <text x="543" y="287" text-anchor="middle" font-family="Times New Roman, serif" font-size="14" font-style="italic" fill="#4F515B">2 frames -&gt;</text>
-    <text x="543" y="309" text-anchor="middle" font-family="Times New Roman, serif" font-size="14" font-style="italic" fill="#4F515B">1 tubelet</text>
-    <text x="543" y="329" text-anchor="middle" font-size="11.5" fill="#626572">video compression</text>
-    <rect x="630" y="226" width="150" height="116" rx="10" fill="#E3EFF8" stroke="#5787AF" stroke-width="1.8"/>
-    <text x="705" y="258" text-anchor="middle" font-size="15" font-weight="bold" fill="#234B6B">C-RADIOv4-H</text>
-    <text x="705" y="282" text-anchor="middle" font-size="12.5" fill="#315E80">vision encoder</text>
-    <g fill="#BBD6EA" stroke="#5787AF" stroke-width="0.8"><rect x="664" y="299" width="14" height="14"/><rect x="681" y="299" width="14" height="14"/><rect x="698" y="299" width="14" height="14"/><rect x="715" y="299" width="14" height="14"/><rect x="732" y="299" width="14" height="14"/><rect x="664" y="316" width="14" height="14"/><rect x="681" y="316" width="14" height="14"/><rect x="698" y="316" width="14" height="14"/><rect x="715" y="316" width="14" height="14"/><rect x="732" y="316" width="14" height="14"/></g>
-    <rect x="792" y="226" width="150" height="116" rx="10" fill="#E7F4EE" stroke="#5B9C7C" stroke-width="1.8"/>
-    <text x="867" y="258" text-anchor="middle" font-size="15" font-weight="bold" fill="#2D674D">Pixel shuffle</text>
-    <text x="867" y="285" text-anchor="middle" font-size="12.5" fill="#39785A">4x spatial reduction</text>
-    <text x="867" y="314" text-anchor="middle" font-size="12" fill="#626572">layout preserved</text>
-    <text x="867" y="331" text-anchor="middle" font-size="11.5" fill="#626572">fewer tokens</text>
-    <rect x="954" y="226" width="150" height="116" rx="10" fill="#FFF0E6" stroke="#D2814F" stroke-width="1.8"/>
-    <text x="1029" y="258" text-anchor="middle" font-size="15" font-weight="bold" fill="#7A421F">Vision adaptor</text>
-    <text x="1029" y="285" text-anchor="middle" font-size="12.5" fill="#8A4B25">MLP projector</text>
-    <text x="1029" y="313" text-anchor="middle" font-size="12" fill="#626572">aligns visual</text>
-    <text x="1029" y="331" text-anchor="middle" font-size="12" fill="#626572">and LLM widths</text>
-    <rect x="1116" y="226" width="140" height="116" rx="10" fill="#F3E7F6" stroke="#9A68A7" stroke-width="2.2"/>
-    <text x="1186" y="258" text-anchor="middle" font-size="15" font-weight="bold" fill="#674171">EVS</text>
-    <text x="1186" y="283" text-anchor="middle" font-size="11.5" fill="#674171">same-cell cosine</text>
-    <text x="1186" y="301" text-anchor="middle" font-size="11.5" fill="#674171">temporal change</text>
-    <text x="1186" y="327" text-anchor="middle" font-size="11" fill="#626572">anchor + dynamic</text>
-    <rect x="454" y="390" width="594" height="150" rx="12" fill="#FFFFFF" stroke="#B8A5D1" stroke-width="1.4"/>
-    <text x="751" y="418" text-anchor="middle" font-size="14" font-weight="bold" fill="#5C477B">Visual token field after the adapter</text>
-    <g fill="#D7E7F3" stroke="#5787AF" stroke-width="0.8"><rect x="500" y="443" width="22" height="22"/><rect x="526" y="443" width="22" height="22"/><rect x="552" y="443" width="22" height="22"/><rect x="578" y="443" width="22" height="22"/><rect x="604" y="443" width="22" height="22"/><rect x="630" y="443" width="22" height="22"/><rect x="656" y="443" width="22" height="22"/><rect x="682" y="443" width="22" height="22"/><rect x="500" y="469" width="22" height="22"/><rect x="526" y="469" width="22" height="22"/><rect x="552" y="469" width="22" height="22"/><rect x="578" y="469" width="22" height="22"/><rect x="604" y="469" width="22" height="22"/><rect x="630" y="469" width="22" height="22"/><rect x="656" y="469" width="22" height="22"/><rect x="682" y="469" width="22" height="22"/></g>
-    <text x="735" y="458" font-family="Times New Roman, serif" font-size="13" font-style="italic" fill="#315E80">spatial positions</text>
-    <path d="M734 463 H830" stroke="#9A68A7" stroke-width="1.6" stroke-dasharray="6 5"/>
-    <text x="848" y="458" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#674171">EVS keeps the first tubelet</text>
-    <text x="848" y="478" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#674171">and the most changing cells.</text>
-    <text x="751" y="520" text-anchor="middle" font-family="Times New Roman, serif" font-size="14" font-style="italic" fill="#4F515B">visual tokens retain spatial identity while the sequence becomes shorter</text>
+    <rect x="300" y="226" width="140" height="116" rx="10" fill="#FFFFFF" stroke="#8D8F99" stroke-width="1.5"/>
+    <text x="370" y="258" text-anchor="middle" font-size="15" font-weight="bold" fill="#292B34">Images / video</text>
+    <g fill="#DDE9F5" stroke="#688AB0" stroke-width="1.1"><rect x="322" y="282" width="42" height="32"/><rect x="336" y="274" width="42" height="32"/><rect x="350" y="266" width="42" height="32"/></g>
+    <text x="370" y="329" text-anchor="middle" font-size="11.5" fill="#626572">dynamic resolution</text>
+    <rect x="464" y="226" width="140" height="116" rx="10" fill="#ECEDEF" stroke="#9699A1" stroke-width="1.5"/>
+    <text x="534" y="258" text-anchor="middle" font-size="15" font-weight="bold" fill="#343640">3D convolution</text>
+    <text x="534" y="287" text-anchor="middle" font-family="Times New Roman, serif" font-size="14" font-style="italic" fill="#4F515B">2 frames -&gt;</text>
+    <text x="534" y="309" text-anchor="middle" font-family="Times New Roman, serif" font-size="14" font-style="italic" fill="#4F515B">1 tubelet</text>
+    <text x="534" y="329" text-anchor="middle" font-size="11.5" fill="#626572">video compression</text>
+    <rect x="628" y="226" width="140" height="116" rx="10" fill="#E3EFF8" stroke="#5787AF" stroke-width="1.8"/>
+    <text x="698" y="258" text-anchor="middle" font-size="15" font-weight="bold" fill="#234B6B">C-RADIOv4-H</text>
+    <text x="698" y="282" text-anchor="middle" font-size="12.5" fill="#315E80">vision encoder</text>
+    <g fill="#BBD6EA" stroke="#5787AF" stroke-width="0.8"><rect x="657" y="299" width="14" height="14"/><rect x="674" y="299" width="14" height="14"/><rect x="691" y="299" width="14" height="14"/><rect x="708" y="299" width="14" height="14"/><rect x="725" y="299" width="14" height="14"/><rect x="657" y="316" width="14" height="14"/><rect x="674" y="316" width="14" height="14"/><rect x="691" y="316" width="14" height="14"/><rect x="708" y="316" width="14" height="14"/><rect x="725" y="316" width="14" height="14"/></g>
+    <rect x="792" y="226" width="140" height="116" rx="10" fill="#E7F4EE" stroke="#5B9C7C" stroke-width="1.8"/>
+    <text x="862" y="258" text-anchor="middle" font-size="15" font-weight="bold" fill="#2D674D">Pixel shuffle</text>
+    <text x="862" y="285" text-anchor="middle" font-size="12.5" fill="#39785A">4x spatial reduction</text>
+    <text x="862" y="314" text-anchor="middle" font-size="12" fill="#626572">layout preserved</text>
+    <text x="862" y="331" text-anchor="middle" font-size="11.5" fill="#626572">fewer tokens</text>
+    <rect x="956" y="226" width="140" height="116" rx="10" fill="#FFF0E6" stroke="#D2814F" stroke-width="1.8"/>
+    <text x="1026" y="258" text-anchor="middle" font-size="15" font-weight="bold" fill="#7A421F">Vision adaptor</text>
+    <text x="1026" y="285" text-anchor="middle" font-size="12.5" fill="#8A4B25">MLP projector</text>
+    <text x="1026" y="313" text-anchor="middle" font-size="12" fill="#626572">aligns visual</text>
+    <text x="1026" y="331" text-anchor="middle" font-size="12" fill="#626572">and LLM widths</text>
+    <rect x="1120" y="226" width="140" height="116" rx="10" fill="#F3E7F6" stroke="#9A68A7" stroke-width="2.2"/>
+    <text x="1190" y="258" text-anchor="middle" font-size="15" font-weight="bold" fill="#674171">EVS</text>
+    <text x="1190" y="283" text-anchor="middle" font-size="11.5" fill="#674171">same-cell cosine</text>
+    <text x="1190" y="301" text-anchor="middle" font-size="11.5" fill="#674171">temporal change</text>
+    <text x="1190" y="327" text-anchor="middle" font-size="11" fill="#626572">anchor + dynamic</text>
   </g>
 
   <!-- token assembly and decoder -->
@@ -91,10 +83,10 @@
 
   <g stroke="#454854" stroke-width="1.8" fill="none" marker-end="url(#arrow)">
     <path d="M159 284 V336"/><path d="M159 432 V476"/>
-    <path d="M456 284 H466"/><path d="M618 284 H628"/><path d="M780 284 H790"/><path d="M942 284 H952"/><path d="M1104 284 H1114"/>
-    <path d="M1186 342 V374 H751 V386"/>
+    <path d="M440 284 H460"/><path d="M604 284 H624"/><path d="M768 284 H788"/><path d="M932 284 H952"/><path d="M1096 284 H1116"/>
+    <path d="M1190 342 V610 H800 V622"/>
     <path d="M1431 284 V336"/>
-    <path d="M159 572 V610 H500 V622"/><path d="M751 540 V622"/><path d="M1431 432 V610 H1100 V622"/>
+    <path d="M159 572 V610 H500 V622"/><path d="M1431 432 V610 H1100 V622"/>
     <path d="M800 708 V744"/>
   </g>
 
