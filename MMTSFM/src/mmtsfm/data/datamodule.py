@@ -63,6 +63,12 @@ class MMTSFMDataModule(LightningDataModule):
         # video_frames == 2k (V-JEPA pools 2 frames per latent). None = load the
         # cache as extracted, which is what every pre-A45 run did.
         visual_latent_keep_newest: int | None = None,
+        # A46b multi-anchor reuse: assemble Z from K cache entries at origins
+        # t-(K-1)*visual_anchor_stride_hours ... t instead of one. Needs
+        # video_frames == K * visual_frames_per_anchor. Turns a K-anchor arm
+        # into a re-read of the existing 8-frame cache; raises on a miss rather
+        # than falling back to a live encode of a different payload.
+        visual_latent_anchors: int | None = None,
         vjepa_cache_dir: Optional[str] = None,
         emit_vision: bool = True,  # False for vision-free runs (skip frame decode + latents)
         # A36 / ticket 40 — what the covariate block carries over the HORIZON.
@@ -121,6 +127,7 @@ class MMTSFMDataModule(LightningDataModule):
                 visual_anchor_stride_hours=self.hparams.visual_anchor_stride_hours,
                 visual_frames_per_anchor=self.hparams.visual_frames_per_anchor,
                 visual_latent_keep_newest=self.hparams.visual_latent_keep_newest,
+                visual_latent_anchors=self.hparams.visual_latent_anchors,
                 # W4: cross-plant mixing is a TRAIN-time mechanism. val/test keep
                 # N=1 so per-plant protocol metrics + site_id collate are unchanged.
                 num_entities=self.hparams.num_entities if split == "train" else 1,

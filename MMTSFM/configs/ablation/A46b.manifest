@@ -1,16 +1,21 @@
-# Dedicated manifest: A46b needs a 16-frame / 2-anchor ladder at T_lat=4 per
-# anchor, which NO other arm uses — its cache is a new extraction, not the
-# 20-frame a24h cache that S2E and A46 read. Reusing that cache would silently
-# return wrong tensors: keys are {dataset}_{site}_{origin} and do not encode
-# the ladder. It also runs a 239-token sequence (196 visual), so it needs a
-# smaller per-device batch than the sweep default. Launch only with:
-#   MANIFEST=configs/ablation/A46b.manifest N_VIS=2 \
-#   VJEPA_CACHE_VER=vit_large_f16_s224_nonhrv_sp45_a24h \
-#   BATCH_SIZE=8 ACCUM=2 NPACKS=1 bash scripts/ablation_sweep.sh
+# Dedicated manifest: A46b runs a 533-token sequence (490 visual), so it needs
+# a smaller per-device batch than the sweep default.
 #
-# Extract the cache first (~420 G, ~16 h GPU) and free the 210 G s2d cache to
-# stay under the 1 TB quota. Do NOT free the 525 G a24h cache — S2E and A46
-# are this arm's comparands.
+# NO EXTRACTION. It re-reads the s2d cache at five origins per window
+# (data.visual_latent_anchors: 5), so VJEPA_CACHE_VER is the 8-frame s2d cache
+# — NOT the 20-frame a24h cache that S2E and A46 read. Pointing this at a24h
+# would load 20-latent ladders where the config expects 5 x 4, silently.
+#
+#   MANIFEST=configs/ablation/A46b.manifest N_VIS=5 \
+#   VJEPA_CACHE_VER=vit_large_f8_s224_nonhrv_sp45 \
+#   BATCH_SIZE=2 ACCUM=8 NPACKS=1 bash scripts/ablation_sweep.sh
+#
+# Run seed 42 alone first as a memory probe before releasing 43/44. If it OOMs,
+# fall to 3 anchors (see A46b.yaml) rather than trimming the per-anchor budget,
+# which would reintroduce the payload confound this arm exists to remove.
+#
+# Do NOT free vit_large_f8_s224_nonhrv_sp45 — under this route it is the input,
+# not a scored control's leftovers. Nothing new is written, so quota is unchanged.
 #
 # ID   | MODE  | STAGE | MODEL_CFG             | SEEDS    | BASE
 A46b  | train | s2e   | vision_chronos2_s2e   | 42,43,44 | uk_pv_s1_selfattn_s{seed}

@@ -172,6 +172,7 @@ class PVRecordDataset(Dataset):
         visual_anchor_stride_hours: float | None = None,
         visual_frames_per_anchor: int | None = None,
         visual_latent_keep_newest: int | None = None,
+        visual_latent_anchors: int | None = None,
         num_entities: int = 1,
         vjepa_cache_dir: str | None = None,
         emit_vision: bool = True,
@@ -278,6 +279,50 @@ class PVRecordDataset(Dataset):
                     "stack describe different frames"
                 )
 
+        # --- Multi-anchor latent reuse (A46b) --------------------------------
+        # A full-depth anchor IS a cached entry. Keys are
+        # {dataset}_{site}_{origin} and do not encode the ladder, so the entry
+        # written for origin ``t - k * visual_anchor_stride_hours`` holds the
+        # burst ENDING there — which is exactly anchor k of a K-anchor ladder
+        # at t. Setting this assembles Z from K such entries instead of one,
+        # turning a K-anchor arm into a re-READ of the 8-frame s2d cache rather
+        # than a fresh extraction. Measured coverage on
+        # vit_large_f8_s224_nonhrv_sp45 at K=5, 24 h stride: 98.5% of test and
+        # 98.4% of train origins have a complete ladder (job 57888808), against
+        # the 24 h ladder's 94.4% and the 8 h ladder's 0.0%.
+        #
+        # This is the opposite operation to visual_latent_keep_newest, which
+        # TRUNCATES one entry; the two cannot both apply.
+        self.visual_latent_anchors = (
+            int(visual_latent_anchors) if visual_latent_anchors is not None else None
+        )
+        if self.visual_latent_anchors is not None:
+            if self.visual_latent_anchors <= 0:
+                raise ValueError("visual_latent_anchors must be positive")
+            if self.visual_latent_keep_newest is not None:
+                raise ValueError(
+                    "visual_latent_anchors and visual_latent_keep_newest are "
+                    "mutually exclusive: one assembles a DEEPER stack from many "
+                    "cache entries, the other truncates a single one"
+                )
+            if self.visual_anchor_stride_hours is None:
+                raise ValueError(
+                    "visual_latent_anchors needs visual_anchor_stride_hours — it "
+                    "is the offset between the cache origins that get read"
+                )
+            if (
+                self.visual_frames_per_anchor is None
+                or self.T_v
+                != self.visual_latent_anchors * self.visual_frames_per_anchor
+            ):
+                raise ValueError(
+                    f"visual_latent_anchors={self.visual_latent_anchors} needs "
+                    f"video_frames == anchors * visual_frames_per_anchor, got "
+                    f"video_frames={self.T_v} and visual_frames_per_anchor="
+                    f"{self.visual_frames_per_anchor}; otherwise the assembled "
+                    "latent stack and video_delta_t describe different frames"
+                )
+
         # W4: number of distinct plants assembled per group (cross-plant mixing).
         # >1 groups disjoint plants from THIS split that share a time window so
         # GroupSelfAttention fuses across entities. Disjointness vs other splits
@@ -371,6 +416,57 @@ class PVRecordDataset(Dataset):
         }
         self._h5 = None  # opened lazily (h5py handles are not fork-safe)
         self._build_groups()
+        self._drop_incomplete_ladders()
+
+    def _drop_incomplete_ladders(self) -> None:
+        """Remove groups whose K-anchor latent ladder is not fully cached.
+
+        Multi-anchor reuse reads K cache entries per entity and about 1.5% of
+        origins are missing at least one — usually the oldest, at the start of
+        a plant's record (job 57888808: 98.5% test / 98.4% train complete at
+        K=5). Filtering them out of the index here is what lets ``_latent_files``
+        raise on a miss instead of silently falling back to a live encode of a
+        different payload; after this runs, a miss means a real bug.
+
+        One directory listing, then set membership — NOT K stat() calls per
+        window, which would be ~490k round trips on the parallel FS.
+
+        CONFOUND, must be handled at report time: the dropped windows make this
+        arm's evaluation set a strict subset of the single-anchor arms'.
+        Re-score the comparands on the same subset before quoting a delta, or
+        the anchor-count effect is entangled with a 1.5% change of test set.
+        """
+        if self.visual_latent_anchors is None or self._cache_dir is None:
+            return
+        have = {f.stem for f in self._cache_dir.glob("*.pt")}
+        step = int(self.visual_anchor_stride_hours * 3600)
+        shifts = [k * step for k in range(self.visual_latent_anchors)]
+        kept = [
+            g
+            for g in self.groups
+            if all(
+                self._entity_cache_key(self.win[w], s) in have
+                for w in g
+                for s in shifts
+            )
+        ]
+        dropped = len(self.groups) - len(kept)
+        if not kept:
+            raise ValueError(
+                f"visual_latent_anchors={self.visual_latent_anchors} at "
+                f"{self.visual_anchor_stride_hours} h left 0 of {len(self.groups)} "
+                f"windows with a complete ladder under {self._cache_dir}. Either "
+                "the cache is the wrong one or the anchor stride does not divide "
+                "the origin grid — run scripts/probes/probe_anchor_cache_coverage.py."
+            )
+        print(
+            f"[pv_record] visual_latent_anchors="
+            f"{self.visual_latent_anchors}: dropped {dropped}/{len(self.groups)} "
+            f"windows ({dropped / len(self.groups):.2%}) with an incomplete "
+            f"latent ladder; {len(kept)} remain.",
+            flush=True,
+        )
+        self.groups = kept
 
     def _build_groups(self) -> None:
         """Assemble groups of ``num_entities`` distinct plants per time window.
@@ -612,10 +708,19 @@ class PVRecordDataset(Dataset):
         out["site_id"] = site_ids[0] if N == 1 else site_ids
 
         if latent_files is not None:
+            # Inner cat concatenates a multi-anchor ladder along the temporal
+            # axis, oldest anchor first; with one file per entity (the default)
+            # it is the identity, so single-anchor runs stay bit-identical.
             out["Z"] = torch.stack(
                 [
-                    torch.load(f, map_location="cpu", weights_only=True)
-                    for f in latent_files
+                    torch.cat(
+                        [
+                            torch.load(f, map_location="cpu", weights_only=True)
+                            for f in per_entity
+                        ],
+                        dim=0,
+                    )
+                    for per_entity in latent_files
                 ],
                 dim=0,
             )
@@ -634,27 +739,63 @@ class PVRecordDataset(Dataset):
                 out["Z"] = out["Z"][:, -k:]
         return out
 
-    def _entity_cache_key(self, win_item: dict) -> str:
+    def _entity_cache_key(self, win_item: dict, shift_sec: int = 0) -> str:
         """Stable per-(plant, window-origin) key for the V-JEPA latent cache.
 
         Shared with scripts/extract_video_embeddings.py so the producer and the
         training loader agree on file names. Origin = last history timestamp.
+
+        ``shift_sec`` moves the origin BACK, naming the entry the extractor
+        already wrote for an earlier window of the same plant (multi-anchor
+        reuse, see ``visual_latent_anchors``). The default 0 reproduces the
+        producer's key byte for byte, so the extractor and the pruner — which
+        both call this — are unaffected.
         """
         ts = np.asarray(win_item["timestamps"])
-        origin = int(ts[self.T - 1])
+        origin = int(ts[self.T - 1]) - int(shift_sec)
         return f"{win_item['dataset']}_{win_item['site_id']}_{origin}"
 
-    def _latent_files(self, win_indices: list[int]) -> list[Path] | None:
-        """Cache files for the group, or None on any miss.
+    def _latent_files(self, win_indices: list[int]) -> list[list[Path]] | None:
+        """Cache files per entity, oldest anchor first, or None on any miss.
 
-        Z is attached only when *every* entity in the group has a cached latent
-        (a partial group would break the collate stack); a miss falls back to
-        decoding + encoding raw frames V at train time.
+        One inner list per entity. Single-anchor (the default) yields one file
+        each. ``visual_latent_anchors=K`` yields K, at origins
+        ``t-(K-1)*stride ... t`` — oldest first, matching the frame order
+        ``_load_vision`` builds ``video_delta_t`` in, so the assembled stack and
+        the clock agree.
+
+        Z is attached only when *every* file for *every* entity exists (a
+        partial group would break the collate stack). In single-anchor mode a
+        miss returns None and falls back to decoding + encoding raw frames V at
+        train time. In multi-anchor mode it RAISES instead: that fallback would
+        quietly encode the configured K-anchor ladder live from H5, a different
+        payload than the assembled one, and the run would mix two visual
+        regimes with nothing in the logs to say which windows got which.
         """
         if self._cache_dir is None:
             return None
+        if self.visual_latent_anchors is None:
+            shifts = [0]
+        else:
+            step = int(self.visual_anchor_stride_hours * 3600)
+            shifts = [k * step for k in range(self.visual_latent_anchors - 1, -1, -1)]
         files = [
-            self._cache_dir / f"{self._entity_cache_key(self.win[w])}.pt"
+            [
+                self._cache_dir / f"{self._entity_cache_key(self.win[w], s)}.pt"
+                for s in shifts
+            ]
             for w in win_indices
         ]
-        return files if all(f.exists() for f in files) else None
+        missing = [f for per_entity in files for f in per_entity if not f.exists()]
+        if not missing:
+            return files
+        if self.visual_latent_anchors is not None:
+            raise FileNotFoundError(
+                f"visual_latent_anchors={self.visual_latent_anchors}: "
+                f"{len(missing)} of {sum(len(p) for p in files)} anchor latents "
+                f"absent under {self._cache_dir}, first {missing[0].name}. About "
+                "1.5% of origins have an incomplete ladder (job 57888808) — drop "
+                "those windows from the index rather than let them fall back to a "
+                "live encode of a different payload."
+            )
+        return None
