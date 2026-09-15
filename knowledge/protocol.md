@@ -123,9 +123,10 @@ All models must output forecasts in the normalized range. Metrics must be comput
    derives them once from the vision-on pass and shares them
    (`eval/protocol_eval.py::_ramp_masks`).
 
-   ⚠ Only tiers 0–3 and MMTSFM are protocol-aligned here. The T4–T6 ramp figures come from
-   native, non-aligned evaluation windows (`n_steps` of 417k–5.6M against the protocol's
-   165,295) and are **not comparable** — see [baselines.md](baselines.md).
+   ⚠ Tiers 0–3, MMTSFM, and new Aurora runs marked `protocol_aligned` are aligned here.
+   Other T4–T6 ramp figures come from native, non-aligned evaluation windows (`n_steps` of
+   417k–5.6M against the protocol's 165,295) and are **not comparable** — see
+   [baselines.md](baselines.md).
 
 4. **Forecast Skill Score (SS)**:
    Relative improvement over the Smart Persistence baseline. **The headline SS is NRMSE-based** (matches knowledge/baselines.md §4.2 and the `baselines/` implementation); an NMAE-based SS may be reported as a secondary column but must be labeled as such:

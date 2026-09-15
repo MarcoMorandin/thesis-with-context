@@ -14,7 +14,8 @@ SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 
 def _load():
     spec = importlib.util.spec_from_file_location(
-        "import_predictions", SCRIPTS / "import_predictions.py")
+        "import_predictions", SCRIPTS / "import_predictions.py"
+    )
     m = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(m)
     return m
@@ -31,14 +32,25 @@ def test_import_writes_results_json(tmp_path, monkeypatch):
     rng = np.random.default_rng(0)
     for site in ("3432", "6648"):
         true = rng.random((30, 12)).astype("float32")
-        true[:, ::4] = 0.0                     # night zeros → masked out
+        true[:, ::4] = 0.0  # night zeros → masked out
         pred = np.clip(true + 0.02, 0, 1).astype("float32")
         np.savez(tmp_path / f"visionts_pp_{site}_pred.npz", pred=pred, true=true)
 
-    monkeypatch.setattr(sys, "argv", [
-        "import_predictions.py", "--model", "visionts_pp", "--tag", "t",
-        "--glob", str(tmp_path / "visionts_pp_*_pred.npz"), "--out", str(tmp_path),
-    ])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "import_predictions.py",
+            "--model",
+            "visionts_pp",
+            "--tag",
+            "t",
+            "--glob",
+            str(tmp_path / "visionts_pp_*_pred.npz"),
+            "--out",
+            str(tmp_path),
+        ],
+    )
     m.main()
 
     out = json.loads((tmp_path / "visionts_pp_t.json").read_text())
@@ -64,17 +76,21 @@ def test_exact_mask_recovers_clearsky_and_nan_gaps(tmp_path):
     n_rows, seq_len, h = 200, 48, 12
     dates = pd.date_range("2021-06-01", periods=n_rows, freq="30min", tz="UTC")
     power = np.abs(np.sin(np.arange(n_rows) / 10.0)).round(4)
-    power[[50, 51, 120]] = np.nan                      # real data gaps
+    power[[50, 51, 120]] = np.nan  # real data gaps
     clearsky = np.where((np.arange(n_rows) % 48) < 20, 0.0, 500.0)
-    ot = np.nan_to_num(power)                          # what the exporter writes
+    ot = np.nan_to_num(power)  # what the exporter writes
     pd.DataFrame({"date": dates, "OT": ot}).to_csv(
-        tmp_path / "uk_pv_test_S1.csv", index=False)
+        tmp_path / "uk_pv_test_S1.csv", index=False
+    )
 
     n = n_rows - seq_len - h + 1
     idx = np.arange(n)[:, None] + seq_len + np.arange(h)[None, :]
     true = ot[idx]
-    source = {"S1": pd.DataFrame(
-        {config.TARGET_COL: power, config.CLEARSKY_COL: clearsky}, index=dates)}
+    source = {
+        "S1": pd.DataFrame(
+            {config.TARGET_COL: power, config.CLEARSKY_COL: clearsky}, index=dates
+        )
+    }
 
     mask = m.exact_mask(true, "S1", tmp_path, source)
     expected = ((~np.isnan(power)) & (clearsky > 0))[idx].astype(np.float64)
@@ -85,3 +101,56 @@ def test_exact_mask_recovers_clearsky_and_nan_gaps(tmp_path):
     # (caller falls back to the proxy) rather than a silently misaligned mask
     assert m.exact_mask(true + 0.5, "S1", tmp_path, source) is None
     assert m.exact_mask(true, "absent_site", tmp_path, source) is None
+
+
+def test_import_prefers_embedded_mask_and_derives_quantiles_from_samples(
+    tmp_path, monkeypatch
+):
+    m = _load()
+    true = np.ones((2, 2), dtype=np.float32)
+    pred = np.array([[1.0, 0.0], [1.0, 0.0]], dtype=np.float32)
+    valid = np.array([[1.0, 0.0], [1.0, 0.0]], dtype=np.float32)
+    samples = np.repeat(pred[:, None, :], 100, axis=1)
+    np.savez(
+        tmp_path / "aurora_123_pred.npz",
+        pred=pred,
+        true=true,
+        valid=valid,
+        samples=samples,
+        last_history=np.zeros(2),
+        protocol_aligned=np.array(True),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "import_predictions.py",
+            "--model",
+            "aurora",
+            "--tag",
+            "t",
+            "--glob",
+            str(tmp_path / "aurora_*_pred.npz"),
+            "--out",
+            str(tmp_path),
+        ],
+    )
+
+    m.main()
+
+    out = json.loads((tmp_path / "aurora_t.json").read_text())
+    assert out["results"]["overall"]["nmae"] == 0.0
+    assert "crps" in out["results"]["overall"]
+    assert "embedded exact mask" in out["manifest"]["config"]["daylight_mask"]
+    assert "protocol-aligned" in out["manifest"]["config"]["eval_windows"]
+
+
+def test_ramp_mask_uses_last_history_for_first_forecast_step():
+    m = _load()
+    true = np.full((2, 2), 0.1)
+    previous = np.zeros(2)
+
+    ramp = m.ramp_mask_from_true(true, mask=np.ones_like(true), previous=previous)
+
+    np.testing.assert_array_equal(ramp[:, 0], np.ones(2))
+    np.testing.assert_array_equal(ramp[:, 1], np.zeros(2))

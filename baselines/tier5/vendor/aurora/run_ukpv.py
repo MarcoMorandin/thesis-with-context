@@ -1,77 +1,193 @@
-"""Aurora (decisionintelligence/Aurora) ZERO-SHOT on uk_pv.
+"""Protocol-aligned zero-shot Aurora evaluation on UK-PV."""
 
-Aurora is a multimodal TS foundation model with a zero-shot `generate()` API
-(NOT training-only — runner.py/train_from_scratch.py are the *training* path the
-old slurm wrongly invoked). We use the unimodal TS path: feed each plant's power
-history `[B, ctx]`, sample forecasts, average. Aurora instance-normalizes inputs
-internally, so the output is already in the input (norm_power) scale.
+from __future__ import annotations
 
-Mirrors the upstream TFB wrapper (ts_benchmark/baselines/aurora/aurora.py):
-    model = AuroraForPrediction.from_pretrained(ckpt)
-    out = model.generate(inputs=[B,L], max_output_length=H,
-                         inference_token_len=48, num_samples=100)  # [B, S, H]
-    forecast = out.mean(samples)
-Dumps per-plant aurora_<site>_pred.npz for scripts/import_predictions.py.
-"""
+import json
+import sys
+from pathlib import Path
 
-import argparse
-import glob
-import os
-
+import hydra
 import numpy as np
-import pandas as pd
 import torch
+from omegaconf import DictConfig
 
-from aurora.modeling_aurora import AuroraForPrediction
+BASELINES = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(BASELINES))
 
+from aurora.modeling_aurora import AuroraForPrediction  # noqa: E402
 
-def windows(x: np.ndarray, ctx: int, pred: int):
-    n = len(x) - ctx - pred + 1
-    if n <= 0:
-        return np.empty((0, ctx), np.float32), np.empty((0, pred), np.float32)
-    X = np.stack([x[i:i + ctx] for i in range(n)]).astype(np.float32)
-    Y = np.stack([x[i + ctx:i + ctx + pred] for i in range(n)]).astype(np.float32)
-    return X, Y
+from tier6.uk_multimodal import UKMultimodalDataset, sites_for_split  # noqa: E402
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--csv_dir", required=True)
-    ap.add_argument("--ckpt_path", required=True, help="DecisionIntelligence/Aurora HF dir")
-    ap.add_argument("--context_len", type=int, default=24)
-    ap.add_argument("--pred_len", type=int, default=12)
-    ap.add_argument("--inference_token_len", type=int, default=48)
-    ap.add_argument("--num_samples", type=int, default=100)
-    ap.add_argument("--batch_size", type=int, default=256)
-    ap.add_argument("--out", default="results_ukpv")
-    args = ap.parse_args()
+def latest_real_frames(
+    vision: np.ndarray, mask: np.ndarray
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Select each window's latest observed frame and convert it to RGB uint8."""
+    available = mask.astype(bool).any(axis=1)
+    latest_idx = mask.shape[1] - 1 - mask[:, ::-1].argmax(axis=1)
+    frames = vision[np.arange(len(vision)), latest_idx]
+    if frames.shape[1] == 1:
+        frames = np.repeat(frames, 3, axis=1)
+    frames = np.rint(np.clip(frames, 0.0, 1.0) * 255).astype(np.uint8)
+    return torch.from_numpy(frames), torch.from_numpy(available)
 
+
+def forecast_batch(
+    model,
+    histories,
+    frames,
+    available,
+    *,
+    vision_mode,
+    pred_len,
+    inference_token_len,
+    num_samples,
+):
+    """Generate samples, using pseudo-images when real frames are missing."""
+    kwargs = {
+        "max_output_length": pred_len,
+        "inference_token_len": inference_token_len,
+        "num_samples": num_samples,
+    }
+    if vision_mode == "pseudo":
+        return model.generate(inputs=histories, **kwargs)
+    output = torch.empty(
+        (len(histories), num_samples, pred_len), device=histories.device
+    )
+    for use_real in (True, False):
+        keep = available == use_real
+        if not keep.any():
+            continue
+        frame_mask = keep.detach().cpu()
+        images = frames[frame_mask].to(histories.device) if use_real else None
+        output[keep] = model.generate(
+            inputs=histories[keep], vision_inputs=images, **kwargs
+        )
+    return output
+
+
+def macro_mae(
+    pred: np.ndarray, true: np.ndarray, valid: np.ndarray, sites: np.ndarray
+) -> float:
+    """Return the per-plant macro MAE over valid daylight targets."""
+    scores = []
+    for site in np.unique(sites):
+        take, weight = sites == site, valid[sites == site]
+        if weight.sum() == 0:
+            continue
+        scores.append(
+            float((np.abs(pred[take] - true[take]) * weight).sum() / weight.sum())
+        )
+    if not scores:
+        raise ValueError("no valid daylight targets")
+    return float(np.mean(scores))
+
+
+def _run_split(
+    model, cfg: DictConfig, split: str, vision_mode: str, out: Path
+) -> float:
+    device = next(model.parameters()).device
+    totals = {"pred": [], "true": [], "valid": [], "site": []}
+    out.mkdir(parents=True, exist_ok=True)
+    for site in sites_for_split(split, dataset=cfg.dataset):
+        ds = UKMultimodalDataset(
+            site_ids=[site],
+            data_path=cfg.data_path,
+            h5_path=cfg.h5_path,
+            history=cfg.history,
+            horizon=cfg.horizon,
+            stride=cfg.stride,
+            img_size=cfg.image_size,
+            datasets=[cfg.dataset],
+            to_gray=True,
+            visual_history_steps=cfg.visual_history_steps,
+        )
+        sample_parts, true_parts, valid_parts = [], [], []
+        history_parts, history_valid_parts = [], []
+        target_valid_parts, daylight_parts = [], []
+        for batch in ds.iter_batches(cfg.batch_size):
+            histories = torch.from_numpy(batch["y_hist"]).float().to(device)
+            frames, available = latest_real_frames(batch["V"], batch["mask_visual"])
+            samples = (
+                forecast_batch(
+                    model,
+                    histories,
+                    frames,
+                    available.to(device),
+                    vision_mode=vision_mode,
+                    pred_len=cfg.horizon,
+                    inference_token_len=cfg.inference_token_len,
+                    num_samples=cfg.num_samples,
+                )
+                .float()
+                .cpu()
+                .numpy()
+            )
+            sample_parts.append(samples)
+            true_parts.append(batch["y_future"])
+            valid_parts.append(batch["mask_future"] * batch["daylight_future"])
+            history_parts.append(batch["y_hist"][:, -1])
+            history_valid_parts.append(batch["mask_hist"][:, -1])
+            target_valid_parts.append(batch["mask_future"])
+            daylight_parts.append(batch["daylight_future"])
+        samples, true, valid = map(
+            np.concatenate, (sample_parts, true_parts, valid_parts)
+        )
+        last_history, last_history_valid, target_valid, daylight = map(
+            np.concatenate,
+            (history_parts, history_valid_parts, target_valid_parts, daylight_parts),
+        )
+        pred = np.clip(samples.mean(axis=1), 0.0, 1.0).astype(np.float32)
+        np.savez(
+            out / f"aurora_{site}_pred.npz",
+            pred=pred,
+            true=true,
+            samples=samples.astype(np.float32),
+            valid=valid,
+            last_history=last_history,
+            last_history_valid=last_history_valid,
+            target_valid=target_valid,
+            daylight=daylight,
+            protocol_aligned=np.array(True),
+        )
+        totals["pred"].append(pred)
+        totals["true"].append(true)
+        totals["valid"].append(valid)
+        totals["site"].append(np.full(len(pred), site))
+    return macro_mae(
+        *(np.concatenate(totals[key]) for key in ("pred", "true", "valid", "site"))
+    )
+
+
+@hydra.main(
+    version_base=None, config_path="../../../configs/tier5", config_name="aurora"
+)
+def main(cfg: DictConfig) -> None:
+    np.random.seed(cfg.seed)
+    torch.manual_seed(cfg.seed)
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    model = AuroraForPrediction.from_pretrained(args.ckpt_path).to(device).eval()
-    os.makedirs(args.out, exist_ok=True)
-
-    for csv in sorted(glob.glob(os.path.join(args.csv_dir, "uk_pv_test_*.csv"))):
-        if "_retrieve_" in csv:                      # skip RAG retrieval intermediates
-            continue
-        site = os.path.basename(csv)[len("uk_pv_test_"):-len(".csv")]
-        ot = pd.read_csv(csv)["OT"].to_numpy(np.float32)
-        X, Y = windows(ot, args.context_len, args.pred_len)
-        if not len(X):
-            print(f"skip {site}: too short")
-            continue
-        preds = []
-        with torch.no_grad():
-            for i in range(0, len(X), args.batch_size):
-                xb = torch.from_numpy(X[i:i + args.batch_size]).to(device)   # [B, ctx]
-                out = model.generate(inputs=xb, max_output_length=args.pred_len,
-                                     inference_token_len=args.inference_token_len,
-                                     num_samples=args.num_samples)            # [B, S, H]
-                out = out.float().mean(dim=1)                                 # [B, H]
-                preds.append(out.cpu().numpy())
-        pred = np.clip(np.concatenate(preds), 0.0, 1.0).astype(np.float32)
-        np.savez(os.path.join(args.out, f"aurora_{site}_pred.npz"), pred=pred, true=Y)
-        print(f"{site}: pred {pred.shape}")
-    print(f"done → {args.out}")
+    model = AuroraForPrediction.from_pretrained(cfg.ckpt_path).to(device).eval()
+    root = Path(cfg.out)
+    if cfg.vision_mode == "auto":
+        scores = {}
+        for mode in ("pseudo", "real"):
+            np.random.seed(cfg.seed)
+            torch.manual_seed(cfg.seed)
+            scores[mode] = _run_split(
+                model, cfg, "val", mode, root / "validation" / mode
+            )
+        selected = min(scores, key=scores.get)
+    else:
+        selected, scores = cfg.vision_mode, {}
+    test_score = _run_split(model, cfg, "test", selected, root)
+    summary = {
+        "selected_vision_mode": selected,
+        "validation_macro_mae": scores,
+        "test_macro_mae": test_score,
+        "num_samples": cfg.num_samples,
+    }
+    (root / "selection.json").write_text(json.dumps(summary, indent=2))
+    print(json.dumps(summary, indent=2))
 
 
 if __name__ == "__main__":

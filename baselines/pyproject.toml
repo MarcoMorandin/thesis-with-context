@@ -14,6 +14,7 @@ dependencies = [
     "h5py",
     "pillow",
     "chronos-forecasting>=2.3.0",
+    "hydra-core>=1.3.7",
 ]
 
 [tool.uv]

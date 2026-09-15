@@ -8,6 +8,7 @@ from torchvision.transforms import Resize
 from transformers import ViTImageProcessor, ViTModel, BertModel, ViTConfig, BertConfig
 
 from .configuration_aurora import AuroraConfig
+from .real_image import process_real_images
 
 
 class VisionEncoder(nn.Module):
@@ -82,9 +83,7 @@ class UnifiedImageProcessor(nn.Module):
 
     def process_real_image(self, images):
         """Process real images: automatic resizing, cropping, and normalization"""
-        # Directly use ViTImageProcessor to ensure consistency with pretraining pipeline
-        inputs = self.vit_processor(images=images, return_tensors="pt")
-        return inputs["pixel_values"]  # Shape: [batch_size, 3, H, W]
+        return process_real_images(self.vit_processor, images)
 
     def _period_search(self, x):
         xf = torch.fft.rfft(x, dim=-1)
