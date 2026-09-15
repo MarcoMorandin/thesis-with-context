@@ -162,11 +162,11 @@ Aurora studies how derived modalities can improve general-purpose forecasting th
 == Multimodal Token Reduction: Nemotron 3 Nano Omni
 Nemotron 3 Nano Omni @nemotron uses an encoder--projector--decoder design. Separate encoders turn audio, images, and video into modality-specific tokens, projectors align their widths, and the resulting sequence is passed to a language-model backbone. The vision path also reduces the number of visual tokens before they reach the backbone: spatial compression preserves the image layout, while Efficient Video Sampling (EVS) keeps tokens from regions that change over time @evs.
 
-The visual side of Nemotron provides the closest precedent for S2d and S2e. We retain the idea of reducing a spatial feature grid while keeping each location addressable, then use a position-wise MLP to match the token width of Chronos-2. We also adapt the EVS principle of ranking visual tokens by temporal novelty. S2d applies this selection to one recent satellite window; S2e repeats it at five matched daily anchors. The language decoder and audio branch shown in the original architecture are outside our forecasting interface, where the selected visual tokens are interleaved directly with the time-series tokens.
+The visual side of Nemotron provides the closest precedent for S2d and S2e. We retain the idea of reducing a spatial feature grid while keeping each location addressable, then use a position-wise MLP to match the token width of Chronos-2. We also adapt the EVS principle of ranking visual tokens by temporal novelty. S2d applies this selection to one recent satellite window; S2e repeats it at five matched daily anchors. Nemotron's language decoder and audio branch are outside our forecasting interface, where the selected visual tokens are interleaved directly with the time-series tokens.
 
 #figure(
-  image("figures/related_nemotron_original.png", width: 100%),
-  caption: [Original Nemotron 3 Nano Omni architecture, reproduced as a screenshot from the source paper @nemotron.],
+  image("figures/related_nemotron_visual_path.svg", width: 100%),
+  caption: [Correspondence between the Nemotron visual path and its adaptation in S2d/S2e. Nemotron reduces and projects spatial visual tokens before EVS selects temporally novel regions; S2d and S2e retain this sequence of operations but interleave the selected tokens with numerical Chronos-2 tokens.],
 ) <fig-related-nemotron>
 
 == Forward-Aligned Exogenous Covariates: iTransformer
