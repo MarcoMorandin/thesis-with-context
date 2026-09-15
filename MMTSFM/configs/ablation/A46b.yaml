@@ -1,0 +1,90 @@
+# @package _global_
+# A46b — depth-matched multi-anchor: TWO anchors, each one bit-for-bit S2D.
+#
+# THE CLAIM UNDER TEST. S2E lost 0.0094 SS to S2D while adding four anchors.
+# A46 held the ladder and moved the selector (paired_novelty): null, 0.5416
+# +/- 0.0031 against S2E's 0.5409 +/- 0.0015, five times under the 0.0037
+# floor. So selection is not the cause. What remains is the PAYLOAD: S2E's
+# anchor carries T_lat=2 latents and keeps 20 of its 98 candidate tokens (20%),
+# while S2D's carries T_lat=4 and keeps 98 of 196 (50%). Every S2E anchor is a
+# quarter of an S2D anchor in depth and a fifth of it in tokens. This arm
+# removes that confound: make the anchor identical and move ONLY the count.
+#
+# WHAT AN ANCHOR IS HERE. 8 frames at 45 min (5.25 h burst) -> V-JEPA tubelet
+# stride 2 -> T_lat=4 -> 4 x 49 = 196 candidates -> `novelty` keeps 98:
+# 49 pinned first-latent cells (+inf) + 49 by cosine dissimilarity. That is
+# S2D's rule, S2D's depth, S2D's retention, S2D's token count. Verified against
+# evs_select directly: with n_groups=2 and keep=196, anchor0 draws frames
+# [0,1,2,3] (49 pinned + 49 novel) and anchor1 draws [4,5,6,7] (49 + 49),
+# each leg identical to a standalone S2D call at keep=98.
+#
+# WHY TWO AND NOT FIVE. Quota, not preference. Cache cost is ~52.5 G per latent
+# frame (525 G at T_lat=10 for the a24h cache, 210 G at T_lat=4 for s2d — same
+# constant from both). Five depth-matched anchors = 40 frames = T_lat=20 =
+# ~1050 G, which exceeds the 1 TB project quota STANDING ALONE, before the
+# 525 G a24h and 210 G s2d caches it must be compared against. Three = ~630 G,
+# which only fits if the a24h cache that holds S2E and A46 is deleted, i.e. by
+# destroying the comparands. Two = T_lat=8 = ~420 G and fits.
+#
+# Two is also sufficient for the registered claim. A44's own statement of what
+# interleaving needs (knowledge/ablations.md:240) is "N >= 2 pairs in context,
+# on the raw path" — a mapping cannot be fitted from one point, which is what
+# A43's null established. Two points is the threshold; five was never the
+# load-bearing number. If this arm beats S2D, anchor count helps and the ladder
+# should be widened as far as quota allows. If it is null, the multi-anchor
+# hypothesis is dead at its cleanest possible test and S2E's loss was payload
+# dilution all along.
+#
+# MODE CHANGE, MANDATORY. `visual_evs_mode` moves paired_novelty -> novelty.
+# Not a design choice: paired_novelty raises "paired_novelty requires exactly
+# two latent frames per anchor" for any T != 2 (patch_projector.py). At T_lat=4
+# it cannot run. novelty is what S2D itself uses, so this also restores lineage
+# with the control rather than with A46.
+#
+# NEW CACHE REQUIRED — the a24h cache CANNOT be reused. Cache keys are
+# {dataset}_{site}_{origin} and do not encode the ladder, so a 16-frame ladder
+# read through the 20-frame directory would silently return the wrong tensors.
+# Extract to:
+#   VJEPA_CACHE_VER=vit_large_f16_s224_nonhrv_sp45_a24h
+# Budget ~420 G and ~16 h GPU. Check quota headroom BEFORE launching: 420 +
+# 525 (a24h) + 210 (s2d) = 1155 G exceeds 1 TB, so the 210 G s2d cache must be
+# freed first (s2d is already scored; re-extraction is only needed to re-run
+# it). Do not delete the a24h cache — S2E and A46 are this arm's comparands.
+#
+# GUARDS, all checked: 24 h stride = 3 TS patches x 8 h (visual_position_span
+# _seconds, vision_chronos2_s2e.yaml:101,118); T_lat 8 % n_vis 2 = 0;
+# keep 196 % 2 = 0; video_frames 16 % frames_per_anchor 8 = 0; burst span
+# 5.25 h <= 24 h stride; oldest frame at 29.25 h < visual_window_hours 30.
+#
+# COST. Sequence 42 TS + 196 visual + 1 future = 239, against S2D's 141 and
+# S2E's 143. Launch BATCH_SIZE=8 ACCUM=2 (stage_cmd.sh:107) to hold the
+# effective batch at ukpv.yaml's 16; check seed 42's memory before releasing
+# the rest.
+#
+# Comparators: S2D for the count effect at identical anchor construction (the
+# headline); S2E and A46 for what depth-matching bought at the same count.
+# Report cross-plant NMAE, NRMSE, NRMSE skill score, ramp metrics, calibration,
+# and the same-weight vision-off marginal.
+defaults:
+  - /stage/s2e
+
+seed: 42
+train: true
+test: true
+
+data:
+  # TWO bursts of 8 at 45 min, 24 h apart. Offsets (k // 8) * 24 h +
+  # (k % 8) * 45 min; oldest frame at 24 + 5.25 = 29.25 h.
+  video_frames: 16
+  visual_window_hours: 30.0        # covers 24 h + 5.25 h burst span
+  visual_frame_spacing_min: 45.0   # UNCHANGED — the proven in-burst step
+  visual_anchor_stride_hours: 24.0 # three Chronos-2 input patches (3 * 8 h)
+  visual_frames_per_anchor: 8      # 16 / 8 = 2 bursts = 2 anchors, T_lat=4 each
+
+model:
+  vision_cfg:
+    n_visual_context_steps: 2
+    visual_evs_mode: novelty       # paired_novelty cannot run at T_lat != 2
+    visual_evs_keep: 196           # 98 per anchor = S2D exactly
+  results_tag: mmtsfm_A46b_s2e_ukpv
+  compute_marginal_gain: true
