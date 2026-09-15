@@ -17,6 +17,8 @@ zero-filled night history step is physically correct for PV.
 
 from __future__ import annotations
 
+import contextlib
+import random
 import sys
 from pathlib import Path
 
@@ -129,3 +131,32 @@ def set_finetune_mode(model):
         if isinstance(module, torch.nn.modules.batchnorm._BatchNorm):
             module.eval()
     return model
+
+
+@contextlib.contextmanager
+def pinned_rng(seed: int):
+    """Draw the same random numbers every time the block runs.
+
+    Aurora's objective is stochastic in three places: the frequency masking
+    picks its branch with `random.random()` (`mask_ratio: 0.5`), the attention
+    layers drop out (`dropout_rate: 0.2`), and the flow-matching term samples
+    its own timestep and noise. Validation has to run in train mode --- the
+    reconstruction term does not exist under `eval()`, see `validate` --- so
+    without pinning, the early-stopping signal would move epoch to epoch for
+    reasons unrelated to the weights.
+
+    Both generator states are restored on exit, so pinning the validation draw
+    does not make every training epoch replay the same one.
+    """
+    py_state = random.getstate()
+    torch_state = torch.get_rng_state()
+    cuda_states = torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
+    random.seed(seed)
+    torch.manual_seed(seed)
+    try:
+        yield
+    finally:
+        random.setstate(py_state)
+        torch.set_rng_state(torch_state)
+        if cuda_states is not None:
+            torch.cuda.set_rng_state_all(cuda_states)

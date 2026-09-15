@@ -39,6 +39,7 @@ from ukpv_ft_dataset import (  # noqa: E402
     build_split_dataset,
     iter_batches,
     iter_shuffled_batches,
+    pinned_rng,
     set_finetune_mode,
     trainable_parameters,
 )
@@ -60,14 +61,25 @@ def _batch_loss(model, batch, device, *, vision_mode):
 
 @torch.no_grad()
 def validate(model, ds, cfg, device) -> float:
-    """Mean objective over the val plants — the early-stopping signal."""
-    model.eval()
+    """Mean objective over the val plants --- the early-stopping signal.
+
+    Runs in **train** mode on purpose. `AuroraEmbedding.forward` short-circuits
+    to `_predict` under `eval()`, which returns no masked copies, so `x_rec` is
+    None and the reconstruction term of the loss does not exist --- the training
+    objective is only defined in train mode. `set_finetune_mode` already holds
+    BatchNorm on its running statistics, and `pinned_rng` makes the masking,
+    dropout and flow-matching draws identical every epoch, so epoch-to-epoch
+    movement in this number comes from the weights alone.
+
+    This is the selection signal only. The reported metrics come from
+    `run_ukpv.py`, which generates in `eval()` and is untouched by any of this.
+    """
     losses = []
-    for batch in iter_batches(ds, cfg.batch_size, cfg.max_val_batches):
-        loss = _batch_loss(model, batch, device, vision_mode=cfg.vision_mode)
-        if loss is not None:
-            losses.append(float(loss))
-    set_finetune_mode(model)
+    with pinned_rng(cfg.seed):
+        for batch in iter_batches(ds, cfg.batch_size, cfg.max_val_batches):
+            loss = _batch_loss(model, batch, device, vision_mode=cfg.vision_mode)
+            if loss is not None:
+                losses.append(float(loss))
     if not losses:
         raise ValueError("no scorable validation windows")
     return float(np.mean(losses))
