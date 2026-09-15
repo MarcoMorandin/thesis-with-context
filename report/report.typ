@@ -159,6 +159,16 @@ Aurora studies how derived modalities can improve general-purpose forecasting th
   caption: [Original Aurora architecture, reproduced as a screenshot from the source paper @aurora.],
 ) <fig-related-aurora>
 
+== Multimodal Token Reduction: Nemotron 3 Nano Omni
+Nemotron 3 Nano Omni @nemotron uses an encoder--projector--decoder design. Separate encoders turn audio, images, and video into modality-specific tokens, projectors align their widths, and the resulting sequence is passed to a language-model backbone. The vision path also reduces the number of visual tokens before they reach the backbone: spatial compression preserves the image layout, while Efficient Video Sampling (EVS) keeps tokens from regions that change over time @evs.
+
+The visual side of Nemotron provides the closest precedent for S2d and S2e. We retain the idea of reducing a spatial feature grid while keeping each location addressable, then use a position-wise MLP to match the token width of Chronos-2. We also adapt the EVS principle of ranking visual tokens by temporal novelty. S2d applies this selection to one recent satellite window; S2e repeats it at five matched daily anchors. The language decoder and audio branch shown in the original architecture are outside our forecasting interface, where the selected visual tokens are interleaved directly with the time-series tokens.
+
+#figure(
+  image("figures/related_nemotron_original.png", width: 100%),
+  caption: [Original Nemotron 3 Nano Omni architecture, reproduced as a screenshot from the source paper @nemotron.],
+) <fig-related-nemotron>
+
 == Forward-Aligned Exogenous Covariates: iTransformer
 iTransformer @itransformer embeds each physical variable, including generation, solar zenith, cloud cover, and temperature, as one token spanning the temporal window. Self-attention then operates across variables. Under our protocol, its numerical weather covariates are shifted across the forecast horizon to represent operational NWP forecasts.
 
