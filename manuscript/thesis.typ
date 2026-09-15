@@ -218,6 +218,9 @@
 // Abstract
 // ==========================================================================
 
+#include "rewritten-body.typ"
+
+/*
 
 #heading(level: 1, numbering: none)[Abstract]
 Photovoltaic power forecasting is usually posed as a per-plant supervised problem: one
@@ -265,7 +268,7 @@ provisional numbers.
 
 
 // ==========================================================================
-// Chapters
+// Former thesis body
 // ==========================================================================
 
 
@@ -3345,3 +3348,4 @@ comparable magnitude, and a model that improves on both at once is the one worth
 // The LaTeX source used \bibliographystyle{plain}: numeric labels, entries
 // sorted alphabetically. Typst's nearest built-in numeric style is "ieee".
 #bibliography("biblio.bib", style: "ieee")
+*/
