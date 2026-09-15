@@ -592,6 +592,12 @@ class AuroraForPrediction(AuroraPreTrainedModel, TSGenerationMixin):
                 labels = F.pad(labels, (0, pad_length))
                 mask = torch.tensor([1] * origin_length + [0] * pad_length, device=labels.device)
                 mask = mask.unsqueeze(0)
+            if loss_masks is not None:
+                # Per-step target validity (1 = observed). Upstream declares this
+                # argument but never applies it, so an unobserved step would train
+                # the model on a zero-filled placeholder.
+                valid = F.pad(loss_masks.float(), (0, target_length - origin_length))
+                mask = valid if mask is None else mask * valid
 
             reco = rearrange(self.linear_head(x_rec), 'b n p -> b (n p)')
             fore = rearrange(self.linear_head(x_dec), 'b n p -> b (n p)')
@@ -600,6 +606,8 @@ class AuroraForPrediction(AuroraPreTrainedModel, TSGenerationMixin):
 
             reco_loss = self.point_loss(reco[:, :input_ids.shape[-1]], input_ids)
             fore_loss = self.point_loss(fore[:, :origin_length], origin_labels)
+            if loss_masks is not None:
+                fore_loss = fore_loss[loss_masks > 0]
             reco_loss = reco_loss[reco_loss < eps]
             fore_loss = fore_loss[fore_loss < eps]
             point_loss = reco_loss.mean() + fore_loss.mean()
@@ -612,6 +620,11 @@ class AuroraForPrediction(AuroraPreTrainedModel, TSGenerationMixin):
             x_dec = x_dec.reshape(
                 bsz * L, -1).repeat(self.config.diffusion_batch_mul, 1)
             protos = generated_prototypes.reshape(bsz * L, -1).repeat(self.config.diffusion_batch_mul, 1)
+            if mask is not None:
+                # FlowLoss scores rows of (bsz * L * mul, token_len); lay the mask
+                # out the same way so a per-sample mask lines up with its row.
+                mask = mask.expand(bsz, target_length).reshape(
+                    bsz * L, -1).repeat(self.config.diffusion_batch_mul, 1)
             flow_loss = self.flow_match(target=shift_labels, z=x_dec.detach(), prototype=protos, eps=eps, mask=mask)
             loss = point_loss + flow_loss
 
