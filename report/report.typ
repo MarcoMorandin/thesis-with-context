@@ -1,5 +1,5 @@
 #set document(
-  title: "Interleaved Vision Fusion for Time-Series Foundation Models: Evaluating Inductive Biases, Information Bottlenecks, and Representation Grounding in Photovoltaic Ramp Forecasting",
+  title: "Interleaved Vision Fusion for Time-Series Foundation Models",
 )
 #set page(
   paper: "a4",
@@ -86,11 +86,6 @@
     #set text(size: 17pt, weight: 700)
     Interleaved Vision Fusion for \ Time-Series Foundation Models
   ]
-  #v(0.4em)
-  #block(width: 85%)[
-    #set text(size: 11.5pt, fill: luma(70), weight: 500)
-    Evaluating Inductive Biases, Information Bottlenecks, and Representation Grounding in Photovoltaic Ramp Forecasting
-  ]
 ]
 
 #v(0.8em)
@@ -104,87 +99,102 @@
 )[
   #set par(justify: true)
   #set text(size: 9.6pt)
-  *Abstract.* Sudden physical regime shifts expose a limitation of numerical forecasting because they leave no trace in the historical series. In solar power forecasting, sharp ramps caused by advecting cloud edges account for most of the operational loss. Establishing whether a multimodal forecaster uses visual observations remains difficult because end-to-end retraining conflates information from the images with parameter capacity, optimization dynamics, and regularization. Strong zero-shot transfer from modern time-series foundation models raises the bar further by making coarse visual summaries redundant. We control these confounds by fixing both foundation backbones: the self-supervised video encoder is frozen, the time-series transformer is held fixed except for its upper encoder blocks, and only the cross-modal bridge is trained from scratch. Our counterfactual reliance protocol scores the same frozen weights with and without vision, measuring the contribution of imagery directly in ramp error. A learned-query bottleneck resampler yields reliance indistinguishable from zero ($0.0000 plus.minus 0.0015$). Removing the resampler preserves 49 individually addressable spatial cells, projects them into sequence self-attention, and prunes static background through temporal novelty selection. This design restores significant reliance ($0.0073 plus.minus 0.0002$) and achieves the lowest ramp error ($0.1435$) in a 27-baseline suite. A matched-budget ablation further shows that averaging four sub-patches into a 1024-channel cell matches the original 4096-channel concatenation on ramp error, improves skill score by $0.54$ percentage points, and calibrates better. The measured gain depends on removing the pooling bottleneck and retaining cells selected by temporal novelty, not on sub-cell payload width. Falsification controls attribute the gain to localized cloud boundaries represented as a non-stationary spatial field; neither frame order nor kinematic tracking contributes measurably. The sharper ramp response reduces prediction-interval coverage.
+  *Abstract.* Sudden regime shifts are difficult for numerical forecasters because an approaching cloud front may affect future photovoltaic output before it appears in the local generation history. Multimodal accuracy gains alone cannot establish whether a model uses imagery, since retraining also changes capacity and optimization. We evaluate visual reliance on disjoint test plants while controlling these factors: the video encoder remains frozen, only the upper blocks of the time-series transformer are updated, and the cross-modal bridge is trained from scratch. Our counterfactual protocol scores the same trained weights with vision active and disabled. A learned-query resampler produces reliance indistinguishable from zero ($0.0000 plus.minus 0.0015$). Replacing that pooled representation with 49 addressable spatial cells, sequence interleaving, and temporal-novelty selection increases reliance to $0.0073 plus.minus 0.0002$ and yields the lowest ramp NMAE in the benchmark ($0.1435$). Falsification controls show that performance depends on fresh, site-specific imagery and novelty-selected cells, while frame order has negligible effect. The improvement in point forecasts comes with lower 80% prediction-interval coverage ($0.753$ versus $0.772$ for the unimodal control).
 ]
 
 #v(1.0em)
 
 = Introduction
 
-Forecast errors in physical and energy systems do not carry uniform costs over time. Under clear skies or uniform overcast, photovoltaic (PV) generation follows a smooth, quasi-deterministic curve governed mainly by solar geometry and simple persistence or autoregressive models are difficult to beat. The largest operational errors occur during sudden ramps, when output changes by a large fraction of installed capacity within minutes. These events complicate grid balancing, incur imbalance penalties, and require fast reserve dispatch @sunset @fusionsf.
+Forecast errors in physical and energy systems do not carry uniform costs over time. Under clear skies or uniform overcast, photovoltaic (PV) generation follows a smooth, quasi-deterministic curve governed mainly by solar geometry. Simple persistence or autoregressive models are difficult to beat in these conditions. The largest operational errors occur during sudden ramps, when output changes by a large fraction of installed capacity within minutes. These events complicate grid balancing, incur imbalance penalties, and require fast reserve dispatch @sunset @fusionsf.
 
 Ramp events also expose a physical limit of unimodal forecasting. A plant's historical power series cannot reveal a cloud that has not yet reached the array; a front approaching at 40 km/h leaves no local generation signal before optical occlusion. Numerical weather prediction (NWP) provides regional forecasts, but its spatial and temporal resolution is too coarse to resolve localized cloud boundaries.
 
-Demonstrating that an architecture actually uses visual information to resolve ramps presents two recurring problems:
+Two problems make it difficult to establish whether an architecture uses visual information to resolve ramps.
 
-First, the unimodal baseline is strong. General-purpose time-series foundation models (TSFMs), pretrained on diverse multi-domain corpora, have improved the empirical frontier @chronos2 @timesfm @ttm. They patch numerical series, model long temporal dependencies with self-attention, consume weather covariates directly and transfer zero-shot across unseen geographies. In our benchmark, a fine-tuned unimodal foundation model reaches a skill score of $52.30$ against Smart Persistence on held-out plants, outperforming nearly every published multimodal solar forecaster (@tbl-leaderboard-multimodal, @tbl-leaderboard-tsfms). A visual modality must therefore add spatial information that the numerical covariates do not already contain.
+The first is the strength of the unimodal baseline. General-purpose time-series foundation models (TSFMs), pretrained on multi-domain corpora, patch numerical series, model long dependencies with self-attention, consume weather covariates directly, and transfer zero-shot across unseen geographies @chronos2 @timesfm @ttm. In our benchmark, a fine-tuned unimodal foundation model reaches a skill score of $52.30$ against Smart Persistence on held-out plants, outperforming nearly every published multimodal solar forecaster (@tbl-leaderboard-multimodal, @tbl-leaderboard-tsfms). Imagery must add spatial information absent from the numerical covariates.
 
-All models are evaluated on plants that are disjoint from those used for training and validation. The primary cross-plant split assigns separate installations to each set, so a model cannot rely on plant-specific histories or memorized spatial patterns. Performance therefore measures transfer to unseen plants under the same forecasting task, rather than interpolation within plants already observed during training.
+We evaluate every model on plants excluded from training and validation. The primary cross-plant split assigns different installations to each set, preventing the model from relying on plant-specific histories or memorized spatial patterns. Performance therefore measures transfer to unseen plants under the same forecasting task instead of interpolation among plants observed during training.
 
-Second, conventional ablations confound visual information with retraining. Most multimodal forecasting architectures are trained end to end, and their visual ablations retrain a smaller model from scratch @solarvlm @timevlm @m3snet. Any loss of accuracy can then arise because the images contained predictive physical signals, because the visual encoder supplied additional capacity, or because the multimodal gradient path regularized optimization. Standard retraining protocols cannot distinguish these mechanisms.
+The second problem is that conventional ablations confound visual information with retraining. Most multimodal forecasting architectures train end to end and evaluate visual ablations by retraining a smaller model from scratch @solarvlm @timevlm @m3snet. The resulting loss of accuracy may reflect predictive information in the images, additional capacity from the visual encoder, or regularization through the multimodal gradient path. Standard retraining protocols cannot separate these effects.
 
-Our controlled framework fixes training data, optimization schedules, capacity, and backbone policies across arms. The self-supervised video transformer is frozen and pre-computed offline. The time-series foundation model is first fine-tuned on the training plants without vision; during multimodal training, only its upper encoder blocks remain trainable, at a reduced learning rate shared by every arm. The cross-modal interface is the only component learned from scratch, leaving bridge geometry as the experimental variable.
+Our framework holds the training data, optimization schedule, capacity, and backbone policy constant across arms. We freeze the self-supervised video transformer and pre-compute its outputs offline. After fine-tuning the time-series foundation model on the training plants without vision, we update only its upper encoder blocks during multimodal training, using the same reduced learning rate in every arm. Only the cross-modal interface is learned from scratch, leaving bridge geometry as the experimental variable.
 
-The *counterfactual reliance protocol* scores each trained model twice with identical parameters: once with all inputs and once with the visual pathway disabled. The difference in ramp error measures the accuracy that depends on observing the sky. Falsification controls then replace the input with stale imagery or imagery from another plant to test whether this reliance comes from contemporaneous local conditions or superficial scene statistics.
+The *counterfactual reliance protocol* scores each trained model twice with identical parameters, first with all inputs and then with the visual pathway disabled. The difference in ramp error measures the accuracy attributable to observing the sky. Falsification controls replace the input with stale imagery or imagery from another plant to determine whether this reliance comes from contemporaneous local conditions or superficial scene statistics.
 
-= Related Work and the Information Bottleneck Hypothesis <sec-related>
+= Related work and the information bottleneck hypothesis <sec-related>
 
-== Gated Late Fusion of Bottlenecked Embeddings: Solar-VLM
-Solar-VLM @solarvlm represents recent vision--language architectures @pvvlm @unicast. A frozen vision--language model embeds satellite crops and meteorological text prompts. Cross-attention pooling reduces them to one station vector, which is concatenated with the time-series state and modulated by a learned scalar gate.
+== Gated late fusion of bottlenecked embeddings: Solar-VLM
+Solar-VLM @solarvlm is representative of recent vision-language architectures @pvvlm @unicast. A frozen vision-language model embeds satellite crops and meteorological text prompts. Cross-attention pooling reduces them to one station vector, which is concatenated with the time-series state and modulated by a learned scalar gate.
 
-One vector for a $128 times 128$ km scene primarily represents average cloudiness and loses fine-grained cloud edges. Because this summary overlaps with numerical weather covariates, the learned gate can collapse toward the numeric branch.
+A single vector for a $128 times 128$ km scene primarily captures average cloudiness and loses fine-grained cloud edges. Its overlap with numerical weather covariates can cause the learned gate to collapse toward the numeric branch.
 
 #figure(
   image("figures/related_solar_vlm_original.png", width: 100%),
   caption: [Original Solar-VLM architecture, reproduced as a screenshot from the source paper @solarvlm.],
 ) <fig-related-solar-vlm>
 
-== Synthetic Imagery as Representation Regularizer: Time-VLM
-Time-VLM @timevlm ranks second in our benchmark suite (SS $54.04$), although its second modality contains no external physical observation. It renders the historical power curve as a synthetic image and embeds it with statistical text prompts through a vision--language model.
+== Synthetic imagery as a representation regularizer: Time-VLM
+Time-VLM @timevlm ranks second in our benchmark suite (SS $54.04$), although its second modality contains no external physical observation. It renders the historical power curve as a synthetic image and embeds it with statistical text prompts through a vision-language model.
 
-The visual branch re-encodes the same numerical history through a pretrained vision backbone @visionts and never observes the sky. Its improvement can therefore come from geometric regularization of one-dimensional patterns. This result motivates counterfactual evaluation: benchmark accuracy alone does not show that a multimodal model perceived an external physical process.
+The visual branch re-encodes the same numerical history through a pretrained vision backbone @visionts without observing the sky. Any improvement may therefore come from geometric regularization of one-dimensional patterns. Benchmark accuracy alone cannot show that a multimodal model perceived an external physical process, which motivates our counterfactual evaluation.
 
 #figure(
   image("figures/related_time_vlm_original.png", width: 100%),
   caption: [Original Time-VLM architecture, reproduced as a screenshot from the source paper @timevlm.],
 ) <fig-related-time-vlm>
 
-== Multimodal Foundation Pretraining: Aurora
+== Multimodal foundation pretraining: Aurora
 Aurora @aurora pretrains a generative multimodal time-series foundation model on a cross-domain corpus of numerical series and their derived image and text representations. Pretrained encoders produce modality-specific features, which a cross-modality encoder combines through token distillation and modality-guided self-attention.
 
-Aurora studies how derived modalities can improve general-purpose forecasting through multimodal pretraining. Our setting instead supplies an independent physical observation and tests whether its spatial structure remains available inside the forecaster. This distinction separates representation transfer from causal reliance on external perceptual evidence.
+Aurora studies how multimodal pretraining with derived modalities can improve general-purpose forecasting. Our setting supplies an independent physical observation and tests whether the forecaster retains its spatial structure. This separates representation transfer from reliance on external perceptual evidence.
 
 #figure(
   image("figures/related_aurora_original.png", width: 100%),
   caption: [Original Aurora architecture, reproduced as a screenshot from the source paper @aurora.],
 ) <fig-related-aurora>
 
-== Multimodal Token Reduction: Nemotron 3 Nano Omni
-Nemotron 3 Nano Omni @nemotron uses an encoder--projector--decoder design. Separate encoders turn audio, images, and video into modality-specific tokens, projectors align their widths, and the resulting sequence is passed to a language-model backbone. The vision path also reduces the number of visual tokens before they reach the backbone: spatial compression preserves the image layout, while Efficient Video Sampling (EVS) keeps tokens from regions that change over time @evs.
+== Multimodal token reduction: Nemotron 3 Nano Omni
+Nemotron 3 Nano Omni @nemotron uses an encoder, projector, and decoder. Separate encoders turn audio, images, and video into modality-specific tokens. Projectors align the token widths before passing the sequence to a language-model backbone. The vision path reduces the token count twice: a pixel shuffle applies $4 times$ spatial downsampling before projection, then Efficient Video Sampling (EVS) retains tokens from regions that change over time @evs.
 
-The visual side of Nemotron provides the closest precedent for S2d and S2e. We retain the idea of reducing a spatial feature grid while keeping each location addressable, then use a position-wise MLP to match the token width of Chronos-2. We also adapt the EVS principle of ranking visual tokens by temporal novelty. S2d applies this selection to one recent satellite window; S2e repeats it at five matched daily anchors. Nemotron's language decoder and audio branch are outside our forecasting interface, where the selected visual tokens are interleaved directly with the time-series tokens.
+Nemotron's visual path is the closest precedent for S2d and S2e. We reduce a spatial feature grid while keeping each location addressable, then use a position-wise MLP to match the token width of Chronos-2. We also adapt EVS to rank visual tokens by temporal novelty. S2d applies this selection to one recent satellite window, while S2e repeats it at five matched daily anchors. Our forecasting interface omits Nemotron's language decoder and audio branch and interleaves the selected visual tokens directly with the time-series tokens.
 
 #figure(
-  image("figures/related_nemotron_visual_path.svg", width: 100%),
+  image("figures/related_nemotron_visual_path.png", width: 100%),
   caption: [Nemotron 3 Nano Omni architecture, with the visual encoder and token-reduction path expanded. Audio, visual, and text tokens are aligned and concatenated before entering the shared Nemotron language-model backbone.],
 ) <fig-related-nemotron>
 
-== Forward-Aligned Exogenous Covariates: iTransformer
+== Forward-aligned exogenous covariates: iTransformer
 iTransformer @itransformer embeds each physical variable, including generation, solar zenith, cloud cover, and temperature, as one token spanning the temporal window. Self-attention then operates across variables. Under our protocol, its numerical weather covariates are shifted across the forecast horizon to represent operational NWP forecasts.
 
-The relevant difference is temporal alignment. iTransformer reaches a ramp NMAE of $0.1445$ with exogenous covariates that describe the forecasted hours directly. Satellite imagery observes only the past and present, so a multimodal model must learn how current cloud boundaries map to future occlusion.
+The methods differ in temporal alignment. iTransformer reaches a ramp NMAE of $0.1445$ with exogenous covariates that describe the forecasted hours directly. Satellite imagery covers only the past and present, requiring a multimodal model to learn how current cloud boundaries map to future occlusion.
 
 #figure(
   image("figures/related_itransformer_original.png", width: 100%),
   caption: [Original iTransformer architecture, reproduced as a screenshot from the source paper @itransformer.],
 ) <fig-related-itransformer>
 
-= Multimodal Corpus and Physical Bounds <sec-dataset>
+= Multimodal corpus and physical bounds <sec-dataset>
 
-== Dataset Construction and Standardization
+== Dataset construction and standardization
 The standardized corpus combines high-resolution photovoltaic generation, geostationary satellite imagery, and local atmospheric covariates from two geographic tracks to evaluate zero-shot transfer across plants (@tbl-data-sources).
 
-The dataset brings together multiple plants from two regions, the UK and the US, with the UK track covering two complete years. Photovoltaic production, weather variables, and satellite images are coordinated in time and location, so the three sources describe the same operating conditions. The raw inputs have also been cleaned and organized into a common structure, making the corpus suitable for consistent multimodal training and evaluation.
+The dataset covers plants in the UK and the US, with two complete years in the UK track. Photovoltaic production, weather variables, and satellite images are matched by time and location so that all sources describe the same operating conditions. Cleaning and a common data structure support consistent multimodal training and evaluation.
+
+@tbl-pv-dataset-comparison places the corpus alongside the PV datasets most relevant to multimodal and cross-plant forecasting.
+
+#tbl(
+  [Comparison with PV-specific datasets relevant to multimodal and cross-plant forecasting. A dash indicates that the publication does not provide the modality or evaluation property.],
+  columns: (0.95fr, 0.75fr, 0.55fr, 1.2fr, 1.1fr, 1.15fr),
+  align: (left, left, left, left, left, left),
+  table.header[Dataset][PV systems][Frequency][Plant signal and metadata][Environmental context][Evaluation scope],
+  [HKUST Rooftop PV @hkpvdata], [60 rooftop systems, Hong Kong], [5 min PV; 1 min weather], [Inverter-level power and electrical measurements; equipment and location metadata], [Measurements from an on-site weather station], [Dataset for PV analytics and forecasting; no imagery or disjoint-plant benchmark],
+  [MMSP in FusionSF @fusionsf], [88 plants, one Chinese province], [1 h], [Capacity-normalized PV power; anonymized plant locations], [Himawari-8/9 imagery and ECMWF NWP], [Zero-shot evaluation on unseen plants],
+  [SKIPP'D @skippd], [One 30.1 kW system, California], [1 min], [PV power; capacity, tilt, and azimuth], [Ground-based fisheye sky imagery and video], [Chronological benchmark at one plant],
+  [PVOD @pvod], [10 plants, China], [15 min], [PV power; capacity, area, panel count, orientation, and location], [Local meteorological measurements and NWP], [Multi-plant dataset; no imagery or disjoint-plant benchmark],
+) <tbl-pv-dataset-comparison>
+
+Having situated the corpus among related PV datasets, @tbl-data-sources details the sources and processing used to construct its aligned power, satellite, and meteorological inputs.
 
 #tbl(
   [Data sources comprising the multimodal corpus. Continuous multi-band infrared satellite frames are co-registered per site for exact spatiotemporal synchronization with ground generation.],
@@ -197,13 +207,13 @@ The dataset brings together multiple plants from two regions, the UK and the US,
   [Meteorological Covariates], [Open-Meteo historical archive @openmeteo: 8 surface variables joined by nearest coordinates, paired with analytical solar geometry and clear-sky irradiance.],
 ) <tbl-data-sources>
 
-= Experimental Protocol and Metrics <sec-protocol>
+= Experimental protocol and metrics <sec-protocol>
 
-== Cross-Plant Disjoint Evaluation
-The *cross-plant split* assigns the 98 quality-controlled UK installations to 70 training, 14 validation, and 14 test plants. These disjoint plant sets cover the same two-year period (2019--2020). The model must therefore transfer across microclimates, array orientations, and shading profiles without using the spatial memorization available under a chronological split.
+== Cross-plant disjoint evaluation
+The *cross-plant split* assigns the 98 quality-controlled UK installations to 70 training, 14 validation, and 14 test plants. All three disjoint sets cover the same two-year period (2019--2020). The model must transfer across microclimates, array orientations, and shading profiles without the spatial memorization possible under a chronological split.
 
-== Standardized Task and Metrics
-All models operate on a standardized input--output window:
+== Standardized task and metrics
+All models use a standardized input and output window:
 - *History Window*: 14 days (672 steps at 30-minute sampling) of capacity-normalized historical power $y_t in [0, 1]$, combined with 14 atmospheric and solar covariates.
 - *Visual Window*: S2d uses 8 satellite frames covering the 6 hours immediately preceding the forecast origin, centered over the installation. S2e uses five such 8-frame windows, sampled at the same clock time on five consecutive days, for 40 satellite frames in total.
 - *Forecast Horizon*: 6 hours ahead, predicting 9 non-parametric quantiles ($q in {0.1, dots, 0.9}$) to quantify predictive uncertainty.
@@ -212,13 +222,13 @@ Evaluation covers 165,295 daytime steps from 14 test plants. We use two primary 
 1. *Generalization Skill Score ($SS$)*: Denominated against Smart Persistence ($SS = 0$):
    $ SS = 100 dot (1 - frac("NRMSE"_"model", "NRMSE"_"persistence")) $
    where higher is better, and $100$ denotes perfect forecasting.
-2. *Ramp Normalized Mean Absolute Error ($"NMAE"_"ramp"$)*: Evaluated exclusively on steps exhibiting high volatility, defined as the top decile of true generation changes between consecutive sampling intervals ($|y_t - y_{t-1}|$). This isolates the physical regime where cloud edges induce operational penalties.
+2. *Ramp Normalized Mean Absolute Error ($"NMAE"_"ramp"$)*: Evaluated exclusively on steps exhibiting high volatility, defined as the top decile of true generation changes between consecutive sampling intervals ($|y_t - y_{t-1}|$). The metric focuses on the physical regime where cloud edges induce operational penalties.
 
-= Method: Controlled Foundation Model Fusion
+= Method: controlled foundation model fusion
 
-== Foundation Backbones
+== Foundation backbones
 
-The architecture combines two pretrained foundation models with different freezing policies during multimodal training:
+The architecture combines two pretrained foundation models under different freezing policies during multimodal training:
 
 #tbl(
   [Component stack of the multimodal architecture. The visual backbone is fully frozen. Only the upper encoder blocks of the forecaster remain trainable, under the same policy in every arm. The bridge geometry is therefore the independent variable.],
@@ -230,49 +240,49 @@ The architecture combines two pretrained foundation models with different freezi
   [Cross-Modal Bridge], [Dimension alignment and spatial/temporal fusion interface.], [Trained from scratch],
 ) <tbl-components>
 
-=== The Time-Series Foundation Forecaster
+=== The time-series foundation forecaster
 The time-series backbone is an encoder-only transformer pretrained on heterogeneous time-series datasets @chronos2. Non-overlapping 16-sample patches map the 672-step power history to 42 context tokens, while known future weather covariates enter through parallel token sequences. Bidirectional self-attention processes all positions, and a linear multi-quantile head predicts nine quantiles for the 12-step horizon in one non-autoregressive pass.
 
 #figure(
-  image("figures/mmtsfm_s1.svg", width: 90%),
+  image("figures/mmtsfm_s1.png", width: 90%),
   caption: [Unimodal Foundation Baseline (S1): The time-series transformer operates solely on numerical generation history and weather covariates without visual input.],
 ) <fig-s1>
 
 
-=== The Self-Supervised Video Encoder
-We use V-JEPA 2.1 @vjepa21, whose masked latent-prediction objective models change across spatiotemporal tubelets. This objective is better matched to fine-grained cloud deformation than the static object semantics learned through text--image alignment. V-JEPA maps each eight-frame satellite clip to $bold(Z)_v in bb(R)^(4 times 196 times 1024)$: four temporal slices, each containing a $14 times 14$ grid of 1024-dimensional spatial patches.
+=== The self-supervised video encoder
+We use V-JEPA 2.1 @vjepa21, whose masked latent-prediction objective models change across spatiotemporal tubelets. This objective suits fine-grained cloud deformation better than the static object semantics learned through text-image alignment. V-JEPA maps each eight-frame satellite clip to $bold(Z)_v in bb(R)^(4 times 196 times 1024)$: four temporal slices, each containing a $14 times 14$ grid of 1024-dimensional spatial patches.
 
-== The Fusion Bridges
+== The fusion bridges
 
 We evaluate three architectures for connecting the visual latent field $bold(Z)_v$ to the foundation forecaster:
 
-=== Paradigm 1: Bottlenecked Late Fusion (S2a)
+=== Paradigm 1: bottlenecked late fusion (S2a)
 S2a applies learned-query cross-attention pooling to the $4 times 196$ visual tokens (@fig-s2a), compressing the complete scene into $bold(v) in bb(R)^(768)$. A linear adapter projects this summary into the transformer's batch axis as an auxiliary covariate row, where group self-attention combines it with the numerical sequence at each layer.
 
 The summary can distinguish broad regimes such as clear and overcast conditions, but one vector cannot retain the localized gradients of advancing cloud boundaries. Once pooling removes those spatial coordinates, downstream layers cannot reconstruct them.
 
 #figure(
-  image("figures/mmtsfm_s2a.svg", width: 90%),
+  image("figures/mmtsfm_s2a.png", width: 90%),
   caption: [Bottlenecked Late Fusion (S2a): The satellite clip is compressed via a learned-query resampler into a single global summary vector, injected as an auxiliary parallel channel.],
 ) <fig-s2a>
-=== Paradigm 2: Resampler-Free Interleaved Sequence Fusion (S2d)
-S2d removes the learned-query resampler and sends visual tokens to the forecaster through a position-wise projector (@fig-s2d). Its encoder--projector--forecaster layout follows Nemotron 3 Nano Omni @nemotron, which combines an MLP projector with spatial token reduction and Efficient Video Sampling (EVS) @evs. The visual encoder produces $4 times 196 = 784$ tokens, while the numerical input contains 42 macro-patches. Processing all visual tokens would spend much of the attention budget on the static sky in the satellite crop.
+=== Paradigm 2: resampler-free interleaved sequence fusion (S2d)
+S2d removes the learned-query resampler and sends visual tokens to the forecaster through a position-wise projector (@fig-s2d). Its sequence of encoder, projector, and forecaster follows Nemotron 3 Nano Omni @nemotron, which combines an MLP projector with spatial token reduction and Efficient Video Sampling (EVS) @evs. The visual encoder produces $4 times 196 = 784$ tokens, compared with 42 macro-patches in the numerical input. Processing every visual token would spend much of the attention budget on static regions of the satellite crop.
 
-The visual field is first reduced spatially. The $14 times 14$ patch grid is divided into non-overlapping $2 times 2$ neighborhoods, producing a $7 times 7$ field of 49 cells with 1024 channels per cell. This reduction preserves the spatial layout of the field while lowering the number of visual tokens passed to the forecaster. The 49 cells are then projected independently, so each location remains addressable by the subsequent attention layers.
+We first reduce the visual field spatially. Dividing the $14 times 14$ patch grid into non-overlapping $2 times 2$ neighborhoods produces a $7 times 7$ field of 49 cells, each with 1024 channels. The reduction lowers the number of visual tokens passed to the forecaster while preserving the field's spatial layout. We then project the 49 cells independently so that subsequent attention layers can still address each location.
 
-Each 1024-channel cell is mapped to the forecaster width with a two-layer GELU MLP ($1024 arrow.r 768$). The MLP processes cells independently, so it does not mix information across locations. A learned table of 49 coordinate-indexed vectors then adds the spatial position of each cell.
+A two-layer GELU MLP maps each 1024-channel cell to the forecaster width ($1024 arrow.r 768$). It processes cells independently and does not mix information across locations. A learned table of 49 coordinate-indexed vectors adds each cell's spatial position.
 
-The position encoding separates space from time. The learned table represents spatial coordinates, while sequence position represents the time of each frame. S2d does not add a temporal-slice embedding because it would duplicate this information and make the frame-order control in @sec-instrument harder to interpret. After temporal shuffling, the visual tokens receive new sequence positions; an embedding attached to each slice could still expose its original order.
+The position encoding treats space and time separately. The learned table records spatial coordinates, while sequence position records the time of each frame. S2d omits a temporal-slice embedding because it would duplicate this information and complicate interpretation of the frame-order control in @sec-instrument. After temporal shuffling, the visual tokens receive new sequence positions. An embedding attached to each slice could still expose its original order.
 
-EVS selects the visual tokens that changed most between consecutive frames. For each spatial cell, it computes the cosine dissimilarity between a latent slice and the corresponding cell in the preceding slice. High dissimilarity identifies changing regions, while low dissimilarity identifies static content. The first slice receives a score of $+infinity$, ensuring that one complete anchor field is retained. EVS ranks the $4 times 49 = 196$ candidates globally and keeps the top 98 at $q = 0.5$, restoring frame-then-cell order afterwards. The resulting visual sequence contains the 49-cell anchor field plus 49 tokens from the most dynamic regions. This fixed budget can therefore retain a localized cloud front without processing the full $128 times 128$ km field.
+EVS selects the visual tokens that change most between consecutive frames. For each spatial cell, it computes cosine dissimilarity between a latent slice and the corresponding cell in the preceding slice. High values identify changing regions; low values identify static content. Assigning the first slice a score of $+infinity$ retains one complete anchor field. EVS ranks the $4 times 49 = 196$ candidates globally, keeps the top 98 at $q = 0.5$, and restores frame-then-cell order. The visual sequence contains the 49-cell anchor field and 49 tokens from the most dynamic regions. This fixed budget can retain a localized cloud front without processing the full $128 times 128$ km field.
 
-Nemotron uses EVS after training as a deployment-time throughput control and tunes $q$ for each deployment @nemotron. S2d applies the same parameter-free selection during training and evaluation. Thus, $q$ is fixed as part of the architecture, and the forecaster always receives 98 visual tokens. The same selection rule also makes the vision-off evaluation in @sec-instrument resemble an input pattern seen during training. Since EVS has no learned parameters, the random-selection control in @tbl-controls can replace its ranking rule on a trained checkpoint while keeping the sequence length unchanged. This isolates the selection criterion from the token budget.
+Nemotron uses EVS after training as a deployment-time throughput control and tunes $q$ for each deployment @nemotron. S2d applies the same parameter-free selection during training and evaluation. We fix $q$ as part of the architecture, so the forecaster always receives 98 visual tokens. The selection rule also makes the vision-off evaluation in @sec-instrument resemble an input pattern seen during training. Because EVS has no learned parameters, the random-selection control in @tbl-controls can replace its ranking rule on a trained checkpoint without changing the sequence length. The control separates the selection criterion from the token budget.
 
 The selected visual tokens are inserted into the numerical sequence according to their observation times. One numeric patch spans $16 times 30$ minutes, or 8 hours, whereas the visual window spans 6 hours within the final context patch.
 
-The final sequence has 42 numeric macro-patches, 98 visual tokens, and one future query, for 141 positions in total. Native bidirectional self-attention processes all positions together. Nemotron places visual tokens in a prefix block; S2d places each token at its timestamp within the numerical sequence. No cross-attention layer, gate, or auxiliary channel separates the modalities. The future query can attend to visual and numeric tokens through the same attention mechanism. Because the visual window ends immediately before the forecast horizon, these tokens describe the sky observed before the prediction.
+The final sequence has 141 positions: 42 numeric macro-patches, 98 visual tokens, and one future query. Native bidirectional self-attention processes them together. Nemotron orders modality streams temporally relative to one another; S2d places each visual token at its observation timestamp within the numerical sequence. The modalities share the same attention mechanism, with no intervening cross-attention layer, gate, or auxiliary channel. The future query can attend to both visual and numeric tokens. Because the visual window ends immediately before the forecast horizon, the visual tokens describe the sky observed before prediction.
 
-During training, S2d drops the visual stream in half of the samples and the numeric stream in one tenth of the samples, never dropping both together. The visual dropout makes the vision-off pass used by @sec-instrument familiar to the model. Consequently, the measured difference between the active and disabled passes reflects the missing visual information without also introducing an unseen input distribution.
+During training, S2d drops the visual stream in half of the samples and the numeric stream in one tenth, but never drops both together. Visual dropout exposes the model to the vision-off pattern used by @sec-instrument. The difference between the active and disabled passes can therefore be attributed to missing visual information without introducing an unseen input distribution.
 
 
 
@@ -281,35 +291,35 @@ During training, S2d drops the visual stream in half of the samples and the nume
   caption: [Resampler-Free Interleaved Fusion (S2d)],
 ) <fig-s2d>
 
-=== Paradigm 3: Multi-Anchor Interleaved Sequence Fusion (S2e)
+=== Paradigm 3: multi-anchor interleaved sequence fusion (S2e)
 
-S2e spreads S2d's visual context over five Chronos-2 patches (@fig-s2e). Each anchor samples the same clock time on one of five consecutive days, so the model sees several sky--power pairs at matched solar geometry. The daily stride is imposed by coverage: UK satellite frames run from 02:00 to 16:00 UTC, and an 8-hour ladder fills all five anchors for none of the 24,605 evaluated origins, compared with $94.4%$ for a 24-hour ladder.
+S2e spreads S2d's visual context over five Chronos-2 patches (@fig-s2e). Each anchor samples the same clock time on one of five consecutive days, giving the model several sky-power pairs at matched solar geometry. Coverage determines the daily stride: UK satellite frames run from 02:00 to 16:00 UTC, and an 8-hour ladder fills all five anchors for none of the 24,605 evaluated origins, compared with $94.4%$ for a 24-hour ladder.
 
-S2e retains the five-anchor layout, 143-token sequence length, warm start, and optimizer of the initial configuration. Each anchor ranks its 98 candidate visual tokens using paired novelty: the method scores 49 two-latent spatial trajectories by cosine change and keeps both endpoints for the ten highest-scoring trajectories. This produces 20 visual tokens per anchor, or 100 visual tokens in total, together with 42 numeric tokens and one future query. Each visual block takes the integer position of its anchor patch, whereas S2d uses fractional positions inside the final patch.
+S2e retains the initial configuration's five-anchor layout, 143-token sequence length, warm start, and optimizer. At each anchor, paired novelty ranks 98 candidate visual tokens by scoring 49 two-latent spatial trajectories according to cosine change. It keeps both endpoints for the ten highest-scoring trajectories. The result is 20 visual tokens per anchor and 100 visual tokens in total, accompanied by 42 numeric tokens and one future query. Each visual block takes the integer position of its anchor patch; S2d uses fractional positions inside the final patch.
 
-If S2e performs well, the next experiment will test whether each anchor should retain all 98 candidates. This would produce 490 visual tokens overall and will show whether the additional token budget improves the multi-anchor model.
+If S2e performs well, a subsequent experiment will retain all 98 candidates at each anchor. The resulting 490 visual tokens will test whether a larger token budget improves the multi-anchor model.
 
 #figure(
   image("figures/mmtsfm_s2e.png", width: 95%),
   caption: [Canonical Multi-Anchor Interleaving (S2e)],
 ) <fig-s2e>
 
-= The Counterfactual Reliance Instrument <sec-instrument>
+= The counterfactual reliance instrument <sec-instrument>
 
-The *Counterfactual Reliance Metric* measures visual utility without changing model capacity or retraining the ablated system:
+The *Counterfactual Reliance Metric* measures visual utility without changing model capacity or retraining an ablated system:
 
 $ "Reliance"_"ramp" = "NMAE"_"ramp"^(bold(V)=emptyset) - "NMAE"_"ramp"^(bold(V)="active") $
 
-After training, the parameters $bold(theta)$ are frozen. We score the test set with vision active ($bold(V)="active"$) and then disable the visual pathway in the same model ($bold(V)=emptyset$). A positive difference indicates that the frozen model's accuracy depends on the imagery, since the weights and all other inputs remain unchanged.
+After training, we freeze the parameters $bold(theta)$ and score the test set with vision active ($bold(V)="active"$). We then disable the visual pathway in the same model ($bold(V)=emptyset$). A positive difference means that accuracy depends on the imagery because the weights and all other inputs remain unchanged.
 
-= Results and Analysis
+= Results and analysis
 
-== The Fusion Ladder: Comparing Visual Reliance
+== The fusion ladder: comparing visual reliance
 
-@tbl-ladder compares nominal accuracy with counterfactual visual reliance across the three trained arms.
+@tbl-ladder reports nominal accuracy and counterfactual visual reliance for the three trained arms.
 
 #tbl(
-  [Empirical evaluation of visual reliance across fusion paradigms. Reliance is the reduction in ramp error from having observed the sky, measured counterfactually on frozen weights across seeds 42--44. Bottlenecked pooling yields zero reliance, whereas the resampler-free arm clears the significance floor by more than six times.],
+  [Visual reliance across fusion paradigms. Reliance is the reduction in ramp error from observing the sky, measured counterfactually on frozen weights across seeds 42--44. Bottlenecked pooling yields zero reliance; the resampler-free arm exceeds the significance floor by more than six times.],
   columns: (auto, 1.2fr, auto, auto, auto),
   align: (left, left, center, center, center),
   table.header[Arm][Architectural Paradigm][Skill Score ($arrow.t$)][Ramp NMAE ($arrow.b$)][Ramp Reliance ($arrow.t$)],
@@ -318,31 +328,31 @@ After training, the parameters $bold(theta)$ are frozen. We score the test set w
   [*S2d*], [*Resampler-Free Interleaved Fusion*], [*55.64* #text(size: 8pt)[$plus.minus 0.18$]], [*0.1435* #text(size: 8pt)[$plus.minus 0.0004$]], [*0.0073* #text(size: 8pt)[$plus.minus 0.0002$]],
 ) <tbl-ladder>
 
-S2a reduces nominal ramp NMAE from $0.1506$ to $0.1487$, yet its counterfactual reliance is $0.0000$: disabling vision in the frozen model does not change performance. The nominal gain therefore arises from multimodal training rather than visual information used at inference. The pooled vector contributes no measurable signal after the resampler removes its spatial structure.
+S2a reduces nominal ramp NMAE from $0.1506$ to $0.1487$, but its counterfactual reliance is $0.0000$: disabling vision in the frozen model does not change performance. The nominal gain comes from multimodal training rather than visual information used at inference. After the resampler removes spatial structure, the pooled vector contributes no measurable signal.
 
-S2d reaches a ramp reliance of $0.0073$, more than six times the pre-registered significance floor ($0.0011$) across all seeds. Its 49 separate cells allow the foundation transformer to query localized visual boundaries directly and produce the best ramp accuracy in the suite. Because S2a and S2d differ in resampling, token count, and token placement, this comparison attributes the result only to the complete design.
+S2d reaches a ramp reliance of $0.0073$ across all seeds, more than six times the pre-registered significance floor ($0.0011$). Its 49 separate cells give the foundation transformer direct access to localized visual boundaries and produce the best ramp accuracy in the suite. S2a and S2d differ in resampling, token count, and token placement, so this comparison supports only the complete S2d design.
 
-== Mechanistic Diagnostics and Falsification Controls
+== Mechanistic diagnostics and falsification controls
 
 #tbl(
   [Diagnostic falsification controls on the resampler-free interleaved arm.],
   columns: (auto, 1.2fr, 1.2fr),
   align: (center, left, left),
-  table.header[\#][Diagnostic Hypothesis Tested][Empirical Finding and Mechanistic Verdict],
+  table.header[\#][Diagnostic question][Observed effect and interpretation],
   [1], [Does S2d rely on temporal frame ordering? (Kinematic frame shuffle)],
-  [Near-inert: $Delta "NMAE"_"ramp" approx 0$ across all seeds ($< 0.0003$). Refutes the hypothesis that the model tracks kinematic cloud trajectories.],
+  [Nearly unchanged: $Delta "NMAE"_"ramp" approx 0$ across all seeds ($< 0.0003$). The model does not measurably track kinematic cloud trajectories.],
   [2], [Does micro-temporal sub-patch positioning matter? (Collapsing sub-patch indices)],
-  [Null effect: Ramp NMAE change ($+0.0008$; reliance is unaffected ($0.0064$ vs $0.0063$). Temporal indexing within the patch is invariant.],
+  [Little change: Ramp NMAE increases by $+0.0008$; reliance remains $0.0064$ versus $0.0063$. Temporal indexing within the patch has no measurable effect.],
   [3], [Is a recent sky sufficient? (Stale sky: imagery lagged by 6 hours)],
-  [Severely degrades accuracy: Costs $+0.0169$ Ramp NMAE ($+11.7%$ error). Confirms strict temporal freshness.],
+  [Ramp NMAE increases by $+0.0169$ ($+11.7%$ error), showing that the imagery must be recent.],
   [4], [Does the model resolve site-specific sky? (Contemporaneous cross-plant donor sky)],
-  [Catastrophic degradation: Costs $+0.0176$ Ramp NMAE; Skill Score collapses from $55.10$ to $37.00$. Confirms local spatial grounding over the installation.],
+  [Ramp NMAE increases by $+0.0176$, and Skill Score falls from $55.10$ to $37.00$. The model relies on imagery local to the installation.],
   [5], [Does dynamic novelty pruning carry informational signal? (Uniform random token selection at equal budget)],
-  [Degrades performance: Ramp NMAE worsens by $+0.0039$; Skill Score drops by $-1.52$ percentage points. Confirms that novelty scoring extracts predictive cloud boundaries.],
+  [Ramp NMAE increases by $+0.0039$, and Skill Score falls by $-1.52$ percentage points. Novelty scoring retains information about predictive cloud boundaries.],
 ) <tbl-controls>
 
 
-== The Intrinsic Calibration Cost
+== The intrinsic calibration cost
 
 S2d improves point-forecast ramp accuracy but changes probabilistic calibration:
 
@@ -356,7 +366,7 @@ S2d improves point-forecast ramp accuracy but changes probabilistic calibration:
 ) <tbl-calibration>
 
 
-= Comprehensive Benchmark Leaderboard
+= Comprehensive benchmark leaderboard
 
 The status flag in the tables denotes the training regime: *T* means trained on the benchmark task, *FT* means fine-tuned from pretrained weights, and *ZS* means zero-shot transfer without task-specific training.
 
@@ -370,7 +380,8 @@ The status flag in the tables denotes the training regime: *T* means trained on 
   [3], [MMTSFM S2a (Ours)], [FT], [Bottlenecked Perceiver resampler on batch axis], [52.58], [0.1487],
   [11], [Solar-VLM @solarvlm], [FT], [Gated Perceiver pooling of satellite + text prompts], [43.96], [0.1514],
   [19], [CrossViViT @crossvivit], [FT], [Cross-attention from historical station steps], [34.91], [---],
-  [24], [Aurora @aurora], [FT], [Joint multimodal foundational pretraining], [23.24], [---],
+  [24], [Aurora Fine-Tuned @aurora], [FT], [Joint multimodal foundational pretraining], [TBD], [---],
+  [TBD], [Aurora Zero-Shot @aurora], [ZS], [Joint multimodal foundational pretraining], [23.24], [---],
   [25], [SUNSET @sunset], [T], [Convolutional joint encoding + feature concatenation], [21.62], [---],
   [26], [UniCast @unicast], [FT], [Prompted multimodal foundation forecaster], [12.11], [---],
   [28], [VisionTS++ @visionts], [FT], [Continual visual pretraining on synthetic plots], [1.67], [---],
@@ -417,6 +428,20 @@ The status flag in the tables denotes the training regime: *T* means trained on 
   [29], [Persistence], [T], [Persistence of generation from immediate prior step], [1.41], [0.2550],
 ) <tbl-leaderboard-baselines>
 
+== Qualitative inspection of forecast trajectories
 
-#v(0.8em)
+#figure(
+  grid(
+    columns: (1fr, 1fr),
+    gutter: 0.6em,
+    image("figures/forecast_example_6648.png", width: 100%),
+    image("figures/forecast_example_11176.png", width: 100%),
+    image("figures/forecast_example_11287.png", width: 100%),
+    image("figures/forecast_example_12642.png", width: 100%),
+  ),
+  caption: [Representative six-hour forecast trajectories on held-out plants.],
+) <fig-forecast-examples>
+
+
+#pagebreak()
 #bibliography("refs.bib", title: "References", style: "ieee")
