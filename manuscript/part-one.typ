@@ -49,38 +49,72 @@ The main evaluation is cross-plant transfer within the UK track. The United Stat
 
 Part I defines the transfer problem, positions it in the relevant literature, and documents the dataset. Part II specifies the evaluation protocol and the benchmark suite. Part III introduces the fusion methods, reports the ablations, and discusses what the evidence supports. The conclusion returns to the limits of visual transfer and the next experiments required to test it beyond the current fleet.
 
-= Related work and conceptual background
+= Background and related work
 <cha:related>
 
-== Plant-specific and cross-plant forecasting
+== From plant-specific accuracy to transferable forecasting
 
-Many photovoltaic forecasting studies fit a model to a site's own history. That approach is appropriate when the site has a long archive and the task is to improve one familiar forecast. It does not answer how a system should behave when an installation joins a fleet with little historical data. Cross-plant forecasting changes the unit of separation from timestamps to entities.
+Photovoltaic forecasting has traditionally been organized around the history of one installation. The model learns the recurring relationship between past output, weather inputs, and future output for that site. This setting is useful for operations at a well-instrumented asset, yet it leaves a practical gap when a fleet gains a new plant or when historical records are sparse.
 
-This change affects preprocessing as well as evaluation. Per-series standardization uses the mean and variance of each held-out plant. In a transfer setting, those statistics reveal the distribution of the test entity before forecasting begins. The corpus uses audited installed capacity instead. Capacity is installation metadata available at commissioning, so normalizing power by capacity does not leak information from a test time series.
+Cross-plant forecasting changes the target of generalization. The held-out object is an installation with its own capacity, local weather exposure, equipment, and missing-data pattern. A temporal split can reward learning the stable details of a known site. A plant-disjoint split asks the model to recover the relevant local context from a short history while relying on representations learned elsewhere.
 
-The task is not cold start in the strictest sense. At inference time a model receives fourteen days of recent power history and related observations. This gives it several daily cycles and a local operating context. The model lacks only the long plant-specific training history that conventional approaches depend on.
+This distinction applies to preprocessing as well as to model fitting. Per-series normalization requires statistics from the held-out series. Capacity normalization uses information known when an installation is commissioned and preserves the transfer setting. The resulting task sits between two familiar extremes: it is neither a conventional within-series forecast nor a metadata-only cold start.
+
+== Numerical forecasting models
+
+The benchmark begins with methods that make different assumptions about temporal structure. Persistence, Smart Persistence, climatology, and seasonal naive forecasts establish how much of the target can be explained by the current state and the daily cycle. They matter because photovoltaic power has a strong astronomical envelope. A method that improves only on this envelope may appear accurate while missing the difficult cloud-driven changes.
+
+Tabular models such as gradient-boosted trees, TabPFN, and TabFM treat lagged power and covariates as features. They test whether a structured feature table already captures the useful information. Supervised sequence models, including DLinear, PatchTST, the Temporal Fusion Transformer, and iTransformer~@itransformer, test different temporal and covariate inductive biases without relying on broad time-series pretraining.
+
+iTransformer is particularly relevant because it treats variables as tokens and models their relationships through attention. In a photovoltaic task, power, solar geometry, cloud cover, radiation variables, and temperature have strong shared structure. A model that receives operationally available covariates may forecast through this numerical context without any visual input. It is therefore an important comparator for a multimodal claim.
 
 == Time-series foundation models
 
-Time-series foundation models are pretrained on diverse series before they are used zero-shot or adapted to a target task. Their promise is that a representation learned across many temporal processes can transfer to an unseen series. Chronos-2~@chronos2, TimesFM~@timesfm, TiRex~@tirex, and Tiny Time Mixer~@ttm take different approaches to this goal.
+Time-series foundation models are pretrained on many series before zero-shot use or task adaptation. Chronos-2~@chronos2, TimesFM~@timesfm, TiRex~@tirex, and Tiny Time Mixer~@ttm cover several architectural families. Their shared promise is transfer: a model exposed to a broad corpus may bring useful temporal representations to a series it has never seen.
 
-Pretraining does not guarantee success on photovoltaic generation. The target combines a hard night-time zero, strong daily and seasonal structure, abrupt ramps, and differences among plants. A zero-shot model must determine which aspects of its learned temporal vocabulary apply to this setting. Fine-tuning may help, but it also makes it necessary to distinguish the value of pretraining from the value of target-task data.
+Their treatment of the input differs. Patch-based models compress a long context into blocks of observations. This makes long histories tractable, but it can also blur rapid behavior inside a patch. Covariate support differs across model families, which matters for a task where solar and weather variables carry substantial predictive information. Output representations differ as well, from point forecasts to quantile distributions.
 
-Chronos-2 is especially relevant because it represents long histories as patches and predicts quantiles for the future horizon. A patch-based sequence also provides a natural place to introduce information from another modality. The methodology chapter will use this property to compare late fusion with shared token-level processing.
+Pretraining does not remove the need for a controlled comparison. Photovoltaic power has daily zeros, seasonality, cloud-driven ramps, and plant-to-plant variation that may not be represented in a general pretraining corpus. A zero-shot result measures the match between prior knowledge and this task. A fine-tuned result measures both that prior and the information obtained from the training fleet.
 
-== Video foundation models
+== Adaptation without a new model
 
-Cloud fields have spatial extent and change over time. A visual model that reads a clip can represent more than isolated images. V-JEPA 2.1~@vjepa2 is a self-supervised video encoder that learns relationships among latent spatiotemporal regions. In this thesis it is used as a general feature extractor rather than as a photovoltaic model.
+Several methods adapt a pretrained time-series model without fully retraining it. Fine-tuning updates some or all backbone weights on the target fleet. Retrieval methods such as TS-RAG~@tsrag and Cross-RAG~@crossrag condition a frozen forecaster on similar historical windows. Covariate adapters offer a third route by injecting external inputs into an established representation.
 
-A frozen visual encoder is helpful for a controlled study. It reduces the chance that a large visual network learns target-specific shortcuts during training. It also places the scientific focus on the interface: what the forecasting system retains from the visual field, how it aligns visual and numerical observations, and whether that information improves the relevant forecast regime.
+These approaches are direct alternatives to visual fusion. Retrieval asks whether analogous numerical histories provide the missing context. A covariate-aware adapter asks whether an external signal can be supplied through a compact residual path. The comparison is only meaningful when the retrieved datastore excludes held-out plants and when all methods use the same forecast windows.
 
-== Multimodal fusion
+The adaptation literature also clarifies what a multimodal result must show. If a late-fusion adapter and a token-level visual interface receive the same encoder features, their difference concerns how information is represented and routed. It does not demonstrate that vision in general is useful unless the trained model is tested with that input removed.
 
-Late fusion encodes a visual clip, pools it into one vector, and combines that vector with a numerical representation. It is simple and cheap, but pooling makes an early irreversible decision. Once the visual field becomes one vector, a downstream forecaster cannot ask which location in the image contained a relevant cloud boundary.
+== Video foundation models as feature extractors
 
-Prompting and soft-token methods retain a mostly fixed foundation model and expose a small number of auxiliary visual tokens. They test whether a pretrained backbone can absorb a new modality without broad retraining. Token-level fusion retains a set of visual observations and passes them with numerical tokens through common transformer layers. This requires a careful token budget, but it lets a future query relate local visual state to a particular time in the numerical context.
+Cloud structure is spatial and evolves through time. A video encoder can represent a short image sequence as a field of spatiotemporal features rather than as a set of independent frames. V-JEPA 2.1~@vjepa2 is used in this thesis as a self-supervised visual feature extractor. Its role is to provide a representation of the satellite clip, not to supply a photovoltaic forecast directly.
 
-The benchmark later compares reference methods, tabular models, supervised sequence models, time-series foundation models, retrieval methods, and multimodal systems. Solar-VLM~@solarvlm, CrossViVit~@crossvivit, and SUNSET~@sunset use external visual information. Time-VLM~@timevlm and VisionTS++~@visiontspp render the numerical series itself as an image. The latter category can test a visual representation of the same input, but it cannot observe a cloud field approaching the plant.
+Freezing the video encoder makes the experiment easier to interpret. It prevents a large visual network from adapting freely to the target data and focuses attention on the bridge between visual and numerical representations. It also creates a practical constraint: visual latents can be cached before training, which makes repeated seeds feasible but limits experiments that would require end-to-end visual fine-tuning.
+
+The central problem is token budget. A video encoder produces many spatial patches, while a time-series forecaster often has a comparatively short sequence of numerical tokens. Passing every visual patch forward is expensive and may devote most of the attention budget to static regions. Pooling all patches into one vector avoids this cost but discards spatial identity. Token selection occupies the middle ground by preserving a bounded set of addressable visual regions.
+
+== Multimodal forecasting interfaces
+
+Late fusion is the common baseline. A visual encoder produces a representation, a learned resampler or pooling layer compresses it, and the resulting vector is combined with the numerical state. Solar-VLM~@solarvlm follows this general pattern by using visual and textual representations with a gated time-series pathway. Such systems can summarize broad sky conditions, yet their interface may lose the location of a local cloud boundary before the forecaster can relate it to the prediction horizon.
+
+Prompting methods provide a related interface. UniCast~@unicast supplies visual and textual information to a time-series foundation model through a lightweight prompt-like representation. These methods test whether a pretrained backbone can accept a new modality with limited adaptation. Their main comparison point in this thesis is fusion depth: a compact prompt may be sufficient for global context, while localized cloud structure may require more than one summary token.
+
+Token-level approaches preserve several visual observations and let the forecasting backbone process them with numerical tokens. CrossViVit~@crossvivit is an important photovoltaic comparison because it uses cross-attention between time-series and visual features. The proposed work differs at the interface level: it studies how a selected set of visual tokens can be placed in temporal context and evaluated with a forced vision-off pass.
+
+SUNSET~@sunset provides a convolutional multimodal reference for power and satellite data. It belongs in the comparison because it asks whether a specialized photovoltaic architecture can exploit imagery without the foundation-model framing. A strong result against it would not establish a general foundation-model advantage on its own, but omitting it would make the evaluation incomplete.
+
+== Real images, synthetic images, and multimodal pretraining
+
+Time-VLM~@timevlm and VisionTS++~@visiontspp turn a numerical series into an image. Their visual branch sees a different representation of the same numerical history. This can be useful as a representation-learning strategy, but it cannot supply information about clouds that have not yet affected the plant. These methods should therefore be read as tests of cross-modal encoding, not as evidence that a forecaster has observed an external physical process.
+
+Aurora~@aurora studies multimodal time-series pretraining with representations derived from numerical inputs. It is relevant because it tests whether multimodal pretraining can improve general forecasting behavior. The present setting has a stricter information requirement. Satellite imagery is an independently observed modality, and a model must preserve enough of that observation for its prediction to change when the image is removed.
+
+This distinction motivates the counterfactual reliance protocol used later in the thesis. An architecture that receives images may still base its forecast entirely on numerical history. Scoring the same trained parameters with active and disabled vision distinguishes a nominal multimodal score from evidence that the visual pathway contributes to the prediction.
+
+== Position of the present study
+
+The related work leaves three linked questions. Can a numerical foundation model transfer across disjoint plants? Does an external visual observation add information beyond power history and covariates? Which interface preserves that information without making the visual stream prohibitively expensive?
+
+The present study addresses these questions with a common cross-plant corpus and a benchmark that includes the relevant numerical, foundation, adaptation, and multimodal model families. The methodological comparison is deliberately narrower than a survey of all solar architectures. It contrasts a vision-free numerical control, a pooled late-fusion interface, and an interleaved token-level interface under matched backbone and training policies. The later chapters report the outcome; this chapter identifies the alternatives that outcome must distinguish.
 
 = Dataset construction
 <cha:dataset>
