@@ -8,11 +8,18 @@
 #
 #   MANIFEST=configs/ablation/A46b.manifest N_VIS=5 \
 #   VJEPA_CACHE_VER=vit_large_f8_s224_nonhrv_sp45 \
-#   BATCH_SIZE=2 ACCUM=8 NPACKS=1 bash scripts/ablation_sweep.sh
+#   SWEEP_BATCH=2 SWEEP_ACCUM=8 SEEDS=42 NPACKS=1 bash scripts/ablation_sweep.sh
 #
-# Run seed 42 alone first as a memory probe before releasing 43/44. If it OOMs,
-# fall to 3 anchors (see A46b.yaml) rather than trimming the per-anchor budget,
-# which would reintroduce the payload confound this arm exists to remove.
+# SWEEP_BATCH/SWEEP_ACCUM, not BATCH_SIZE/ACCUM. The sweep reads the SWEEP_*
+# pair (ablation_sweep.sh:97) and exports them to the pack as BATCH_SIZE/ACCUM
+# (ablation_pack.sbatch:111); setting the inner names from the shell is silently
+# ignored and the job runs at the 4x4 default. That is what killed the first
+# attempt: OOM at 62.9/63.4 GiB with `data.batch_size=4` in the log, i.e. the
+# memory probe never ran at probe settings. 2x8 keeps the effective batch at 16.
+#
+# Run seed 42 alone first as a memory probe before releasing 43/44. If it OOMs
+# AT 2x8, fall to 3 anchors (see A46b.yaml) rather than trimming the per-anchor
+# budget, which would reintroduce the payload confound this arm exists to remove.
 #
 # Do NOT free vit_large_f8_s224_nonhrv_sp45 — under this route it is the input,
 # not a scored control's leftovers. Nothing new is written, so quota is unchanged.
