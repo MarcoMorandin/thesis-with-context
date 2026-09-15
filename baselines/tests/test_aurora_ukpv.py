@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
+import yaml
 
 from common import config
 from tier6 import uk_multimodal
@@ -233,3 +234,21 @@ def test_real_image_processing_returns_pixels_to_input_device():
     assert pixels.device == frames.device
     assert pixels.dtype == torch.float32
     assert torch.all(pixels == 1)
+
+
+@pytest.mark.parametrize("name", ["aurora", "aurora_ft"])
+def test_configs_score_on_non_overlapping_windows(name):
+    """Aurora must be scored on the same window grid as every other row.
+
+    `run_eval.py --eval-stride` defaults to `config.HORIZON_STEPS`, so Tiers 0-4
+    and MMTSFM all score non-overlapping test windows. Aurora ran at stride 1,
+    which covered the same span 12x over: NMAE/NRMSE were averaged on a denser
+    grid than the rest of the leaderboard, and SS divided that NRMSE by the
+    stride-12 Smart Persistence one --- `add_skill_scores` warned on all 14
+    plants of job 57835022 and emitted the number regardless.
+    """
+    cfg = yaml.safe_load(
+        (Path(__file__).parents[1] / "configs" / "tier5" / f"{name}.yaml").read_text()
+    )
+    assert cfg["horizon"] == config.HORIZON_STEPS
+    assert cfg["stride"] == config.HORIZON_STEPS

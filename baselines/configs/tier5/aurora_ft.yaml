@@ -5,7 +5,11 @@ out: tier5/vendor/aurora/finetune_ukpv
 dataset: uk_pv
 history: 672
 horizon: 12
-stride: 1
+# Non-overlapping windows, matching `aurora.yaml` and the `--eval-stride`
+# default in `run_eval.py`. The fine-tune reads `train_stride` for both its
+# splits, so this value only applies if `build_split_dataset` is ever called
+# without one -- keep it on the protocol anyway.
+stride: 12
 # 6-hourly training windows: stride 1 over 15 plants is ~500k windows an epoch,
 # and neighbouring windows share 671 of 672 history steps anyway.
 train_stride: 12

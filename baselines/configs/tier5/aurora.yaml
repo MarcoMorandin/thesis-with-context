@@ -5,7 +5,14 @@ out: tier5/vendor/aurora/results_ukpv
 dataset: uk_pv
 history: 672
 horizon: 12
-stride: 1
+# Non-overlapping test windows, i.e. stride == horizon. This is the protocol
+# every other row is scored on: `run_eval.py --eval-stride` defaults to
+# `config.HORIZON_STEPS`, and Tiers 0-4 plus MMTSFM all report n_steps=11639 on
+# plant 10793. Scoring Aurora at stride 1 covered the same span 12x over, which
+# (a) reweights NMAE/NRMSE towards a denser grid than the rest of the table and
+# (b) made SS divide a stride-1 NRMSE by the stride-12 Smart Persistence one --
+# `add_skill_scores` flagged exactly that on all 14 plants of job 57835022.
+stride: 12
 image_size: 128
 visual_history_steps: 8
 inference_token_len: 48
