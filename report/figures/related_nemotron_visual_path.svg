@@ -76,19 +76,26 @@
   </g>
 
   <!-- token assembly and decoder -->
-  <rect x="302" y="626" width="996" height="70" rx="12" fill="#FFF7E0" stroke="#C9971E" stroke-width="1.8"/>
-  <text x="800" y="655" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="16" font-weight="bold" fill="#6B4E06">Multimodal token sequence</text>
-  <text x="800" y="679" text-anchor="middle" font-family="Times New Roman, serif" font-size="14" font-style="italic" fill="#6B4E06">[audio tokens] + [visual tokens] + [text tokens]</text>
+  <rect x="302" y="626" width="996" height="82" rx="12" fill="#FFF7E0" stroke="#C9971E" stroke-width="1.8"/>
+  <text x="800" y="650" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" fill="#6B4E06">Interleaved multimodal token sequence</text>
+  <g stroke="#8B7424" stroke-width="0.8">
+    <rect x="420" y="663" width="68" height="27" rx="5" fill="#BFE3D0"/><rect x="494" y="663" width="68" height="27" rx="5" fill="#C9DFF0"/><rect x="568" y="663" width="68" height="27" rx="5" fill="#C9D1E8"/><rect x="642" y="663" width="68" height="27" rx="5" fill="#BFE3D0"/><rect x="716" y="663" width="68" height="27" rx="5" fill="#C9DFF0"/><rect x="790" y="663" width="68" height="27" rx="5" fill="#C9D1E8"/><rect x="864" y="663" width="68" height="27" rx="5" fill="#C9DFF0"/><rect x="938" y="663" width="68" height="27" rx="5" fill="#C9D1E8"/><rect x="1012" y="663" width="68" height="27" rx="5" fill="#BFE3D0"/><rect x="1086" y="663" width="68" height="27" rx="5" fill="#C9DFF0"/>
+  </g>
+  <g font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="bold" text-anchor="middle">
+    <text x="454" y="681" fill="#2D674D">A1</text><text x="528" y="681" fill="#234B6B">V1</text><text x="602" y="681" fill="#39415D">T</text><text x="676" y="681" fill="#2D674D">A2</text><text x="750" y="681" fill="#234B6B">V2</text><text x="824" y="681" fill="#39415D">T</text><text x="898" y="681" fill="#234B6B">V3</text><text x="972" y="681" fill="#39415D">T</text><text x="1046" y="681" fill="#2D674D">A3</text><text x="1120" y="681" fill="#234B6B">V4</text>
+  </g>
+  <text x="800" y="701" text-anchor="middle" font-family="Times New Roman, serif" font-size="12" font-style="italic" fill="#6B4E06">A = audio, V = visual, T = text; chunks are concatenated in sequence order</text>
   <rect x="470" y="748" width="660" height="90" rx="14" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="2.2"/>
   <text x="800" y="783" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="18" font-weight="bold" fill="#234B6B">Nemotron 3 Nano 30B-A3B LLM</text>
   <text x="800" y="813" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#315E80">shared multimodal backbone and text decoder</text>
 
   <g stroke="#454854" stroke-width="1.8" fill="none" marker-end="url(#arrow)">
     <path d="M159 284 V336"/><path d="M159 432 V476"/>
-    <path d="M381 342 H394 V374 H454"/><path d="M543 342 V374"/><path d="M705 342 V374"/><path d="M867 342 V374"/><path d="M1029 342 V374"/><path d="M1186 342 V374"/>
+    <path d="M456 284 H466"/><path d="M618 284 H628"/><path d="M780 284 H790"/><path d="M942 284 H952"/><path d="M1104 284 H1114"/>
+    <path d="M1186 342 V374 H751 V386"/>
     <path d="M1431 284 V336"/>
     <path d="M159 572 V610 H500 V622"/><path d="M751 540 V622"/><path d="M1431 432 V610 H1100 V622"/>
-    <path d="M800 696 V744"/>
+    <path d="M800 708 V744"/>
   </g>
 
   <g font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#626572">
