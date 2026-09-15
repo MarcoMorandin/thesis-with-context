@@ -166,7 +166,7 @@ The visual side of Nemotron provides the closest precedent for S2d and S2e. We r
 
 #figure(
   image("figures/related_nemotron_visual_path.svg", width: 100%),
-  caption: [Correspondence between the Nemotron visual path and its adaptation in S2d/S2e. Nemotron reduces and projects spatial visual tokens before EVS selects temporally novel regions; S2d and S2e retain this sequence of operations but interleave the selected tokens with numerical Chronos-2 tokens.],
+  caption: [Nemotron 3 Nano Omni architecture, with the visual encoder and token-reduction path expanded. Audio, visual, and text tokens are aligned and concatenated before entering the shared Nemotron language-model backbone.],
 ) <fig-related-nemotron>
 
 == Forward-Aligned Exogenous Covariates: iTransformer
