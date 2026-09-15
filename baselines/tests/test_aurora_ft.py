@@ -150,3 +150,38 @@ def test_flow_loss_survives_a_fully_masked_row():
     loss = loss_fn(target=target, z=z, mask=mask)
 
     assert torch.isfinite(loss)
+
+
+def _batchnorm_decoder_norm(channels=8):
+    """Shaped like Aurora's `norm_mode: 'batch'` decoder norm."""
+
+    class Transpose(torch.nn.Module):
+        def forward(self, x):
+            return x.transpose(1, 2)
+
+    return torch.nn.Sequential(Transpose(), torch.nn.BatchNorm1d(channels), Transpose())
+
+
+def test_finetune_mode_leaves_batchnorm_on_running_statistics():
+    """The vision-group split yields single-window forwards; batch stats can't."""
+    module = _ft_dataset_module()
+    model = torch.nn.Sequential(_batchnorm_decoder_norm(8), torch.nn.Linear(8, 8))
+
+    module.set_finetune_mode(model)
+
+    assert model.training  # the model at large still trains
+    bn = [m for m in model.modules() if isinstance(m, torch.nn.BatchNorm1d)]
+    assert bn and not any(m.training for m in bn)
+    # one window, one token -- the shape that crashed job 57823466
+    assert model(torch.randn(1, 1, 8)).shape == (1, 1, 8)
+
+
+def test_finetune_mode_keeps_batchnorm_affine_trainable():
+    """Frozen statistics still leave weight/bias to absorb the shift."""
+    module = _ft_dataset_module()
+    model = _batchnorm_decoder_norm(8)
+
+    module.set_finetune_mode(model)
+
+    assert all(p.requires_grad for p in module.trainable_parameters(model))
+    assert len(module.trainable_parameters(model)) == 2  # weight, bias

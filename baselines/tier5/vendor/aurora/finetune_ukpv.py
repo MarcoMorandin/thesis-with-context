@@ -39,6 +39,7 @@ from ukpv_ft_dataset import (  # noqa: E402
     build_split_dataset,
     iter_batches,
     iter_shuffled_batches,
+    set_finetune_mode,
     trainable_parameters,
 )
 
@@ -66,7 +67,7 @@ def validate(model, ds, cfg, device) -> float:
         loss = _batch_loss(model, batch, device, vision_mode=cfg.vision_mode)
         if loss is not None:
             losses.append(float(loss))
-    model.train()
+    set_finetune_mode(model)
     if not losses:
         raise ValueError("no scorable validation windows")
     return float(np.mean(losses))
@@ -99,7 +100,7 @@ def main(cfg: DictConfig) -> None:
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     model = AuroraForPrediction.from_pretrained(cfg.ckpt_path).to(device)
-    model.train()
+    set_finetune_mode(model)
     params = trainable_parameters(model)
     optimizer = torch.optim.AdamW(
         params, lr=cfg.learning_rate, weight_decay=cfg.weight_decay
