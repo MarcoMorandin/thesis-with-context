@@ -26,9 +26,12 @@ def _ft_dataset_module():
 
 def _flow_loss_module():
     """Import `aurora.flow_loss` without the package's heavy transformers imports."""
-    package = types.ModuleType("aurora")
+    # `test_aurora_ukpv._runner_module` registers a stub `aurora` module with no
+    # `__path__`, so a plain setdefault here would leave the relative import in
+    # flow_loss.py failing with "'aurora' is not a package" depending on test
+    # order. Claim the name if it is free, and give whatever is there a path.
+    package = sys.modules.setdefault("aurora", types.ModuleType("aurora"))
     package.__path__ = [str(AURORA / "aurora")]
-    sys.modules.setdefault("aurora", package)
     spec = importlib.util.spec_from_file_location(
         "aurora.flow_loss", AURORA / "aurora" / "flow_loss.py"
     )
