@@ -85,11 +85,14 @@ uv run --active --no-sync python tier5/vendor/aurora/run_ukpv.py \
     "visual_history_steps=$VISUAL_HISTORY_STEPS" "out=$OUT"
 
 # ---- 3. contract-check + import → NMAE/NRMSE/CRPS/SS results JSON -----------
+# --active --no-sync: this job runs in the standalone aurora env, not the
+# project .venv. Without the flags uv ignores VIRTUAL_ENV, tries to sync .venv
+# against PyPI, and dies on a compute node with no internet (job 57819033).
 shopt -s nullglob
 for npz in "$OUT"/aurora_*_pred.npz; do
-    uv run python tier4/vendor/contract_check.py --predictions "$npz" --horizon "$PRED_LEN"
+    uv run --active --no-sync python tier4/vendor/contract_check.py --predictions "$npz" --horizon "$PRED_LEN"
 done
-uv run python scripts/import_predictions.py --model aurora_ft --tag "$TAG" \
+uv run --active --no-sync python scripts/import_predictions.py --model aurora_ft --tag "$TAG" \
     --glob "$OUT/aurora_*_pred.npz" \
     --reference "$REFERENCE" \
     --data "$DATA"
