@@ -19,6 +19,14 @@
 # plants are never loaded by finetune_ukpv.py. VISION_MODE is fixed before the
 # run — it is not selected on results.
 #
+# Budget: 50 epochs x 4000 batches, early stopping at patience 7 — matched to
+# the MMTSFM s2d/s2e trainer this row is the opponent for. At the 0.22 s/batch
+# of job 57835022 that is ~19h of training inside a 24h wall, leaving the
+# 100-sample evaluation ~5h now that it runs on non-overlapping windows. If the
+# wall does cut the job off, `$FT_OUT/checkpoint` still holds the best epoch —
+# `save_pretrained` runs on every improvement — so stages 2-3 can be re-run
+# against it directly without repeating the training.
+#
 #   sbatch scripts/slurm_aurora_ft.sh                  # real-frame arm
 #   VISION_MODE=pseudo sbatch scripts/slurm_aurora_ft.sh
 set -euo pipefail
@@ -50,8 +58,8 @@ EVAL_BATCH_SIZE="${EVAL_BATCH_SIZE:-16}"
 NUM_SAMPLES="${NUM_SAMPLES:-100}"
 VISUAL_HISTORY_STEPS="${VISUAL_HISTORY_STEPS:-8}"
 TRAIN_STRIDE="${TRAIN_STRIDE:-12}"
-MAX_EPOCHS="${MAX_EPOCHS:-10}"
-MAX_TRAIN_BATCHES="${MAX_TRAIN_BATCHES:-500}"
+MAX_EPOCHS="${MAX_EPOCHS:-50}"
+MAX_TRAIN_BATCHES="${MAX_TRAIN_BATCHES:-4000}"
 LEARNING_RATE="${LEARNING_RATE:-2e-5}"
 TAG="${TAG:-s2_ukpv}"
 REFERENCE="${REFERENCE:-results/smart_persistence_s2_ukpv.json}"

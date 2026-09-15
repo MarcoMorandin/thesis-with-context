@@ -22,11 +22,23 @@ batch_size: 8
 learning_rate: 2.0e-5
 weight_decay: 0.0
 grad_clip: 1.0
-max_epochs: 10
-patience: 2
+# Budget matched to the MMTSFM s2d/s2e opponent (`MMTSFM/configs/trainer/
+# vision_chronos2.yaml`): 50 epochs, EarlyStopping(patience 7, min_delta 1e-4).
+# Job 57835022 ran 10 epochs of 500 batches and never early-stopped, which is
+# 0.6 passes over the ~68k train windows (69 plants x ~984 at stride 12) --- it
+# could not support a claim either way about fine-tuning Aurora.
+max_epochs: 50
+patience: 7
 min_delta: 1.0e-4
-max_train_batches: 500
-max_val_batches: 100
+# ~47% of the train pool per epoch, reshuffled by `iter_shuffled_batches`, so
+# 50 epochs still cover it ~23x over. A full 8.5k-batch epoch would put the run
+# at ~31 GPU-h on the 0.22 s/batch of job 57835022, past the 24h wall with the
+# 100-sample evaluation still to pay for; 4000 lands the training at ~19h.
+max_train_batches: 4000
+# Full validation pass. `iter_batches` walks the dataset in series-major order,
+# so a cap does not sample the val plants --- it truncates to the first few of
+# the 15. At 100 batches the early-stopping signal came from under one plant.
+max_val_batches: null
 seed: 42
 
 hydra:
