@@ -3,7 +3,7 @@
      row A in  : y 30..100    cols 60..360 | 390..690 | 720..1060
      row B fe  : y 130..176   same cols
      row C     : numeric 60..690 y 206..258  |  vision stack 720..1060 y 206..468
-     row D asm : y 540..700   60..1060   (interleaved token strip, single anchor)
+     row D asm : y 540..740   60..1060   (interleaved token strip, 5 daily anchors)
      row E enc : y 790..920   sub-blocks 80..380 | 400..700 | 720..1040
      row F out : y 946..1020  head 60..360 | Y_hat 420..660
      shape labels: x 1072 (right margin)
@@ -30,8 +30,8 @@
   <text x="540" y="80" text-anchor="middle" font-family="Times New Roman, serif" font-style="italic" font-size="14" fill="#2E2E38">X_cov   [B, 684, 14]</text>
 
   <rect x="720" y="30" width="340" height="70" rx="3" fill="#FFFFFF" stroke="#4A4A55" stroke-width="1.8"/>
-  <text x="890" y="56" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1E1E28">Satellite video -- 8 frames</text>
-  <text x="890" y="80" text-anchor="middle" font-family="Times New Roman, serif" font-style="italic" font-size="14" fill="#2E2E38">V   [B, 3, 8, 224, 224]</text>
+  <text x="890" y="56" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1E1E28">Satellite video -- 5 daily bursts</text>
+  <text x="890" y="80" text-anchor="middle" font-family="Times New Roman, serif" font-style="italic" font-size="14" fill="#2E2E38">V   [B, 3, 20, 224, 224]</text>
 </g>
 
 <g id="frontends"><title>Per-modality front ends</title>
@@ -50,7 +50,7 @@
   <text x="375" y="238" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1B3A55">input_patch_embedding   (PRETRAINED)</text>
 </g>
 
-<g id="visionPath"><title>Resampler-free visual path</title>
+<g id="visionPath"><title>Resampler-free visual path with per-anchor selection</title>
   <rect x="720" y="206" width="340" height="46" rx="8" fill="#FBE3D6" stroke="#D97742" stroke-width="1.8"/>
   <text x="890" y="235" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="bold" fill="#7A3A10">1.  Mean pool, r = 2   (14x14 -&gt; 7x7)</text>
 
@@ -61,48 +61,82 @@
   <text x="890" y="379" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="bold" fill="#7A3A10">3.  Spatial cell embedding   49 x 768</text>
 
   <rect x="720" y="422" width="340" height="46" rx="8" fill="#FBE3D6" stroke="#D97742" stroke-width="2.6"/>
-  <text x="890" y="451" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="bold" fill="#7A3A10">4.  EVS pruning   98 of 196  (q = 0.5)</text>
+  <text x="890" y="451" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="bold" fill="#7A3A10">4.  PER-ANCHOR EVS   100 / 5 = 20</text>
 </g>
 
-<g id="assembly"><title>Interleaved assembly inside the final context patch</title>
-  <rect x="60" y="540" width="1000" height="160" rx="10" fill="#FBE3D6" stroke="#D97742" stroke-width="1.8"/>
-  <text x="560" y="568" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13.5" font-weight="bold" fill="#7A3A10">5.  Interleaved assembly -- one anchor inside context patch 41   (parameter-free)</text>
+<g id="assembly"><title>Canonical multi-anchor interleaving on a daily stride</title>
+  <rect x="60" y="540" width="1000" height="200" rx="10" fill="#FBE3D6" stroke="#D97742" stroke-width="1.8"/>
+  <text x="560" y="568" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13.5" font-weight="bold" fill="#7A3A10">5.  Canonical multi-anchor interleaving -- one visual anchor per DAY   (parameter-free)</text>
 
   <g id="numericTokens">
-    <rect x="90" y="592" width="270" height="40" rx="4" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="1.6"/>
-    <text x="225" y="617" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#1B3A55">P0  . . .  P40</text>
+    <rect x="90" y="592" width="132" height="40" rx="4" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="1.6"/>
+    <text x="156" y="617" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11.5" fill="#1B3A55">P0  . . .  P28</text>
 
-    <rect x="364" y="592" width="42" height="40" rx="4" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="2.2"/>
-    <text x="385" y="617" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#1B3A55">P41</text>
-    <text x="385" y="654" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="10.5" fill="#5A5A66">p = 41</text>
+    <rect x="226" y="592" width="38" height="40" rx="4" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="2.2"/>
+    <text x="245" y="617" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#1B3A55">P29</text>
+    <rect x="340" y="592" width="20" height="40" rx="4" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="1.6"/>
+    <rect x="363" y="592" width="20" height="40" rx="4" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="1.6"/>
+
+    <rect x="387" y="592" width="38" height="40" rx="4" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="2.2"/>
+    <text x="406" y="617" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#1B3A55">P32</text>
+    <rect x="501" y="592" width="20" height="40" rx="4" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="1.6"/>
+    <rect x="524" y="592" width="20" height="40" rx="4" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="1.6"/>
+
+    <rect x="548" y="592" width="38" height="40" rx="4" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="2.2"/>
+    <text x="567" y="617" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#1B3A55">P35</text>
+    <rect x="662" y="592" width="20" height="40" rx="4" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="1.6"/>
+    <rect x="685" y="592" width="20" height="40" rx="4" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="1.6"/>
+
+    <rect x="709" y="592" width="38" height="40" rx="4" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="2.2"/>
+    <text x="728" y="617" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#1B3A55">P38</text>
+    <rect x="823" y="592" width="20" height="40" rx="4" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="1.6"/>
+    <rect x="846" y="592" width="20" height="40" rx="4" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="1.6"/>
+
+    <rect x="870" y="592" width="38" height="40" rx="4" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="2.2"/>
+    <text x="889" y="617" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#1B3A55">P41</text>
   </g>
 
   <g id="visualTokens">
-    <rect x="430" y="592" width="110" height="40" rx="4" fill="#F3B98E" stroke="#D97742" stroke-width="1.8"/>
-    <text x="485" y="617" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#6B3008">slice 0</text>
+    <rect x="266" y="592" width="70" height="40" rx="4" fill="#F3B98E" stroke="#D97742" stroke-width="1.8"/>
+    <text x="301" y="617" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#6B3008">V x20</text>
+    <text x="301" y="654" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="10.5" fill="#7A3A10">day -4</text>
 
-    <rect x="550" y="592" width="110" height="40" rx="4" fill="#F3B98E" stroke="#D97742" stroke-width="1.8"/>
-    <text x="605" y="617" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#6B3008">slice 1</text>
+    <rect x="427" y="592" width="70" height="40" rx="4" fill="#F3B98E" stroke="#D97742" stroke-width="1.8"/>
+    <text x="462" y="617" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#6B3008">V x20</text>
+    <text x="462" y="654" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="10.5" fill="#7A3A10">day -3</text>
 
-    <rect x="670" y="592" width="110" height="40" rx="4" fill="#F3B98E" stroke="#D97742" stroke-width="1.8"/>
-    <text x="725" y="617" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#6B3008">slice 2</text>
+    <rect x="588" y="592" width="70" height="40" rx="4" fill="#F3B98E" stroke="#D97742" stroke-width="1.8"/>
+    <text x="623" y="617" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#6B3008">V x20</text>
+    <text x="623" y="654" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="10.5" fill="#7A3A10">day -2</text>
 
-    <rect x="790" y="592" width="110" height="40" rx="4" fill="#F3B98E" stroke="#D97742" stroke-width="1.8"/>
-    <text x="845" y="617" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#6B3008">slice 3</text>
+    <rect x="749" y="592" width="70" height="40" rx="4" fill="#F3B98E" stroke="#D97742" stroke-width="1.8"/>
+    <text x="784" y="617" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#6B3008">V x20</text>
+    <text x="784" y="654" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="10.5" fill="#7A3A10">day -1</text>
 
-    <text x="665" y="654" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="10.5" fill="#7A3A10">p = 41 + (1 - dt / span) x 0.99</text>
+    <rect x="910" y="592" width="70" height="40" rx="4" fill="#F3B98E" stroke="#D97742" stroke-width="1.8"/>
+    <text x="945" y="617" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="11" fill="#6B3008">V x20</text>
+    <text x="945" y="654" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="10.5" font-weight="bold" fill="#7A3A10">t_now</text>
   </g>
 
   <g id="futureToken">
-    <rect x="940" y="592" width="60" height="40" rx="4" fill="#FDF0C8" stroke="#C9971E" stroke-width="2"/>
-    <text x="970" y="617" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="10.5" fill="#6B4E06">future</text>
-    <text x="970" y="654" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="10.5" fill="#5A5A66">p = 42</text>
+    <rect x="990" y="592" width="48" height="40" rx="4" fill="#FDF0C8" stroke="#C9971E" stroke-width="2"/>
+    <text x="1014" y="617" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="10.5" fill="#6B4E06">future</text>
+    <text x="1014" y="654" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="10.5" fill="#5A5A66">p = 42</text>
   </g>
 
-  <text x="560" y="686" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-style="italic" font-size="11" fill="#7A3A10">one anchor at the forecast origin -- all 98 visual tokens land in the last context patch</text>
+  <g id="strideBrackets" stroke="#B0641E" stroke-width="1.4" fill="none">
+    <path d="M 245 676 L 245 688 L 406 688 L 406 676"/>
+    <path d="M 406 676 L 406 688 L 567 688 L 567 676"/>
+    <path d="M 567 676 L 567 688 L 728 688 L 728 676"/>
+    <path d="M 728 676 L 728 688 L 889 688 L 889 676"/>
+  </g>
+  <text x="325" y="708" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="10.5" fill="#B0641E">24 h  =  3 patches</text>
+  <text x="486" y="708" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="10.5" fill="#B0641E">24 h</text>
+  <text x="647" y="708" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="10.5" fill="#B0641E">24 h</text>
+  <text x="808" y="708" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="10.5" fill="#B0641E">24 h</text>
 </g>
 
-<text x="560" y="748" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-style="italic" font-size="11.5" fill="#4A4A55">[B, 141, 768]  =  42 numeric + 98 visual + 1 future,  fractional position ids</text>
+<text x="560" y="764" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-style="italic" font-size="11.5" fill="#4A4A55">[B, 143, 768]  =  42 numeric + 100 visual + 1 future,  integer position ids</text>
 
 <g id="encoder"><title>Chronos2Encoder</title>
   <rect x="60" y="790" width="1000" height="130" rx="12" fill="#EDF3F9" stroke="#4C7FB0" stroke-width="1.6"/>
@@ -139,7 +173,7 @@
   <path d="M 890 396 L 890 420" marker-end="url(#arrow)"/>
   <path d="M 890 468 L 890 538" marker-end="url(#arrow)"/>
   <path d="M 375 258 L 375 538" marker-end="url(#arrow)"/>
-  <path d="M 970 700 L 970 788" marker-end="url(#arrow)"/>
+  <path d="M 1010 740 L 1010 788" marker-end="url(#arrow)"/>
   <path d="M 210 920 L 210 958" marker-end="url(#arrow)"/>
   <path d="M 360 983 L 416 983" marker-end="url(#arrow)"/>
 </g>
@@ -152,10 +186,10 @@
 <g id="edgeLabels" font-family="Helvetica, Arial, sans-serif" font-style="italic" font-size="11.5" fill="#4A4A55">
   <text x="222" y="198">[B, 42, 16] patches</text>
   <text x="552" y="198">14 channel rows</text>
-  <text x="1072" y="198">cached latents  [4, 196, 1024]</text>
-  <text x="1072" y="270">[4, 49, 1024]</text>
-  <text x="1072" y="414">[4, 49, 768]</text>
-  <text x="1072" y="510">98 visual tokens</text>
+  <text x="1072" y="198">[10, 196, 1024]</text>
+  <text x="1072" y="270">[5, 2, 49, 1024]</text>
+  <text x="1072" y="414">[5, 2, 49, 768]</text>
+  <text x="1072" y="510">100 visual tokens</text>
   <text x="388" y="404">[B, 42, 768]  +  future</text>
   <text x="222" y="948">last hidden state   [B, 1, 768]</text>
 </g>
