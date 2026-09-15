@@ -252,3 +252,36 @@ def test_configs_score_on_non_overlapping_windows(name):
     )
     assert cfg["horizon"] == config.HORIZON_STEPS
     assert cfg["stride"] == config.HORIZON_STEPS
+
+
+def test_finetune_budget_matches_the_mmtsfm_opponent():
+    """The FT row is only a fair opponent if it trains on a comparable budget.
+
+    `mmtsfm_s2d`/`s2e` are the models this row is placed against, so the stopping
+    rule is taken from their trainer rather than picked here. Job 57835022 ran
+    10 epochs of 500 batches with patience 2, never early-stopped, and covered
+    0.6 passes over the train windows --- its 10.7% deficit against the zero-shot
+    arm measured the cap, not the model.
+    """
+    ft = yaml.safe_load(
+        (Path(__file__).parents[1] / "configs" / "tier5" / "aurora_ft.yaml").read_text()
+    )
+    trainer = yaml.safe_load(
+        (
+            Path(__file__).parents[2]
+            / "MMTSFM"
+            / "configs"
+            / "trainer"
+            / "vision_chronos2.yaml"
+        ).read_text()
+    )
+    early = next(c for c in trainer["callbacks"] if "patience" in c)
+    assert ft["max_epochs"] == trainer["max_epochs"]
+    assert ft["patience"] == early["patience"]
+    assert ft["min_delta"] == early["min_delta"]
+    assert ft["grad_clip"] == trainer["gradient_clip_val"]
+    # Early stopping must be able to fire inside the epoch budget.
+    assert ft["patience"] < ft["max_epochs"]
+    # Validation is a full pass: `iter_batches` is series-major, so a cap
+    # truncates to the first of the 15 val plants rather than sampling them.
+    assert ft["max_val_batches"] is None
