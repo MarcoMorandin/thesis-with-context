@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#454854"/></marker>
+  </defs>
+  <rect width="1600" height="900" fill="#FFFFFF"/>
+  <text x="800" y="42" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="26" font-weight="bold" fill="#242631">Nemotron 3 Nano Omni architecture</text>
+  <text x="800" y="70" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="14" fill="#626572">Modality-specific encoders align audio, visual, and text inputs before a shared Nemotron language-model backbone.</text>
+  <rect x="55" y="100" width="1490" height="510" rx="18" fill="#F8F8FA" stroke="#B7BAC5" stroke-width="1.8"/>
+  <text x="62" y="128" font-family="Helvetica, Arial, sans-serif" font-size="18" font-weight="bold" fill="#3E4250">Multimodal input encoders</text>
+
+  <g font-family="Helvetica, Arial, sans-serif">
+    <!-- audio -->
+    <rect x="70" y="180" width="178" height="104" rx="10" fill="#E7F4EE" stroke="#5B9C7C" stroke-width="1.8"/>
+    <text x="159" y="212" text-anchor="middle" font-size="16" font-weight="bold" fill="#2D674D">Audio</text>
+    <path d="M103 245 h10 l8 -18 l10 36 l10 -28 l10 18 h12 l8 -12 l9 12 h20" stroke="#5B9C7C" stroke-width="2" fill="none"/>
+    <text x="159" y="270" text-anchor="middle" font-size="12" fill="#626572">waveform input</text>
+    <rect x="70" y="340" width="178" height="92" rx="10" fill="#E0F0E5" stroke="#5B9C7C" stroke-width="1.8"/>
+    <text x="159" y="372" text-anchor="middle" font-size="15" font-weight="bold" fill="#2D674D">Parakeet encoder</text>
+    <text x="159" y="399" text-anchor="middle" font-size="12" fill="#39785A">FastConformer features</text>
+    <text x="159" y="418" text-anchor="middle" font-family="Times New Roman, serif" font-size="13" font-style="italic" fill="#2D674D">~12.5 tokens / second</text>
+    <rect x="70" y="480" width="178" height="92" rx="10" fill="#D7EBDD" stroke="#5B9C7C" stroke-width="2"/>
+    <text x="159" y="515" text-anchor="middle" font-size="15" font-weight="bold" fill="#2D674D">Audio adaptor</text>
+    <text x="159" y="544" text-anchor="middle" font-size="12" fill="#39785A">MLP projector</text>
+
+    <!-- text -->
+    <rect x="1342" y="180" width="178" height="104" rx="10" fill="#EAF0FA" stroke="#6F7896" stroke-width="1.8"/>
+    <text x="1431" y="212" text-anchor="middle" font-size="16" font-weight="bold" fill="#39415D">Text prompt</text>
+    <text x="1431" y="244" text-anchor="middle" font-size="13" fill="#4B5572">instruction sequence</text>
+    <text x="1431" y="270" text-anchor="middle" font-size="12" fill="#626572">natural language</text>
+    <rect x="1342" y="340" width="178" height="92" rx="10" fill="#DDE5F5" stroke="#6F7896" stroke-width="1.8"/>
+    <text x="1431" y="375" text-anchor="middle" font-size="15" font-weight="bold" fill="#39415D">Text tokenizer</text>
+    <text x="1431" y="404" text-anchor="middle" font-size="12" fill="#4B5572">text token embeddings</text>
+  </g>
+
+  <!-- visual path -->
+  <rect x="280" y="154" width="1002" height="240" rx="14" fill="#F5F0FA" stroke="#B8A5D1" stroke-width="1.8"/>
+  <text x="306" y="187" font-family="Helvetica, Arial, sans-serif" font-size="17" font-weight="bold" fill="#5C477B">Vision path</text>
+  <text x="1256" y="187" text-anchor="end" font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#746B80">expanded detail</text>
+  <g font-family="Helvetica, Arial, sans-serif">
+    <rect x="300" y="226" width="140" height="116" rx="10" fill="#FFFFFF" stroke="#8D8F99" stroke-width="1.5"/>
+    <text x="370" y="258" text-anchor="middle" font-size="15" font-weight="bold" fill="#292B34">Images / video</text>
+    <g fill="#DDE9F5" stroke="#688AB0" stroke-width="1.1"><rect x="322" y="282" width="42" height="32"/><rect x="336" y="274" width="42" height="32"/><rect x="350" y="266" width="42" height="32"/></g>
+    <text x="370" y="329" text-anchor="middle" font-size="11.5" fill="#626572">dynamic resolution</text>
+    <rect x="464" y="226" width="140" height="116" rx="10" fill="#ECEDEF" stroke="#9699A1" stroke-width="1.5"/>
+    <text x="534" y="258" text-anchor="middle" font-size="15" font-weight="bold" fill="#343640">3D convolution</text>
+    <text x="534" y="287" text-anchor="middle" font-family="Times New Roman, serif" font-size="14" font-style="italic" fill="#4F515B">2 frames -&gt;</text>
+    <text x="534" y="309" text-anchor="middle" font-family="Times New Roman, serif" font-size="14" font-style="italic" fill="#4F515B">1 tubelet</text>
+    <text x="534" y="329" text-anchor="middle" font-size="11.5" fill="#626572">video compression</text>
+    <rect x="628" y="226" width="140" height="116" rx="10" fill="#E3EFF8" stroke="#5787AF" stroke-width="1.8"/>
+    <text x="698" y="258" text-anchor="middle" font-size="15" font-weight="bold" fill="#234B6B">C-RADIOv4-H</text>
+    <text x="698" y="282" text-anchor="middle" font-size="12.5" fill="#315E80">vision encoder</text>
+    <g fill="#BBD6EA" stroke="#5787AF" stroke-width="0.8"><rect x="657" y="299" width="14" height="14"/><rect x="674" y="299" width="14" height="14"/><rect x="691" y="299" width="14" height="14"/><rect x="708" y="299" width="14" height="14"/><rect x="725" y="299" width="14" height="14"/><rect x="657" y="316" width="14" height="14"/><rect x="674" y="316" width="14" height="14"/><rect x="691" y="316" width="14" height="14"/><rect x="708" y="316" width="14" height="14"/><rect x="725" y="316" width="14" height="14"/></g>
+    <rect x="792" y="226" width="140" height="116" rx="10" fill="#E7F4EE" stroke="#5B9C7C" stroke-width="1.8"/>
+    <text x="862" y="258" text-anchor="middle" font-size="15" font-weight="bold" fill="#2D674D">Pixel shuffle</text>
+    <text x="862" y="285" text-anchor="middle" font-size="12.5" fill="#39785A">4x spatial reduction</text>
+    <text x="862" y="314" text-anchor="middle" font-size="12" fill="#626572">layout preserved</text>
+    <text x="862" y="331" text-anchor="middle" font-size="11.5" fill="#626572">fewer tokens</text>
+    <rect x="956" y="226" width="140" height="116" rx="10" fill="#FFF0E6" stroke="#D2814F" stroke-width="1.8"/>
+    <text x="1026" y="258" text-anchor="middle" font-size="15" font-weight="bold" fill="#7A421F">Vision adaptor</text>
+    <text x="1026" y="285" text-anchor="middle" font-size="12.5" fill="#8A4B25">MLP projector</text>
+    <text x="1026" y="313" text-anchor="middle" font-size="12" fill="#626572">aligns visual</text>
+    <text x="1026" y="331" text-anchor="middle" font-size="12" fill="#626572">and LLM widths</text>
+    <rect x="1120" y="226" width="140" height="116" rx="10" fill="#F3E7F6" stroke="#9A68A7" stroke-width="2.2"/>
+    <text x="1190" y="258" text-anchor="middle" font-size="15" font-weight="bold" fill="#674171">EVS</text>
+    <text x="1190" y="283" text-anchor="middle" font-size="11.5" fill="#674171">same-cell cosine</text>
+    <text x="1190" y="301" text-anchor="middle" font-size="11.5" fill="#674171">temporal change</text>
+    <text x="1190" y="327" text-anchor="middle" font-size="11" fill="#626572">anchor + dynamic</text>
+  </g>
+
+  <!-- token assembly and decoder -->
+  <rect x="302" y="626" width="996" height="82" rx="12" fill="#FFF7E0" stroke="#C9971E" stroke-width="1.8"/>
+  <text x="800" y="650" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="15" font-weight="bold" fill="#6B4E06">Interleaved multimodal token sequence</text>
+  <g stroke="#8B7424" stroke-width="0.8">
+    <rect x="420" y="663" width="68" height="27" rx="5" fill="#BFE3D0"/><rect x="494" y="663" width="68" height="27" rx="5" fill="#C9DFF0"/><rect x="568" y="663" width="68" height="27" rx="5" fill="#C9D1E8"/><rect x="642" y="663" width="68" height="27" rx="5" fill="#BFE3D0"/><rect x="716" y="663" width="68" height="27" rx="5" fill="#C9DFF0"/><rect x="790" y="663" width="68" height="27" rx="5" fill="#C9D1E8"/><rect x="864" y="663" width="68" height="27" rx="5" fill="#C9DFF0"/><rect x="938" y="663" width="68" height="27" rx="5" fill="#C9D1E8"/><rect x="1012" y="663" width="68" height="27" rx="5" fill="#BFE3D0"/><rect x="1086" y="663" width="68" height="27" rx="5" fill="#C9DFF0"/>
+  </g>
+  <g font-family="Helvetica, Arial, sans-serif" font-size="11" font-weight="bold" text-anchor="middle">
+    <text x="454" y="681" fill="#2D674D">A1</text><text x="528" y="681" fill="#234B6B">V1</text><text x="602" y="681" fill="#39415D">T</text><text x="676" y="681" fill="#2D674D">A2</text><text x="750" y="681" fill="#234B6B">V2</text><text x="824" y="681" fill="#39415D">T</text><text x="898" y="681" fill="#234B6B">V3</text><text x="972" y="681" fill="#39415D">T</text><text x="1046" y="681" fill="#2D674D">A3</text><text x="1120" y="681" fill="#234B6B">V4</text>
+  </g>
+  <text x="800" y="701" text-anchor="middle" font-family="Times New Roman, serif" font-size="12" font-style="italic" fill="#6B4E06">A = audio, V = visual, T = text; chunks are concatenated in sequence order</text>
+  <rect x="470" y="748" width="660" height="90" rx="14" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="2.2"/>
+  <text x="800" y="783" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="18" font-weight="bold" fill="#234B6B">Nemotron 3 Nano 30B-A3B LLM</text>
+  <text x="800" y="813" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" fill="#315E80">shared multimodal backbone and text decoder</text>
+
+  <g stroke="#454854" stroke-width="1.8" fill="none" marker-end="url(#arrow)">
+    <path d="M159 284 V336"/><path d="M159 432 V476"/>
+    <path d="M440 284 H460"/><path d="M604 284 H624"/><path d="M768 284 H788"/><path d="M932 284 H952"/><path d="M1096 284 H1116"/>
+    <path d="M1190 342 V610 H800 V622"/>
+    <path d="M1431 284 V336"/>
+    <path d="M159 572 V610 H500 V622"/><path d="M1431 432 V610 H1100 V622"/>
+    <path d="M800 708 V744"/>
+  </g>
+
+  <g font-family="Helvetica, Arial, sans-serif" font-size="12" fill="#626572">
+    <rect x="62" y="804" width="230" height="42" rx="8" fill="#FCFCFD" stroke="#C6C6CE" stroke-width="1.2"/>
+    <rect x="78" y="819" width="18" height="12" rx="3" fill="#E7F4EE" stroke="#5B9C7C" stroke-width="1.1"/><text x="106" y="829">audio branch</text>
+    <rect x="178" y="819" width="18" height="12" rx="3" fill="#F5F0FA" stroke="#B8A5D1" stroke-width="1.1"/><text x="204" y="829">vision branch</text>
+  </g>
+</svg>

@@ -129,27 +129,55 @@ The *counterfactual reliance protocol* scores each trained model twice with iden
 
 = Related Work and the Information Bottleneck Hypothesis <sec-related>
 
-#text(red)[AGGIUNGERE ARCHITETTURE ORIGINALI]
-
 == Gated Late Fusion of Bottlenecked Embeddings: Solar-VLM
 Solar-VLM @solarvlm represents recent vision--language architectures @pvvlm @unicast. A frozen vision--language model embeds satellite crops and meteorological text prompts. Cross-attention pooling reduces them to one station vector, which is concatenated with the time-series state and modulated by a learned scalar gate.
 
 One vector for a $128 times 128$ km scene primarily represents average cloudiness and loses fine-grained cloud edges. Because this summary overlaps with numerical weather covariates, the learned gate can collapse toward the numeric branch.
+
+#figure(
+  image("figures/related_solar_vlm_original.png", width: 100%),
+  caption: [Original Solar-VLM architecture, reproduced as a screenshot from the source paper @solarvlm.],
+) <fig-related-solar-vlm>
 
 == Synthetic Imagery as Representation Regularizer: Time-VLM
 Time-VLM @timevlm ranks second in our benchmark suite (SS $54.04$), although its second modality contains no external physical observation. It renders the historical power curve as a synthetic image and embeds it with statistical text prompts through a vision--language model.
 
 The visual branch re-encodes the same numerical history through a pretrained vision backbone @visionts and never observes the sky. Its improvement can therefore come from geometric regularization of one-dimensional patterns. This result motivates counterfactual evaluation: benchmark accuracy alone does not show that a multimodal model perceived an external physical process.
 
+#figure(
+  image("figures/related_time_vlm_original.png", width: 100%),
+  caption: [Original Time-VLM architecture, reproduced as a screenshot from the source paper @timevlm.],
+) <fig-related-time-vlm>
+
 == Multimodal Foundation Pretraining: Aurora
 Aurora @aurora pretrains a generative multimodal time-series foundation model on a cross-domain corpus of numerical series and their derived image and text representations. Pretrained encoders produce modality-specific features, which a cross-modality encoder combines through token distillation and modality-guided self-attention.
 
 Aurora studies how derived modalities can improve general-purpose forecasting through multimodal pretraining. Our setting instead supplies an independent physical observation and tests whether its spatial structure remains available inside the forecaster. This distinction separates representation transfer from causal reliance on external perceptual evidence.
 
+#figure(
+  image("figures/related_aurora_original.png", width: 100%),
+  caption: [Original Aurora architecture, reproduced as a screenshot from the source paper @aurora.],
+) <fig-related-aurora>
+
+== Multimodal Token Reduction: Nemotron 3 Nano Omni
+Nemotron 3 Nano Omni @nemotron uses an encoder--projector--decoder design. Separate encoders turn audio, images, and video into modality-specific tokens, projectors align their widths, and the resulting sequence is passed to a language-model backbone. The vision path also reduces the number of visual tokens before they reach the backbone: spatial compression preserves the image layout, while Efficient Video Sampling (EVS) keeps tokens from regions that change over time @evs.
+
+The visual side of Nemotron provides the closest precedent for S2d and S2e. We retain the idea of reducing a spatial feature grid while keeping each location addressable, then use a position-wise MLP to match the token width of Chronos-2. We also adapt the EVS principle of ranking visual tokens by temporal novelty. S2d applies this selection to one recent satellite window; S2e repeats it at five matched daily anchors. Nemotron's language decoder and audio branch are outside our forecasting interface, where the selected visual tokens are interleaved directly with the time-series tokens.
+
+#figure(
+  image("figures/related_nemotron_visual_path.svg", width: 100%),
+  caption: [Nemotron 3 Nano Omni architecture, with the visual encoder and token-reduction path expanded. Audio, visual, and text tokens are aligned and concatenated before entering the shared Nemotron language-model backbone.],
+) <fig-related-nemotron>
+
 == Forward-Aligned Exogenous Covariates: iTransformer
 iTransformer @itransformer embeds each physical variable, including generation, solar zenith, cloud cover, and temperature, as one token spanning the temporal window. Self-attention then operates across variables. Under our protocol, its numerical weather covariates are shifted across the forecast horizon to represent operational NWP forecasts.
 
 The relevant difference is temporal alignment. iTransformer reaches a ramp NMAE of $0.1445$ with exogenous covariates that describe the forecasted hours directly. Satellite imagery observes only the past and present, so a multimodal model must learn how current cloud boundaries map to future occlusion.
+
+#figure(
+  image("figures/related_itransformer_original.png", width: 100%),
+  caption: [Original iTransformer architecture, reproduced as a screenshot from the source paper @itransformer.],
+) <fig-related-itransformer>
 
 = Multimodal Corpus and Physical Bounds <sec-dataset>
 
