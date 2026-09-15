@@ -9,27 +9,45 @@ The first part introduces the research context, reviews time-series and visual f
 
 == Forecasting an unseen plant
 
-Photovoltaic generation has a simple daily outline and a difficult short-term residual. Solar geometry sets the broad arc of production. Clouds, local weather, and the characteristics of individual arrays determine how actual output departs from that arc. A model can learn a great deal from years of history at a single installation. A fleet operator must also forecast installations that have been added recently and do not have such a record.
+Photovoltaic generation has a recognizable daily outline and a difficult short-term residual. Solar geometry sets the broad arc of production. Cloud cover, local weather, and the characteristics of individual arrays determine how actual output departs from that arc. A model trained on years of history from one installation can absorb its orientation, shading pattern, and relationship with nearby weather observations. A fleet operator must also forecast installations that have only recently entered service and have no comparable archive.
 
-This thesis studies cross-plant forecasting. Training, validation, and test sets contain different installations. A test plant contributes neither fitting examples nor data-derived normalization statistics. The model can read its recent history at inference time, but it has never seen the plant while its parameters were learned. This makes the task a question of representation transfer rather than an interpolation exercise over familiar sites.
+This thesis studies cross-plant forecasting. Training, validation, and test sets contain different installations. A test plant contributes neither fitting examples nor statistics derived from its own measurements. At inference time the model receives fourteen days of recent context, yet it has never encountered the plant during parameter fitting. The task asks a shared model to infer what matters about an unfamiliar installation from its short history and from relationships learned across the training fleet.
 
-The setting is demanding for a useful reason. Capacity, local weather, data availability, and the relationship between irradiance and output vary across plants. A model that relies on plant-specific statistics may perform well under a temporal split while failing when faced with an unfamiliar installation. Separating plants exposes that failure directly.
+This split changes the meaning of the reported error. A conventional temporal split measures how well a model extrapolates a familiar plant through time. It rewards stable facts about that site, including its capacity factor and systematic bias relative to a weather grid. Cross-plant evaluation asks whether the representation survives the change of entity. Capacity, local weather, data availability, and the relationship between irradiance and output all vary across plants. Separating installations exposes models that depend on information unavailable for a new asset.
 
-== Why imagery is relevant
+== Why vision is a hypothesis
 
-The numerical history at a plant records conditions that have already reached the array. It cannot show a cloud edge approaching from outside the local footprint. Satellite imagery can provide that spatial observation before the resulting occlusion appears in the power trace. Weather covariates add regional context, but they do not have the same spatial and temporal detail as a recent image sequence.
+The numerical history at a plant records conditions that have already reached the array. It cannot show a cloud edge approaching from outside the local footprint. A satellite sequence may provide that spatial observation before the resulting occlusion appears in the power trace. Weather covariates add regional context, but they do not provide the same local visual record.
 
-This does not make imagery useful by assumption. An image crop may contain cloud structure, sensor artifacts, coastlines, and details that are unrelated to the array. A multimodal model may also appear to improve because visual training changes its optimization or capacity, even when it does not use images at inference time. The later experimental chapters therefore use matched controls and counterfactual visual tests. The present part establishes the data conditions under which those tests are meaningful.
+The availability of an image does not establish that a forecasting model uses it. A crop may contain cloud structure, sensor artifacts, coastlines, and features unrelated to the array. More subtly, a multimodal architecture can score better after visual training because the training process changes its optimization, regularization, or trainable capacity. Comparing a numerical model with a separately trained visual model cannot distinguish these explanations.
 
-== Research scope
+The thesis therefore treats visual contribution as a counterfactual question. After an arm has been trained, the same weights are scored once with its visual pathway active and once with vision disabled. The marginal change in ramp error measures what the trained forecast actually gains from the images. A score improvement with a negligible counterfactual change is evidence about training, not evidence that the model learned to see. This distinction guides the fusion ladder developed later in the thesis.
 
-The scientific problem is how a foundation model should combine a long, low-dimensional numerical context with a short, high-dimensional visual context when both describe the same evolving process at different resolutions. Photovoltaic power is the test domain because cloud-driven ramps provide a visible source of uncertainty and because plant-disjoint evaluation gives transfer a clear operational meaning.
+== Research question and hypotheses
 
-The thesis asks whether a model trained on one set of plants can forecast disjoint plants from a short history, whether satellite imagery helps during abrupt changes in power, and which fusion interfaces preserve useful visual information. It does not attempt to build a physical irradiance simulator or an energy-market model. The contribution is in multimodal foundation-model fusion and cross-entity generalization.
+The research question is whether a time-series foundation model and a visual foundation model can forecast power at disjoint plants through a learned multimodal interface. The work examines transfer, fusion, and the evidential standard required to claim a visual contribution. Photovoltaic power is the test domain because cloud-driven ramps provide a visible source of uncertainty and because plant-disjoint evaluation gives transfer a clear operational meaning.
+
+The investigation is organized around five hypotheses. First, time-series foundation models require in-domain adaptation for this task. Second, visual information should improve a numerical foundation forecaster only when the trained model uses it at inference time. Third, the depth and placement of the fusion interface affect that reliance. Fourth, a plant-disjoint split is sufficiently demanding to discriminate between competing transfer strategies. Fifth, retrieval and lightweight adaptation offer credible alternatives that any multimodal approach must be compared against when their evaluations are protocol aligned.
+
+The hypotheses are deliberately separable. A visual interface can fail to use imagery even if its aggregate score improves. A deep interface can preserve imagery while still losing to a strong numerical forecaster. A model can transfer across plants in one fleet without generalizing across countries. Stating these possibilities in advance prevents the later results from being compressed into one broad claim about multimodality.
+
+== Contributions
+
+This thesis contributes a multimodal cross-plant corpus that combines 1,337,654 numerical rows from 110 sites with 4,103,892 timestamp-addressable satellite frames. It provides a common dataset contract for numerical and visual forecasters, preserves native cadences, and records quality and missingness explicitly.
+
+It also develops a single-protocol benchmark around plant-disjoint evaluation. The benchmark compares reference methods, tabular learners, supervised sequence models, time-series foundation models, retrieval approaches, and multimodal systems under shared windows and metrics. The later chapters explain which comparisons meet the full protocol and which results remain limited by their original implementation assumptions.
+
+The methodological contribution is a fusion ladder with a numerical control, a conventional late-fusion interface, and a multi-anchor interleaved interface. The arms share their numerical backbone and visual encoder policy. Each visual arm is evaluated with a forced vision-off pass. This creates an experimental route from nominal forecast score to evidence about visual reliance.
+
+== Scope and boundaries
+
+The thesis studies power forecasting rather than irradiance reconstruction. Learned models do not receive hand-coded clear-sky or clearness-index transformations as internal modeling steps. The work does not address electricity markets, dispatch optimization, or plant control. These problems motivate the value of accurate forecasts, but they require different data and decision models.
+
+The main evaluation is cross-plant transfer within the UK track. The United States track is part of the corpus and prepares a later cross-dataset experiment, but it does not support the headline conclusions until its quality-controlled split is regenerated. The thesis also distinguishes implemented evidence from design options. A mechanism discussed as a possible temporal operator is not presented as an empirical contribution unless it has been run under the protocol.
 
 == Thesis structure
 
-This first part contains the introduction, related work, and dataset construction. It explains the forecasting problem, the model families that motivate the comparison, the provenance of the data, and the limits imposed by its coverage. The second part will introduce the methods and experimental protocol. The final part will report and interpret the results.
+Part I defines the transfer problem, positions it in the relevant literature, and documents the dataset. Part II specifies the evaluation protocol and the benchmark suite. Part III introduces the fusion methods, reports the ablations, and discusses what the evidence supports. The conclusion returns to the limits of visual transfer and the next experiments required to test it beyond the current fleet.
 
 = Related work and conceptual background
 <cha:related>
@@ -80,6 +98,30 @@ The dataset has two parts. A flat Parquet table contains 1,337,654 numerical rec
 The United Kingdom track contains 100 residential photovoltaic systems from 1 January 2019 through 31 December 2020. Power is sampled every 30 minutes. The systems have capacities from 1.5 to 4.0 kW and span latitudes 50.7 to 57.8. Satellite frames are available every 15 minutes.
 
 The United States track combines ten NREL PVDAQ systems with GOES imagery. It covers January through September 2019 at 15-minute cadence. Capacity ranges from 1.8 to 408 kW. This spread introduces a different scale of deployment, a different sensor product, and a different geographic context. It is useful for later distribution-shift experiments, even though the current headline evaluation uses the UK track.
+
+== Position among published photovoltaic datasets
+
+The corpus differs from existing published datasets in the combination of its modalities and its evaluation design. HKUST Rooftop PV provides high-frequency inverter-level power and on-site weather observations for 60 rooftop systems, but it does not include satellite imagery or a disjoint-plant benchmark. PVOD provides metadata and meteorological information for ten Chinese plants, again without imagery or a held-out-plant protocol. SKIPP'D pairs one California system with minute-resolution sky imagery, making it useful for visual nowcasting at a single site but unable to test transfer across installations.
+
+FusionSF's MMSP dataset~@fusionsf is the closest published comparison. It combines capacity-normalized power, Himawari imagery, and numerical weather data for 88 plants and evaluates zero-shot prediction on unseen plants. The present corpus extends the available comparison setting in three concrete ways: it has two independently constructed geographic tracks; it preserves the native cadence of each source rather than forcing a single grid; and it stores timestamp-exact visual references inside a common numerical contract. Those properties allow the same cross-plant task to be instantiated with UK residential systems and, after split reconciliation, with US systems that span a much wider capacity range.
+
+#figure(
+  align(center)[#table(
+    columns: 6,
+    align: (left, center, center, left, left, left),
+    table.header([Dataset], [PV systems], [Cadence], [Plant information], [Environmental context], [Evaluation scope]),
+    table.hline(),
+    [HKUST Rooftop PV], [60], [5 min power], [Inverter power and equipment metadata], [On-site weather], [No imagery or disjoint-plant benchmark],
+    [MMSP in FusionSF~@fusionsf], [88], [1 h], [Capacity-normalized power and anonymized locations], [Himawari imagery and numerical weather], [Zero-shot unseen plants],
+    [SKIPP'D], [1], [1 min], [Power, capacity, tilt, and azimuth], [Ground-based sky images], [Chronological single-plant benchmark],
+    [PVOD], [10], [15 min], [Power, capacity, orientation, and location], [Local weather and numerical forecasts], [No imagery or disjoint-plant benchmark],
+    [This corpus], [110], [15 or 30 min], [Power, capacity, location, and quality flags], [Satellite frames, atmospheric covariates, solar geometry], [Plant-disjoint UK benchmark; US extension prepared],
+  )],
+  caption: [Comparison with published photovoltaic datasets relevant to multimodal and cross-plant forecasting.]
+  , kind: table
+)
+
+The novelty is therefore not simply the addition of images to a power table. The dataset makes three observations jointly available at a forecast origin: a plant's recent generation, atmospheric and astronomical context, and a visual record of the nearby cloud field. It also preserves the information needed to audit their relation, including source identity, UTC timestamps, site coordinates, quality flags, and the local frame index. This combination supports controlled multimodal experiments in which a model's visual input, numerical input, and target window can be traced back to the same plant and time.
 
 #figure(
   align(center)[#table(
@@ -214,6 +256,9 @@ The UK split is generated once with seed 42. It contains 69 training plants, 15 
 Fourteen days of history and six hours of future power are defined in physical time. This makes the task interpretable across cadences. The local dataset mirror at /Volumes/dataset/dataset reproduces the 165,295 scored UK test steps, while the experiment dataset remains read-only.
 
 The corpus supports a demanding cross-plant comparison within the UK fleet and prepares later cross-dataset evaluation. It does not prove generalization across every climate, sensor, orientation, or deployment type. The UK systems are mostly residential and geographically concentrated. The US track is smaller, covers a shorter period, and awaits a corrected split. These limits belong to the interpretation of every later result.
+
+#include "part-one-extended.typ"
+#include "part-one-data-contract.typ"
 
 #pagebreak()
 #bibliography("biblio.bib", style: "ieee")
