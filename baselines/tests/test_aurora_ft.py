@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import random
 import sys
 import types
 from pathlib import Path
@@ -185,3 +186,38 @@ def test_finetune_mode_keeps_batchnorm_affine_trainable():
 
     assert all(p.requires_grad for p in module.trainable_parameters(model))
     assert len(module.trainable_parameters(model)) == 2  # weight, bias
+
+
+def _draw():
+    """One sample from each generator Aurora's objective consumes."""
+    return random.random(), float(torch.rand(1))
+
+
+def test_pinned_rng_repeats_the_same_draw():
+    """Validation runs in train mode; the stochastic objective must not drift."""
+    module = _ft_dataset_module()
+
+    with module.pinned_rng(7):
+        first = _draw()
+    random.random(), torch.rand(1)  # advance both streams in between
+    with module.pinned_rng(7):
+        second = _draw()
+
+    assert first == second
+
+
+def test_pinned_rng_restores_the_surrounding_stream():
+    """Pinning validation must not make every training epoch replay one draw."""
+    module = _ft_dataset_module()
+    random.seed(0)
+    torch.manual_seed(0)
+    unpinned = [_draw(), _draw()]
+
+    random.seed(0)
+    torch.manual_seed(0)
+    resumed = [_draw()]
+    with module.pinned_rng(7):
+        _draw()
+    resumed.append(_draw())
+
+    assert resumed == unpinned
