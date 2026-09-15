@@ -1,0 +1,30 @@
+data_path: /leonardo_scratch/fast/IscrC_MTSFM/data_v2/dataset_all.parquet
+h5_path: /leonardo_scratch/fast/IscrC_MTSFM/data_v2/images_all.h5
+ckpt_path: ???
+out: tier5/vendor/aurora/finetune_ukpv
+dataset: uk_pv
+history: 672
+horizon: 12
+stride: 1
+# 6-hourly training windows: stride 1 over 15 plants is ~500k windows an epoch,
+# and neighbouring windows share 671 of 672 history steps anyway.
+train_stride: 12
+image_size: 128
+visual_history_steps: 8
+# Fixed before training, not selected on results. Run the pseudo arm as a
+# separate job if both are wanted; pick between them on val, never on test.
+vision_mode: real
+batch_size: 8
+learning_rate: 2.0e-5
+weight_decay: 0.0
+grad_clip: 1.0
+max_epochs: 10
+patience: 2
+min_delta: 1.0e-4
+max_train_batches: 500
+max_val_batches: 100
+seed: 42
+
+hydra:
+  job:
+    chdir: false

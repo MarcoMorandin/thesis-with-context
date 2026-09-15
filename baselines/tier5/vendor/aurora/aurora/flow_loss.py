@@ -34,7 +34,8 @@ class FlowLoss(nn.Module):
 
         loss = ((predict_v - target) ** 2)
         if mask is not None:
-            loss = (loss * mask).sum(dim=-1) / mask.sum(dim=-1)
+            # clamp: a row whose steps are all masked out would divide by zero
+            loss = (loss * mask).sum(dim=-1) / mask.sum(dim=-1).clamp(min=1.0)
 
         value_mask = loss < eps
         loss = loss[value_mask].sum() / value_mask.sum()
