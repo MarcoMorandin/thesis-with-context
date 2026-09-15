@@ -103,3 +103,29 @@ def aurora_subbatches(batch: dict, device, *, vision_mode: str, latest_real_fram
 def trainable_parameters(model) -> list[torch.nn.Parameter]:
     """Aurora freezes its ViT and BERT encoders; train everything else."""
     return [p for p in model.parameters() if p.requires_grad]
+
+
+def set_finetune_mode(model):
+    """Put the model in train mode but keep BatchNorm on its running statistics.
+
+    Aurora's decoder norms are `BatchNorm1d` (`norm_mode: 'batch'`), and upstream
+    freezes exactly these when adapting the model to a downstream dataset --- see
+    `EPF/exp/exp_long_term_forecasting.py::_build_model`. Two reasons it matters
+    here:
+
+    * `aurora_subbatches` splits a window batch by frame availability, so a
+      forward pass routinely carries a single window. Batch statistics are
+      undefined for one sample and `F.batch_norm` raises outright.
+    * `run_ukpv.py` scores in `eval()`, i.e. on running statistics. Training on
+      batch statistics computed over a handful of windows --- and separately for
+      the real- and pseudo-frame groups of the same step --- would optimise
+      against a normalisation the evaluation never applies.
+
+    The affine weight and bias stay trainable, so a shifted input distribution is
+    still absorbed; only the running mean/var are held fixed.
+    """
+    model.train()
+    for module in model.modules():
+        if isinstance(module, torch.nn.modules.batchnorm._BatchNorm):
+            module.eval()
+    return model
