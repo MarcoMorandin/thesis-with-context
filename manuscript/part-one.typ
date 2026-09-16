@@ -96,29 +96,70 @@ The central problem is token budget. A video encoder produces many spatial patch
 
 The interface between a visual encoder and a forecaster determines what information can survive from the image sequence. A satellite crop may begin as hundreds of spatial features across several frames. The forecast head, in contrast, often receives a short sequence of numerical tokens. Most published systems therefore compress the visual stream before it reaches the numerical model. This is a sensible response to computational cost, but it also creates an information bottleneck whose effect depends on the forecasting problem.
 
+=== Solar-VLM: gated late fusion
+
 Solar-VLM~@solarvlm is a useful example of gated late fusion. It encodes satellite crops and meteorological text with a frozen vision-language model, pools the encoded inputs through cross-attention into a station-level vector, and concatenates that vector with the time-series state. A learned scalar gate then controls the contribution of the visual branch. This design gives the forecaster a compact description of broad cloud conditions and allows it to fall back on numerical history when images are unhelpful. Its limitation is structural: after a large scene has been reduced to one vector, the forecasting model cannot inspect a particular cloud edge or distinguish two regions that had opposite effects on the pooled representation. The gate may also prefer the numerical branch when the pooled image summary overlaps with the cloud and radiation variables already supplied as covariates.
 
 Late fusion remains a necessary baseline because it tests a clear hypothesis: global visual context may be sufficient when the relevant visual evidence is widespread and slowly changing. It is especially valuable here because it fixes the same visual source while changing the way it is introduced to the forecaster. The later comparison uses late fusion as the compact-interface control, not as a proxy for every multimodal system.
 
+#figure(
+  image("figures/related_solar_vlm_original.png", width: 94%),
+  caption: [Solar-VLM architecture. Satellite crops and meteorological text are encoded, pooled into a station representation, and combined with the time-series branch through a learned gate. Reproduced from the source architecture~@solarvlm.]
+) <fig-related-solar-vlm>
+
+=== UniCast: multimodal prompting of a time-series backbone
+
 Prompting methods offer a related route. UniCast~@unicast supplies visual and textual information to a time-series foundation model through a lightweight prompt representation. The approach asks whether a pretrained numerical backbone can accept a new modality without broad retraining. It is attractive when the new input is primarily contextual, since a small prompt leaves the main forecasting representation intact. In a cloud-driven setting, however, a single prompt has the same practical question as pooled fusion: whether the compression retains the local motion and spatial arrangement needed to relate the current sky to a future change in generation.
+
+=== CrossViVit: cross-attention over visual and temporal features
 
 Token-level approaches retain several visual observations and let the forecasting backbone relate them to numerical tokens. CrossViVit~@crossvivit is the central photovoltaic reference in this group. It uses cross-attention between time-series features and visual features, so the model can form different connections for different temporal and visual locations. This is closer to the structure of the physical problem than a single scene vector: the output change at a plant can depend on the location and movement of a cloud, not only on average cloudiness across the crop. The present study examines a narrower design question within this family, namely how a bounded selection of visual tokens can be placed in temporal context while retaining a manageable attention budget.
 
+=== SUNSET: a photovoltaic convolutional reference
+
 SUNSET~@sunset provides a different point of reference. It is a specialized convolutional system for power and satellite data rather than a composition of pretrained foundation models. Its inclusion asks a useful question for the benchmark: can a foundation-model interface improve on an architecture designed directly for solar forecasting? The answer bears on the proposed transfer setting, but a comparison with SUNSET alone cannot distinguish the contribution of pretraining, the fusion interface, and the training protocol. Those factors require the broader set of controls described in this chapter.
+
+=== Nemotron 3 Nano Omni: preserving a selected visual field
 
 Outside photovoltaic forecasting, Nemotron 3 Nano Omni~@nemotron illustrates a practical alternative to global pooling. Its visual pathway aligns visual features with a language-model backbone after reducing their number in two stages: spatial downsampling followed by selection of tokens from regions that change over time. Efficient Video Sampling~@evs supplies the latter idea by pruning temporally redundant video tokens. The application and decoder differ from the present task, yet the design principle transfers directly. A visual feature grid can be compressed while retaining the identity of selected locations. This is useful when a satellite sequence contains large static areas alongside a smaller number of evolving cloud structures.
 
+#figure(
+  image("figures/related_nemotron_visual_path.png", width: 92%),
+  caption: [Nemotron 3 Nano Omni visual pathway. The visual encoder produces tokens that are spatially reduced and then sampled before projection into the shared backbone. Reproduced from the source architecture~@nemotron.]
+) <fig-related-nemotron>
+
 == Real images, synthetic images, and multimodal pretraining
+
+=== Time-VLM and VisionTS++: rendered time-series images
 
 Time-VLM~@timevlm and VisionTS++~@visiontspp take a different view of multimodality. They render the numerical history as an image, then encode that rendering with a visual backbone. Time-VLM also uses statistical text prompts to describe the series. The resulting visual stream may regularize the model or expose a temporal pattern to an encoder trained on images. It remains a transformation of information already present in the power history. It cannot reveal a cloud that has not yet affected the array.
 
 This distinction matters when interpreting a benchmark. A pseudo-image model can be a strong forecasting baseline because it tests a legitimate representation choice. It evaluates the value of re-encoding a history rather than the value of an independently observed modality. Real satellite frames and rendered time-series images answer different questions: whether a visual encoder can re-describe a history, and whether an image provides information outside that history.
 
+#figure(
+  image("figures/related_time_vlm_original.png", width: 94%),
+  caption: [Time-VLM architecture. Historical time-series values are rendered as an image and combined with statistical text prompts before forecasting. Reproduced from the source architecture~@timevlm.]
+) <fig-related-time-vlm>
+
+=== Aurora: pretraining across derived modalities
+
 Aurora~@aurora extends this line of work to multimodal foundation-model pretraining. It combines modality-specific encoders with a cross-modality encoder that uses token distillation and modality-guided self-attention, training on numerical series and derived image and text representations. The work is relevant because it tests whether several representations of a series can improve general forecasting behavior and transfer. It also shows that multimodal architecture can be valuable even where every modality originates in the same underlying signal.
 
 The present task imposes an additional evidential requirement. Satellite imagery is an independent observation of the atmosphere, and a forecast improvement can only be attributed to that observation if the trained model changes when the image is withdrawn. This is why the thesis does not treat multimodal training alone as proof of visual use. The same parameters are evaluated with the visual pathway active and disabled; the difference isolates the contribution of visual information after training.
 
+#figure(
+  image("figures/related_aurora_original.png", width: 94%),
+  caption: [Aurora architecture. Modality-specific encoders feed a cross-modality encoder that uses token distillation and modality-guided self-attention. Reproduced from the source architecture~@aurora.]
+) <fig-related-aurora>
+
+=== iTransformer: variables as tokens
+
 iTransformer~@itransformer is an equally important numerical comparator because it represents each variable as a token across the input window and applies attention across variables. In photovoltaic forecasting, generation, solar position, cloud cover, irradiance, temperature, and wind share substantial structure. When future-aligned weather forecasts are supplied, their timing differs from the satellite stream: weather variables may describe the forecast horizon directly, whereas the images describe conditions observed up to the forecast origin. A multimodal model must learn how the motion and shape of the observed cloud field relate to later occlusion. The iTransformer comparison therefore tests whether the visual pathway adds information beyond a well-structured numerical representation with operational covariates.
+
+#figure(
+  image("figures/related_itransformer_original.png", width: 94%),
+  caption: [iTransformer architecture. Each variable is embedded as a token spanning the input window, and self-attention models relations across variables. Reproduced from the source architecture~@itransformer.]
+) <fig-related-itransformer>
 
 These comparisons motivate the counterfactual reliance protocol used later in the thesis. An architecture can receive images and still base its forecast entirely on numerical history. Scoring the same trained parameters with active and disabled vision distinguishes a nominal multimodal score from evidence that the visual pathway contributes to the prediction.
 
