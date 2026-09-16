@@ -97,6 +97,14 @@ export UV_OFFLINE=1 UV_NO_SYNC=1 TOKENIZERS_PARALLELISM=false
 export WANDB_MODE="${WANDB_MODE:-offline}" HYDRA_FULL_ERROR=1
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export NCCL_DEBUG="${NCCL_DEBUG:-WARN}"
+# stdout is a file here, not a tty, so Python block-buffers it at ~8 KB. The
+# progress prints in lightning_module.py are the only thing on stdout and they
+# are SPARSE -- `[train] epoch=` fires at batch_idx == 0 (once per epoch),
+# `[train] step=` at global_step % 500 (every ~2000 batches at accum 4) -- so
+# 8 KB of them is hours of training sitting unwritten in the buffer. Without
+# this the .out file looks identical whether the job is training normally or
+# wedged, which is exactly the ambiguity the banner above exists to kill.
+export PYTHONUNBUFFERED=1
 
 # Rank count = tasks srun will start. --ntasks-per-node on the sbatch command
 # line overrides the #SBATCH directive above, so this follows whatever was asked
