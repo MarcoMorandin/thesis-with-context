@@ -384,6 +384,3 @@ Fourteen days of history and six hours of future power are defined in physical t
 
 #include "part-one-extended.typ"
 #include "part-one-data-contract.typ"
-
-#pagebreak()
-#bibliography("biblio.bib", style: "ieee")

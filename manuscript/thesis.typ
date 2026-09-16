@@ -219,6 +219,10 @@
 // ==========================================================================
 
 #include "part-one.typ"
+#include "part-two.typ"
+
+#pagebreak()
+#bibliography("biblio.bib", style: "ieee")
 
 /*
 
