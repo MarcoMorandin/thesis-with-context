@@ -23,6 +23,46 @@ The availability of an image does not establish that a forecasting model uses it
 
 The thesis therefore treats visual contribution as a counterfactual question. After an arm has been trained, the same weights are scored once with its visual pathway active and once with vision disabled. The marginal change in ramp error measures what the trained forecast actually gains from the images. A score improvement with a negligible counterfactual change is evidence about training, not evidence that the model learned to see. This distinction guides the fusion ladder developed later in the thesis.
 
+== Formal problem setting
+
+=== Forecast objects and information sets
+
+Let a plant be indexed by i and let time follow that plant's native sampling cadence. At a forecast origin, a model receives a history of normalized power, a set of numerical covariates, and, when available, a recent sequence of satellite frames. It predicts a future horizon for the same plant.
+
+The power target is measured power divided by installed capacity. This places a small residential installation and a larger array on a common scale while retaining the fact that their operating patterns can differ. The numerical covariates describe atmospheric conditions, solar geometry, and calendar time. The visual sequence is shorter and sampled more densely than the numerical history.
+
+The distinction between observed and known-ahead inputs is essential. Calendar and solar geometry can be calculated for a future timestamp. A weather measurement made during the future horizon cannot be supplied to an operational forecast unless it represents a genuine weather forecast. The experimental protocol separates these cases so that privileged future observations do not appear as ordinary covariates.
+
+=== Cross-plant generalization
+
+The cross-plant constraint applies to every fitted operation. If training, validation, and test plant sets are disjoint, no test-plant row may affect parameter fitting, feature scaling, retrieval indexes, or early stopping. This includes apparently routine operations such as estimating a per-series mean or variance.
+
+A temporal split answers a different question. It allows a model to absorb a plant's orientation, shading pattern, inverter behavior, and bias relative to a nearby weather cell. Those are useful regularities for a site-specific system. They are not evidence that the same model will transfer to a new plant. Cross-plant evaluation asks the model to infer what it needs from a short recent context and from the relationships it learned across the training fleet.
+
+The split does not eliminate every source of similarity. UK plants may be geographically close and may share broad weather systems. The task remains harder than a temporal split because the held-out plant has no training history, but it should not be described as a test of geographic extrapolation. That claim requires a deliberately spatial split or an external dataset.
+
+=== Forecast horizon and information regimes
+
+The importance of available information changes with lead time. At very short horizons, persistence and local observations are often strong. Within a few hours, cloud structure in a satellite image can be informative. At longer horizons, the observed cloud field becomes stale and numerical weather forecasts become more important.
+
+#figure(
+  align(center)[#table(
+    columns: 3,
+    align: (left, center, left),
+    table.header([Forecast regime], [Typical lead time], [Main information source]),
+    table.hline(),
+    [Nowcasting], [Up to 30 min], [Recent local observations and sky imagery],
+    [Intra-hour], [30 min to 2 h], [Satellite imagery and cloud evolution],
+    [Intra-day], [2 to 6 h], [Satellite imagery with numerical context],
+    [Day-ahead], [6 to 48 h], [Numerical weather prediction and calendar information],
+    [Seasonal], [Weeks to months], [Climatology and long-term structure],
+  )],
+  caption: [Forecasting regimes by lead time. The six-hour horizon sits at the transition between image-led and weather-led information.]
+  , kind: table
+)
+
+The six-hour horizon used in the primary study is therefore a useful fusion setting. Numerical history alone has already observed some local behavior. Imagery may still reveal recent cloud structure. Neither stream is expected to determine the whole horizon by itself.
+
 == Research question and hypotheses
 
 The research question is whether a time-series foundation model and a visual foundation model can forecast power at disjoint plants through a learned multimodal interface. The work examines transfer, fusion, and the evidential standard required to claim a visual contribution. Photovoltaic power is the test domain because cloud-driven ramps provide a visible source of uncertainty and because plant-disjoint evaluation gives transfer a clear operational meaning.
@@ -333,16 +373,14 @@ Plants differ in capacity factor, coverage, and the relation between local outpu
 
 #figure(
   image("figures/site_map.png", width: 88%),
-  caption: [Locations of the UK systems. Holding out plants prevents direct access to their histories, although geographic proximity remains an important limitation when interpreting transfer.]
+  caption: [Locations of the UK systems. Holding out plants prevents direct access to their histories while retaining the regional context shared across the fleet.]
 )
 
-== Split construction and limits
+== Split construction
 
 The UK split is generated once with seed 42. It contains 69 training plants, 15 validation plants, and 14 test plants after the bad sites are excluded. The data loader asserts that these sets are disjoint. The test partition contains 172,656 rows and 171,543 valid power steps before forecast windows are built.
 
 Fourteen days of history and six hours of future power are defined in physical time. This makes the task interpretable across cadences. The local dataset mirror at /Volumes/dataset/dataset reproduces the 165,295 scored UK test steps, while the experiment dataset remains read-only.
-
-The corpus supports a demanding cross-plant comparison within the UK fleet and prepares later cross-dataset evaluation. It does not prove generalization across every climate, sensor, orientation, or deployment type. The UK systems are mostly residential and geographically concentrated. The US track is smaller, covers a shorter period, and awaits a corrected split. These limits belong to the interpretation of every later result.
 
 #include "part-one-extended.typ"
 #include "part-one-data-contract.typ"
