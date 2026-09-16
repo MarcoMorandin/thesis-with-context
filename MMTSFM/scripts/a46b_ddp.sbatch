@@ -60,8 +60,30 @@
 # visual_evs_keep to fit: that reintroduces the payload confound A46b exists to
 # remove (see configs/ablation/A46b.yaml).
 #
-#   sbatch scripts/a46b_ddp.sbatch            # resumes STAGE_DIR/last.ckpt
-#   RESUME=0 sbatch scripts/a46b_ddp.sbatch   # ignore it and start clean
+# THE RANK COUNT IS NOT FIXED AT 4, because on a busy queue it cannot be. A
+# 4-GPU / 32-core request needs an ENTIRELY EMPTY node, and whole-node gaps are
+# rare; partial-node gaps open constantly. Measured on boost_usr_prod with this
+# job pending: PRIORITY=135864 against a field of 205k-255k (256-node jobs on
+# the high QOS, which a 1-node job cannot join) and 2553 eligible 1-4 node jobs
+# ahead. sprio showed QOS=120000, FAIRSHARE=15603 (factor 0.624), AGE=253,
+# JOBSIZE=8 — so the ceiling on `normal` is ~165k and the gap NEVER closes by
+# waiting. This job runs by backfill or not at all, and backfill is won by
+# asking for less: fewer GPUs and a shorter --time.
+#
+# So the rank count follows the allocation instead of being hardcoded, and the
+# accumulation is recomputed to hold the effective batch at 16:
+#   1 GPU : 2 x 1 x 8 = 16      2 GPU : 2 x 2 x 4 = 16      4 GPU : 2 x 4 x 2 = 16
+# Override --ntasks-per-node and --gres together; they must agree or the run
+# aborts before srun (the guard below), because a mismatch means Lightning binds
+# ranks to devices that were never allocated.
+#
+#   sbatch scripts/a46b_ddp.sbatch                        # 4 GPUs, resumes last.ckpt
+#   sbatch --ntasks-per-node=2 --gres=gpu:2 --time=04:00:00 \
+#          scripts/a46b_ddp.sbatch                        # 2 GPUs, better backfill odds
+#   RESUME=0 sbatch scripts/a46b_ddp.sbatch               # ignore last.ckpt, start clean
+#
+# ONE JOB AT A TIME. Every rank count writes the same STAGE_DIR; two jobs live
+# at once would interleave writes to last.ckpt and corrupt both.
 # =============================================================================
 set -uo pipefail
 
@@ -75,6 +97,28 @@ export UV_OFFLINE=1 UV_NO_SYNC=1 TOKENIZERS_PARALLELISM=false
 export WANDB_MODE="${WANDB_MODE:-offline}" HYDRA_FULL_ERROR=1
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export NCCL_DEBUG="${NCCL_DEBUG:-WARN}"
+
+# Rank count = tasks srun will start. --ntasks-per-node on the sbatch command
+# line overrides the #SBATCH directive above, so this follows whatever was asked
+# for. SLURM_GPUS_ON_NODE is the allocated GPU count; if the two disagree the
+# user changed one of --ntasks-per-node / --gres without the other, and
+# Lightning would bind ranks to devices that do not exist.
+NGPU="${SLURM_NTASKS:-4}"
+if [[ -n "${SLURM_GPUS_ON_NODE:-}" && "${SLURM_GPUS_ON_NODE}" != "${NGPU}" ]]; then
+  echo "FATAL: ${NGPU} tasks but ${SLURM_GPUS_ON_NODE} GPUs allocated." >&2
+  echo "       --ntasks-per-node and --gres=gpu:N must match." >&2
+  exit 1
+fi
+# Effective batch is pinned at 16 — the only thing that makes A46b readable
+# against S2D and S2E. batch_size stays 2 (the measured OOM ceiling at 533
+# tokens), so accumulation absorbs the rank count.
+BATCH=2
+if (( 16 % (BATCH * NGPU) != 0 )); then
+  echo "FATAL: ${NGPU} ranks x batch ${BATCH} does not divide 16." >&2
+  echo "       Use 1, 2, 4 or 8 GPUs, or the effective batch shifts." >&2
+  exit 1
+fi
+ACCUM=$(( 16 / (BATCH * NGPU) ))
 
 # Paths: the defaults of scripts/ablation_sweep.sh, resolved for this one row.
 TEAM_SCRATCH="${TEAM_SCRATCH:-/leonardo_scratch/fast/IscrC_MTSFM}"
@@ -99,14 +143,14 @@ CMD=(
   +stage=s2e model=vision_chronos2_s2e data=ukpv
   trainer=slurm
   # The three lines stage_cmd.sh:102 would otherwise pin to a single GPU.
-  trainer.devices=4
+  "trainer.devices=${NGPU}"
   trainer.strategy=ddp_find_unused_parameters_true
   trainer.num_nodes=1
   seed=42 trainer.max_epochs=20
   "trainer.default_root_dir=${STAGE_DIR}"
-  # 2 x 4 ranks x 2 = 16, the effective batch of the single-GPU 2 x 8 run.
-  data.batch_size=2
-  trainer.accumulate_grad_batches=2
+  # BATCH x NGPU ranks x ACCUM = 16, the effective batch of the 2 x 8 run.
+  "data.batch_size=${BATCH}"
+  "trainer.accumulate_grad_batches=${ACCUM}"
   data.num_workers=6
   "model.results_dir=${RESULTS_DIR}" model.results_tag=mmtsfm_A46b_s2e_ukpv_s42
   # Pinned, NOT ${now:...}: four ranks resolve `now` independently and would
@@ -137,7 +181,7 @@ fi
 echo "=============================================================="
 echo " A46b DDP   job=${SLURM_JOB_ID:-local}  ranks=${SLURM_NTASKS:-?}"
 echo " STAGE_DIR=${STAGE_DIR}"
-echo " effective batch = 2 x 4 ranks x 2 accum = 16"
+echo " effective batch = ${BATCH} x ${NGPU} ranks x ${ACCUM} accum = 16"
 echo "=============================================================="
 printf 'srun uv run %s\n' "${CMD[*]}"
 srun uv run "${CMD[@]}"
