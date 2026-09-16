@@ -865,17 +865,31 @@ class VisionChronos2LightningModule(LightningModule):
                 )
 
         # Log fraction of samples with active visual stream (replaces spurious duplicate loss logs)
-        if out.visual_active is not None:
-            with torch.no_grad():
-                visual_frac = out.visual_active.float().mean()
-                self.log(
-                    f"{stage}/visual_fraction",
-                    visual_frac,
-                    on_step=(stage == "train"),
-                    on_epoch=True,
-                    prog_bar=False,
-                    sync_dist=True,
-                )
+        #
+        # UNCONDITIONAL, and it has to stay that way. `sync_dist=True` makes
+        # this a collective, so every rank must post it on every batch or DDP
+        # deadlocks. `out.visual_active` is None whenever a batch carried no
+        # imagery at all -- `use_video` in vision_chronos2.py tests
+        # `visual_mask.sum() == 0`, which is per-batch data -- so guarding the
+        # log on it made the collective COUNT data-dependent. One rank drawing
+        # an all-empty visual batch while another drew a normal one left both
+        # blocked on an allreduce the other never posted, until the NCCL
+        # watchdog tore the job down 30 minutes later. A vision-free batch
+        # reports 0.0, which is also the honest value for the metric.
+        with torch.no_grad():
+            visual_frac = (
+                out.visual_active.float().mean()
+                if out.visual_active is not None
+                else torch.zeros((), device=loss.device)
+            )
+            self.log(
+                f"{stage}/visual_fraction",
+                visual_frac,
+                on_step=(stage == "train"),
+                on_epoch=True,
+                prog_bar=False,
+                sync_dist=True,
+            )
 
         self.log(
             f"{stage}/loss",
