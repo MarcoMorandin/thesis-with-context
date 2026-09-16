@@ -136,7 +136,47 @@ STAGE_DIR="${STAGE_DIR:-${CKPT_DIR}/uk_pv_s2e_s2e_s42_A46b}"
 PREV_CKPT="${PREV_CKPT:-${CKPT_DIR}/uk_pv_s1_selfattn_s42/best.ckpt}"
 SP_REF="${SP_REF:-${RESULTS_DIR}/smart_persistence_s2_ukpv.json}"
 
-mkdir -p "$STAGE_DIR" logs/slurm
+# The banner prints BEFORE the first Lustre touch, deliberately. A malformed
+# path does not fail at `mkdir`, it PARKS: job 57984364 spent 49 minutes of a
+# 4 h allocation asleep in `mkdir -p` on a STAGE_DIR carrying a space where a
+# slash belonged (/leonardo_scratch/fast<space>IscrC_MTSFM/...), because
+# TEAM_SCRATCH came in from the submitting shell -- sbatch defaults to
+# --export=ALL -- and wrote not one byte to stdout the whole time. Resolving
+# the paths into the log first makes that state readable in the first second
+# instead of requiring `ps` on the compute node.
+echo "=============================================================="
+echo " A46b DDP   job=${SLURM_JOB_ID:-local}  ranks=${SLURM_NTASKS:-?}"
+echo " STAGE_DIR=${STAGE_DIR}"
+echo " DATA_DIR=${DATA_DIR}"
+echo " VJEPA_CACHE=${VJEPA_CACHE}"
+echo " PREV_CKPT=${PREV_CKPT}"
+echo " effective batch = ${BATCH} x ${NGPU} ranks x ${ACCUM} accum = 16"
+echo "=============================================================="
+
+# Every path that lands on Lustre, checked before anything touches Lustre. The
+# space is the failure actually seen; the prefix test catches the wider class
+# (empty variable, relative path, pointed at the wrong filesystem).
+for _v in STAGE_DIR DATA_DIR VJEPA_CACHE CKPT_DIR PREV_CKPT; do
+  _p="${!_v}"
+  case "$_p" in
+    *" "*)
+      echo "FATAL: ${_v} contains a space: '${_p}'" >&2
+      echo "       Check .env and the submitting shell; sbatch exports both." >&2
+      exit 1 ;;
+    /leonardo_scratch/*|/leonardo_work/*) ;;
+    *)
+      echo "FATAL: ${_v} is not under /leonardo_scratch or /leonardo_work: '${_p}'" >&2
+      exit 1 ;;
+  esac
+done
+
+# `timeout` so a genuinely degraded filesystem also fails loud instead of
+# eating the allocation in uninterruptible sleep.
+timeout 120 mkdir -p "$STAGE_DIR" logs/slurm || {
+  echo "FATAL: mkdir -p '${STAGE_DIR}' did not return within 120 s." >&2
+  echo "       Scratch may be degraded: ls /leonardo_scratch/fast/IscrC_MTSFM/" >&2
+  exit 1
+}
 
 CMD=(
   python -m mmtsfm.train
@@ -178,10 +218,5 @@ fi
 [[ -f "$SP_REF" ]] && CMD+=("model.sp_reference_path=${SP_REF}")
 [[ "${RESUME:-1}" == "1" && -f "${STAGE_DIR}/last.ckpt" ]] && CMD+=("ckpt_path=${STAGE_DIR}/last.ckpt")
 
-echo "=============================================================="
-echo " A46b DDP   job=${SLURM_JOB_ID:-local}  ranks=${SLURM_NTASKS:-?}"
-echo " STAGE_DIR=${STAGE_DIR}"
-echo " effective batch = ${BATCH} x ${NGPU} ranks x ${ACCUM} accum = 16"
-echo "=============================================================="
 printf 'srun uv run %s\n' "${CMD[*]}"
 srun uv run "${CMD[@]}"
