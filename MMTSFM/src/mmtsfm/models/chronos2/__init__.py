@@ -5,8 +5,6 @@
 
 from .config import Chronos2CoreConfig, Chronos2ForecastingConfig
 from .model import Chronos2Model
-from .pipeline import Chronos2Pipeline
-from .dataset import Chronos2Dataset
 from .vision_chronos2 import VisionChronos2Model, VisionChronos2Config, VisionChronos2Output
 
 
@@ -19,6 +17,14 @@ def __getattr__(name):
         from .lightning_module import VisionChronos2LightningModule
 
         return VisionChronos2LightningModule
+    if name == "Chronos2Pipeline":
+        from .pipeline import Chronos2Pipeline
+
+        return Chronos2Pipeline
+    if name == "Chronos2Dataset":
+        from .dataset import Chronos2Dataset
+
+        return Chronos2Dataset
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 

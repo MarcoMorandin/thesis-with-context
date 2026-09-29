@@ -15,11 +15,8 @@
 # Evaluates trained UK PV checkpoints (s1, s2a, s2d, s2e, and A46b) zero-shot
 # on the US goes_pvdaq dataset (15-min cadence, 24-step horizon) without fitting.
 #
-# Usage:
-#   sbatch scripts/eval_us_generalization.sbatch
-#   SEEDS="42 43 44" sbatch scripts/eval_us_generalization.sbatch
-#   ONLY="s1 s2d" sbatch scripts/eval_us_generalization.sbatch
-#   DRY_RUN=1 bash scripts/eval_us_generalization.sbatch
+# Usage: [SEEDS="42 43"] [ONLY="s1 s2d"] [VISUAL_SCALE=0.5] sbatch scripts/eval_us_generalization.sbatch
+#        DRY_RUN=1 bash scripts/eval_us_generalization.sbatch
 # =============================================================================
 set -uo pipefail
 
@@ -52,6 +49,10 @@ DRY_RUN="${DRY_RUN:-0}"
 NUM_WORKERS="${NUM_WORKERS:-8}"
 TRAINER_CFG="${TRAINER_CFG:-slurm}"
 SP_REF="${SP_REF:-${RESULTS_DIR}/smart_persistence_s2_goespvdaq.json}"
+VISUAL_SCALE="${VISUAL_SCALE:-0.5}"
+EVS_KEEP_S2D="${EVS_KEEP_S2D:-14}"
+EVS_KEEP_S2E="${EVS_KEEP_S2E:-20}"
+EVS_KEEP_A46B="${EVS_KEEP_A46B:-70}"
 
 vjepa_cache="${VJEPA_CACHE:-${VJEPA_CACHE_ROOT}/goes_pvdaq/${VJEPA_CACHE_VER}}"
 
@@ -69,10 +70,10 @@ fi
 # Specs: model_name | stage | model_cfg | default_ckpt_subpath | extra_hydra_args | batch_size
 MODEL_SPECS=(
   "s1|s1|vision_chronos2_timeselfattn|uk_pv_s1_selfattn_s{seed}/best.ckpt||${BATCH_SIZE:-8}"
-  "s2a|s2a|vision_chronos2_timeselfattn|uk_pv_s2a_selfattn_s{seed}/best.ckpt|model.compute_marginal_gain=true|${BATCH_SIZE:-8}"
-  "s2d|s2d|vision_chronos2_s2d|uk_pv_s2d_s2d_s{seed}/best.ckpt|model.compute_marginal_gain=true|${BATCH_SIZE:-8}"
-  "s2e|s2e|vision_chronos2_s2e|uk_pv_s2e_s2e_s{seed}/best.ckpt|model.compute_marginal_gain=true|${BATCH_SIZE_S2E:-4}"
-  "A46b|s2e|vision_chronos2_s2e|uk_pv_s2e_s2e_s{seed}_A46b/best.ckpt|+ablation=A46b model.compute_marginal_gain=true|${BATCH_SIZE_A46B:-2}"
+  "s2a|s2a|vision_chronos2_timeselfattn|uk_pv_s2a_selfattn_s{seed}/best.ckpt|model.compute_marginal_gain=true model.vision_cfg.visual_scale=${VISUAL_SCALE}|${BATCH_SIZE:-8}"
+  "s2d|s2d|vision_chronos2_s2d|uk_pv_s2d_s2d_s{seed}/best.ckpt|model.compute_marginal_gain=true model.vision_cfg.visual_scale=${VISUAL_SCALE} model.vision_cfg.visual_evs_keep=${EVS_KEEP_S2D}|${BATCH_SIZE:-8}"
+  "s2e|s2e|vision_chronos2_s2e|uk_pv_s2e_s2e_s{seed}/best.ckpt|model.compute_marginal_gain=true model.vision_cfg.visual_scale=${VISUAL_SCALE} model.vision_cfg.visual_evs_keep=${EVS_KEEP_S2E}|${BATCH_SIZE_S2E:-4}"
+  "A46b|s2e|vision_chronos2_s2e|uk_pv_s2e_s2e_s{seed}_A46b/best.ckpt|+ablation=A46b model.compute_marginal_gain=true model.vision_cfg.visual_scale=${VISUAL_SCALE} model.vision_cfg.visual_evs_keep=${EVS_KEEP_A46B}|${BATCH_SIZE_A46B:-2}"
 )
 
 resolve_ckpt() {
