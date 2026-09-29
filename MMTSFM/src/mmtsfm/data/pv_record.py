@@ -103,12 +103,18 @@ def _decode_frame(raw: np.ndarray, png: bool) -> np.ndarray:
 
 
 def _prep_frame(
-    arr: np.ndarray, side: int, c_img: int, imagenet_norm: bool
+    arr: np.ndarray,
+    side: int,
+    c_img: int,
+    imagenet_norm: bool,
+    radiometric_norm: bool = False,
 ) -> torch.Tensor:
     """Raw uint8 H5 frame → float tensor (c_img, side, side) in [0, 1].
 
     Handles uk_pv ``(H, W)`` grayscale and goes_pvdaq ``(H, W, 3)`` RGB; resizes
     with PIL (up- or down-sampling) and maps native channels to ``c_img``.
+    When radiometric_norm is True, channel means and stds are standardized to match
+    the UK SEVIRI reference distribution (mean ~0.49, std ~0.15) before ImageNet norm.
     """
     from PIL import Image
 
@@ -138,6 +144,17 @@ def _prep_frame(
         t = t[:c_img]
     else:  # c_img > native_c > 1: pad by repeating first channel
         t = torch.cat([t, t[:1].expand(c_img - native_c, side, side)], dim=0)
+
+    if radiometric_norm:
+        for ch in range(t.shape[0]):
+            ch_mean = t[ch].mean()
+            ch_std = t[ch].std()
+            if ch_std > 1e-4:
+                t[ch] = (t[ch] - ch_mean) / ch_std * 0.15 + 0.49
+            else:
+                t[ch] = torch.full_like(t[ch], 0.49)
+        t = t.clamp(0.0, 1.0)
+
     if imagenet_norm and c_img == 3:
         t = (t - _IMAGENET_MEAN) / _IMAGENET_STD
     return t
@@ -177,10 +194,12 @@ class PVRecordDataset(Dataset):
         vjepa_cache_dir: str | None = None,
         emit_vision: bool = True,
         resample_cadence_min: int | None = None,
+        radiometric_norm: bool = False,
         **_ignored,
     ):
         super().__init__()
         self.dataset_name = dataset_name
+        self.radiometric_norm = bool(radiometric_norm)
         self.resample_cadence_min = (
             int(resample_cadence_min) if resample_cadence_min is not None else None
         )
@@ -631,10 +650,25 @@ class PVRecordDataset(Dataset):
                 if burst:
                     video_delta_t[0, j] = float(offsets[Tv - 1 - j])
                 continue
+            is_valid = True
             if images is not None:
                 raw = _decode_frame(images[fmap[t]], self.png_frames)
-                V[0, j] = _prep_frame(raw, S, C, self.imagenet_norm)
-            mask_v[0, j] = 1.0
+                if self.radiometric_norm and float(np.mean(raw)) < 5.0:
+                    is_valid = False
+                if is_valid:
+                    V[0, j] = _prep_frame(
+                        raw,
+                        S,
+                        C,
+                        self.imagenet_norm,
+                        radiometric_norm=self.radiometric_norm,
+                    )
+                    mask_v[0, j] = 1.0
+                else:
+                    V[0, j] = 0.0
+                    mask_v[0, j] = 0.0
+            else:
+                mask_v[0, j] = 1.0
             video_delta_t[0, j] = float(t_now - t)
 
         return V, mask_v, video_delta_t

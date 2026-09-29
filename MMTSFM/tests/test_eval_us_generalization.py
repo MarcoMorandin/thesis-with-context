@@ -85,6 +85,24 @@ def test_eval_us_generalization_batch_sizes_and_flags():
     assert "data.batch_size=8" in s1_cmd
 
 
+def test_eval_us_generalization_visual_scale_and_evs_keep():
+    plan = _run_dry_plan(SEEDS="42")
+    s2a_cmd = [line for line in plan.splitlines() if line.strip().startswith("uv run") and "stage=s2a" in line][0]
+    assert "model.vision_cfg.visual_scale=0.5" in s2a_cmd
+
+    s2d_cmd = [line for line in plan.splitlines() if line.strip().startswith("uv run") and "model=vision_chronos2_s2d" in line][0]
+    assert "model.vision_cfg.visual_scale=0.5" in s2d_cmd
+    assert "model.vision_cfg.visual_evs_keep=14" in s2d_cmd
+
+    s2e_cmd = [line for line in plan.splitlines() if line.strip().startswith("uv run") and "tag=mmtsfm_s2e_goespvdaq_s2e_s42" in line][0]
+    assert "model.vision_cfg.visual_scale=0.5" in s2e_cmd
+    assert "model.vision_cfg.visual_evs_keep=20" in s2e_cmd
+
+    a46b_cmd = [line for line in plan.splitlines() if line.strip().startswith("uv run") and "tag=mmtsfm_A46b_s2e_goespvdaq_s42" in line][0]
+    assert "model.vision_cfg.visual_scale=0.5" in a46b_cmd
+    assert "model.vision_cfg.visual_evs_keep=70" in a46b_cmd
+
+
 def test_eval_us_generalization_multi_seed():
     plan = _run_dry_plan(SEEDS="42 43", ONLY="s1")
     tags = re.findall(r"model\.results_tag=(\S+)", plan)

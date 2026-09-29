@@ -103,6 +103,7 @@ class MMTSFMDataModule(LightningDataModule):
         shuffle_test: bool = False,
         shuffle_test_seed: int = 42,
         resample_cadence_min: Optional[int] = None,
+        radiometric_norm: bool = False,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -138,6 +139,7 @@ class MMTSFMDataModule(LightningDataModule):
                 future_cov=self.hparams.future_cov,
                 stride=self.hparams.train_stride if split == "train" else None,
                 resample_cadence_min=self.hparams.get("resample_cadence_min", None),
+                radiometric_norm=self.hparams.get("radiometric_norm", False),
             )
         return MMTSFMDataset(
             num_samples=num_samples,

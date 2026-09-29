@@ -62,6 +62,7 @@ vision_cfg:
 
   dropout: 0.1
   n_entities: 0
+  visual_scale: 1.0
 
 # ---- Optimiser & schedule ----
 lr: 1.0e-4

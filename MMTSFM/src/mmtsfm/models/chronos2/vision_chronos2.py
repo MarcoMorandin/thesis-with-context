@@ -415,6 +415,9 @@ class VisionChronos2Config:
     visual_encoder_ckpt_path: str = ""
     freeze_visual_encoder: bool = True
     skip_vision_stack: bool = False
+    # Visual embedding scaling/damping factor (1.0 = full learned scale; < 1.0 damps
+    # out-of-distribution visual embeddings for zero-shot cross-sensor evaluation).
+    visual_scale: float = 1.0
 
     # --- Ablation switches (see knowledge/ablations.md §2.5) ---
     # A19: the learned per-lead-time query offset on the s2c future queries. When
@@ -913,6 +916,8 @@ class VisionChronos2Model(nn.Module):
         )
 
         # Cross-modal adapter on the visual window — [B, n_vis, N_soft, d_model]
+        if float(getattr(self.vcfg, "visual_scale", 1.0)) != 1.0:
+            vis_window = vis_window * float(self.vcfg.visual_scale)
         soft_win = self.cross_modal_adapter(vis_window)
 
         # Zero-pad to full T_ctx: early positions (long TS history) receive no visual tokens
@@ -1345,6 +1350,9 @@ class VisionChronos2Model(nn.Module):
                         vis_summary
                     )  # [B, n_vis, N_soft, d]
                     vis_summary = vis_summary.reshape(B_, n_vis * N_soft, -1)
+
+            if float(getattr(self.vcfg, "visual_scale", 1.0)) != 1.0:
+                vis_summary = vis_summary * float(self.vcfg.visual_scale)
 
             # Multimodal embeddings for TS tokens
             input_embeds_mm = self.multimodal_embed.add_modality(
