@@ -39,7 +39,7 @@ class MMTSFMDataModule(LightningDataModule):
         batch_size: int = 16,
         num_workers: int = 0,
         num_entities: int = 10,
-        hist_steps: int = 24,
+        hist_steps: Optional[int] = None,
         horizon: int = 12,
         history_days: float = 14.0,  # pv_record physical-time history (knowledge/protocol.md §3)
         horizon_hours: float = 6.0,  # pv_record physical-time horizon
@@ -102,6 +102,7 @@ class MMTSFMDataModule(LightningDataModule):
         # nothing else.
         shuffle_test: bool = False,
         shuffle_test_seed: int = 42,
+        resample_cadence_min: Optional[int] = None,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -136,6 +137,7 @@ class MMTSFMDataModule(LightningDataModule):
                 emit_vision=self.hparams.emit_vision,
                 future_cov=self.hparams.future_cov,
                 stride=self.hparams.train_stride if split == "train" else None,
+                resample_cadence_min=self.hparams.get("resample_cadence_min", None),
             )
         return MMTSFMDataset(
             num_samples=num_samples,
