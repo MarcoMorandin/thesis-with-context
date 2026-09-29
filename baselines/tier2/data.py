@@ -21,6 +21,7 @@ def build_dataset(
     history: int,
     horizon: int,
     train_stride: int,
+    resample_cadence_min: int | None = None,
 ):
     """One split's windows. val/test stride is forced to H by the dataset."""
     from mmtsfm.data.pv_record import PVRecordDataset
@@ -41,6 +42,7 @@ def build_dataset(
         # the assumption MMTSFM is trained under.
         future_cov="all",
         stride=train_stride if split == "train" else None,
+        resample_cadence_min=resample_cadence_min,
     )
 
 

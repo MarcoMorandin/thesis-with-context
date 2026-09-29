@@ -110,6 +110,22 @@ def parse_args() -> argparse.Namespace:
         "--ckpt-dir", default=str(_BASELINES / "checkpoints" / "itransformer_nf")
     )
     p.add_argument(
+        "--ckpt-path",
+        default=None,
+        help="Path to an existing checkpoint to evaluate with --eval-only",
+    )
+    p.add_argument(
+        "--eval-only",
+        action="store_true",
+        help="Skip fitting and run evaluation on the test split only",
+    )
+    p.add_argument(
+        "--resample-cadence-min",
+        type=int,
+        default=None,
+        help="Subsample timestamps to multiples of this cadence in minutes",
+    )
+    p.add_argument(
         "--sp-reference",
         default=None,
         help="Smart-Persistence results JSON for the Skill Score",
@@ -131,20 +147,29 @@ STEPS_PER_DAY = {"uk_pv": 48, "goes_pvdaq": 96}
 
 def window_steps(args: argparse.Namespace) -> tuple[int, int]:
     """(T, H) in steps — identical arithmetic to PVRecordDataset."""
-    spd = STEPS_PER_DAY.get(args.dataset)
-    if spd is None:
-        raise SystemExit(
-            f"unknown cadence for dataset {args.dataset!r}; add it to STEPS_PER_DAY"
-        )
+    if args.resample_cadence_min is not None:
+        spd = int(round(1440.0 / args.resample_cadence_min))
+    else:
+        spd = STEPS_PER_DAY.get(args.dataset)
+        if spd is None:
+            raise SystemExit(
+                f"unknown cadence for dataset {args.dataset!r}; add it to STEPS_PER_DAY"
+            )
     return int(round(args.history_days * spd)), int(
         round(args.horizon_hours / 24.0 * spd)
     )
 
 
-def build_loaders(args: argparse.Namespace, history: int, horizon: int):
+def build_loaders(
+    args: argparse.Namespace,
+    history: int,
+    horizon: int,
+    test_only: bool = False,
+):
     """(train, val, test) loaders over MMTSFM's own PVRecordDataset windows."""
     splits = {}
-    for split in ("train", "val", "test"):
+    splits_to_load = ("test",) if test_only else ("train", "val", "test")
+    for split in splits_to_load:
         ds = build_dataset(
             split=split,
             data_dir=args.data_dir,
@@ -152,11 +177,14 @@ def build_loaders(args: argparse.Namespace, history: int, horizon: int):
             history=history,
             horizon=horizon,
             train_stride=args.train_stride,
+            resample_cadence_min=args.resample_cadence_min,
         )
         splits[split] = build_loader(
             ds, args.batch_size, args.num_workers, train=(split == "train")
         )
         print(f"[data] {split}: {len(ds)} windows", flush=True)
+    if test_only:
+        return None, None, splits["test"]
     return splits["train"], splits["val"], splits["test"]
 
 
@@ -173,6 +201,28 @@ def main() -> None:
     root.mkdir(parents=True, exist_ok=True)
 
     history, horizon = window_steps(args)
+    if args.eval_only:
+        if not args.ckpt_path:
+            raise SystemExit("--eval-only requires --ckpt-path")
+        _, _, test_loader = build_loaders(args, history, horizon, test_only=True)
+        module = ITransformerNFModule.load_from_checkpoint(
+            args.ckpt_path,
+            results_dir=args.out,
+            results_tag=tag,
+            sp_reference_path=args.sp_reference,
+            data_path=str(Path(args.data_dir) / "dataset_all.parquet"),
+            strict=False,
+        )
+        trainer = pl.Trainer(
+            accelerator="auto",
+            devices=1,
+            precision=args.precision,
+            logger=False,
+            enable_progress_bar=False,
+        )
+        trainer.test(module, dataloaders=test_loader)
+        return
+
     train_loader, val_loader, test_loader = build_loaders(args, history, horizon)
     module = ITransformerNFModule(
         history=history,
