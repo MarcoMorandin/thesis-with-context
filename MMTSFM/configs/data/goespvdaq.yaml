@@ -11,11 +11,12 @@ num_workers: 8
 num_entities: 4              # W4: 4 distinct plants/group at TRAIN time (cross-plant
                              # mixing); val/test forced to 1 in the datamodule
 
-# 14-day history / 6-hour horizon at 15-min cadence → 1344 / 24 steps.
+# 14-day history / 6-hour horizon at 30-min resampled cadence → 672 / 12 steps.
 history_days: 14.0
 horizon_hours: 6.0
 hist_steps: null
-horizon: 24
+horizon: 12
+resample_cadence_min: 30
 
 target_dim: 1
 covariate_dim: 14

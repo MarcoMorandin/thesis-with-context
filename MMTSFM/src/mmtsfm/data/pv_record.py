@@ -176,10 +176,14 @@ class PVRecordDataset(Dataset):
         num_entities: int = 1,
         vjepa_cache_dir: str | None = None,
         emit_vision: bool = True,
+        resample_cadence_min: int | None = None,
         **_ignored,
     ):
         super().__init__()
         self.dataset_name = dataset_name
+        self.resample_cadence_min = (
+            int(resample_cadence_min) if resample_cadence_min is not None else None
+        )
         # False → vision-free runs (model.vision_cfg.skip_vision_stack=true):
         # emit a 1×1-pixel placeholder V, no frame decode, no latent load.
         self.emit_vision = bool(emit_vision)
@@ -363,6 +367,17 @@ class PVRecordDataset(Dataset):
         df = df[df[config.SITE_COL].isin(site_ids)]
         if df.empty:
             raise ValueError(f"pv_record: no rows for {dataset_name} {split} plants")
+
+        if self.resample_cadence_min is not None:
+            t = pd.to_datetime(df[config.TIME_COL])
+            df = df[
+                (t.dt.minute % self.resample_cadence_min == 0) & (t.dt.second == 0)
+            ].copy()
+            if df.empty:
+                raise ValueError(
+                    f"pv_record: no rows for {dataset_name} {split} plants after "
+                    f"resampling to {self.resample_cadence_min}-min cadence"
+                )
 
         spd = _steps_per_day(df)
         self.T = int(hist_steps) if hist_steps else int(round(history_days * spd))

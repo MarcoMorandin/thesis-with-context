@@ -94,6 +94,9 @@ def parse_args() -> argparse.Namespace:
                              "weather treated as available (NWP assumption), and "
                              "the perfect-foresight ceiling when paired with the "
                              "chronos2_oracle* models")
+    parser.add_argument("--resample-cadence-min", type=int, default=None,
+                        help="Subsample dataframe timestamps to multiples of this "
+                             "cadence in minutes (e.g. 30 for goes_pvdaq → 30min)")
     return parser.parse_args()
 
 
@@ -265,6 +268,11 @@ def main() -> None:
     if unknown:
         raise SystemExit(f"unknown models {unknown}; known: {sorted(REGISTRY)}")
     df = pd.read_parquet(args.data)
+    if args.resample_cadence_min is not None:
+        t = pd.to_datetime(df[config.TIME_COL])
+        df = df[
+            (t.dt.minute % args.resample_cadence_min == 0) & (t.dt.second == 0)
+        ].copy()
     if SPLITS_PATH.exists():
         splits = load_splits()
     else:

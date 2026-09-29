@@ -51,8 +51,20 @@ FAIL_FAST="${FAIL_FAST:-0}"
 DRY_RUN="${DRY_RUN:-0}"
 NUM_WORKERS="${NUM_WORKERS:-8}"
 TRAINER_CFG="${TRAINER_CFG:-slurm}"
+SP_REF="${SP_REF:-${RESULTS_DIR}/smart_persistence_s2_goespvdaq.json}"
 
 vjepa_cache="${VJEPA_CACHE:-${VJEPA_CACHE_ROOT}/goes_pvdaq/${VJEPA_CACHE_VER}}"
+
+if [[ ! -f "$SP_REF" ]]; then
+  echo ">>> [SP] Generating US Smart Persistence baseline at 30-min cadence..."
+  echo "    uv run python run_eval.py --model smart_persistence --eval-datasets goes_pvdaq --split test --tag s2_goespvdaq --resample-cadence-min 30 --eval-stride 12"
+  if [[ "$DRY_RUN" != "1" ]]; then
+    (cd "${REPO_ROOT}/baselines" && uv run python run_eval.py \
+      --model smart_persistence --eval-datasets goes_pvdaq --split test \
+      --tag s2_goespvdaq --resample-cadence-min 30 --eval-stride 12 \
+      --out "${RESULTS_DIR}" --data "${DATA_DIR}/dataset_all.parquet")
+  fi
+fi
 
 # Specs: model_name | stage | model_cfg | default_ckpt_subpath | extra_hydra_args | batch_size
 MODEL_SPECS=(
@@ -118,6 +130,7 @@ for seed in $SEEDS; do
       "model.results_dir=${RESULTS_DIR}" "model.results_tag=${tag}"
       'hydra.run.dir=logs/experiments/runs/${now:%Y-%m-%d_%H-%M-%S}_'"${tag}"
     )
+    [[ -f "$SP_REF" ]] && CMD+=("model.sp_reference_path=${SP_REF}")
     [[ -d "$vjepa_cache" ]] && CMD+=("data.vjepa_cache_dir=${vjepa_cache}")
     [[ -n "$extra_args" ]] && { IFS=' ' read -r -a extras <<< "$extra_args"; CMD+=("${extras[@]}"); }
 

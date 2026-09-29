@@ -89,3 +89,13 @@ def test_eval_us_generalization_multi_seed():
     plan = _run_dry_plan(SEEDS="42 43", ONLY="s1")
     tags = re.findall(r"model\.results_tag=(\S+)", plan)
     assert tags == ["mmtsfm_s1_goespvdaq_selfattn_s42", "mmtsfm_s1_goespvdaq_selfattn_s43"]
+
+
+def test_eval_us_generalization_sp_reference(tmp_path):
+    sp_file = tmp_path / "smart_persistence_s2_goespvdaq.json"
+    plan_missing = _run_dry_plan(SP_REF=str(sp_file), ONLY="s1")
+    assert "[SP] Generating US Smart Persistence baseline at 30-min cadence" in plan_missing
+
+    sp_file.write_text("{}")
+    plan_exists = _run_dry_plan(SP_REF=str(sp_file), ONLY="s1")
+    assert f"model.sp_reference_path={sp_file}" in plan_exists
