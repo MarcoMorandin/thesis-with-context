@@ -116,6 +116,18 @@ def test_windows_match_the_mmtsfm_data_config():
     assert script.window_steps(args) == (672, cfg["horizon"])
 
 
+def test_window_steps_with_resample_cadence():
+    from tier2 import train_itransformer_nf as script
+
+    args = argparse.Namespace(
+        dataset="goes_pvdaq",
+        history_days=14.0,
+        horizon_hours=6.0,
+        resample_cadence_min=30,
+    )
+    assert script.window_steps(args) == (672, 12)
+
+
 def test_recipe_matches_the_mmtsfm_trainer_and_model_configs():
     args = _script_defaults()
     model_cfg = yaml.safe_load(

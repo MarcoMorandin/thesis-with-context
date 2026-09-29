@@ -65,10 +65,7 @@ def exact_mask_source(data_path: str, sites: list[str]) -> dict:
         config.CLEARSKY_COL,
     ]
     df = pd.read_parquet(data_path, columns=cols)
-    df = df[
-        (df[config.DATASET_COL] == "uk_pv")
-        & (df[config.SITE_COL].astype(str).isin(set(sites)))
-    ]
+    df = df[df[config.SITE_COL].astype(str).isin(set(sites))]
     df[config.TIME_COL] = pd.to_datetime(df[config.TIME_COL], utc=True)
     out = {}
     for site, g in df.groupby(config.SITE_COL):
@@ -93,6 +90,8 @@ def exact_mask(true: np.ndarray, site: str, ukpv_dir: Path, source: dict):
     import pandas as pd
 
     csv_path = ukpv_dir / f"uk_pv_test_{site}.csv"
+    if not csv_path.exists():
+        csv_path = ukpv_dir / f"goes_pvdaq_test_{site}.csv"
     if not csv_path.exists() or site not in source:
         print(f"WARN: {site}: no {csv_path.name} / not in parquet — proxy mask")
         return None
