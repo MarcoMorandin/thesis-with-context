@@ -104,6 +104,7 @@ class MMTSFMDataModule(LightningDataModule):
         shuffle_test_seed: int = 42,
         resample_cadence_min: Optional[int] = None,
         radiometric_norm: bool = False,
+        test_split: str = "test",
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -169,8 +170,9 @@ class MMTSFMDataModule(LightningDataModule):
             self.val_dataset = self._make_dataset("val", self.hparams.num_samples_val)
 
         if stage in ("test", None):
+            test_split = getattr(self.hparams, "test_split", "test") or "test"
             self.test_dataset = self._make_dataset(
-                "test", self.hparams.num_samples_test
+                test_split, self.hparams.num_samples_test
             )
 
     def _loader(

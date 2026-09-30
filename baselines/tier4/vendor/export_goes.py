@@ -38,12 +38,23 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--data", default=config.DEFAULT_DATA_PATH)
     ap.add_argument("--out", required=True, help="output directory for CSVs")
+    ap.add_argument(
+        "--split",
+        default="test",
+        choices=["test", "val", "train", "all"],
+        help="Split to export",
+    )
     args = ap.parse_args()
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     splits = load_splits().get("goes_pvdaq", {})
-    test_sites = splits.get("test", ["1202"])
+    if args.split == "all":
+        test_sites = sorted(
+            {s for part in ("train", "val", "test") for s in splits.get(part, [])}
+        )
+    else:
+        test_sites = splits.get(args.split, ["1202"])
 
     cols = [
         config.DATASET_COL,

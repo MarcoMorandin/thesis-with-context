@@ -39,3 +39,4 @@ vis_cadence_multiplier: 1
 # sets this true.
 shuffle_test: false
 shuffle_test_seed: 42
+test_split: test

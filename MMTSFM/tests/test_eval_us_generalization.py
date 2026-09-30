@@ -40,11 +40,11 @@ def _run_dry_plan(**env_overrides: str) -> str:
 def test_eval_us_generalization_all_models():
     plan = _run_dry_plan(SEEDS="42")
     models = re.findall(r"^>>> \[EVAL\] model=(\S+)", plan, flags=re.MULTILINE)
-    assert models == ["s1", "s2a", "s2d", "s2e", "A46b"], f"Unexpected models: {models}"
+    assert models == ["itransformer", "s1", "s2a", "s2d", "s2e", "A46b", "timevlm"], f"Unexpected models: {models}"
 
 
 def test_eval_us_generalization_tags_and_checkpoints():
-    plan = _run_dry_plan(SEEDS="42")
+    plan = _run_dry_plan(SEEDS="42", ONLY="s1 s2a s2d s2e A46b")
     tags = re.findall(r"model\.results_tag=(\S+)", plan)
     ckpts = re.findall(r"ckpt_path=(\S+)", plan)
 
@@ -53,11 +53,11 @@ def test_eval_us_generalization_tags_and_checkpoints():
     assert len(set(ckpts)) == 5, f"Checkpoint collision: {ckpts}"
 
     expected_tags = {
-        "mmtsfm_s1_goespvdaq_selfattn_s42",
-        "mmtsfm_s2a_goespvdaq_selfattn_s42",
-        "mmtsfm_s2d_goespvdaq_s2d_s42",
-        "mmtsfm_s2e_goespvdaq_s2e_s42",
-        "mmtsfm_A46b_s2e_goespvdaq_s42",
+        "mmtsfm_s1_goespvdaq_selfattn_all_s42",
+        "mmtsfm_s2a_goespvdaq_selfattn_all_s42",
+        "mmtsfm_s2d_goespvdaq_s2d_all_s42",
+        "mmtsfm_s2e_goespvdaq_s2e_all_s42",
+        "mmtsfm_A46b_s2e_goespvdaq_all_s42",
     }
     assert set(tags) == expected_tags
 
@@ -69,7 +69,7 @@ def test_eval_us_generalization_only_filter():
 
 
 def test_eval_us_generalization_batch_sizes_and_flags():
-    plan = _run_dry_plan(SEEDS="42")
+    plan = _run_dry_plan(SEEDS="42", ONLY="A46b s1")
     # A46b must have batch_size=2 and +ablation=A46b
     a46b_lines = [line for line in plan.splitlines() if "model=A46b" in line or ("A46b" in line and "uv run" in line)]
     a46b_cmd = [line for line in a46b_lines if line.strip().startswith("uv run")][0]
@@ -78,6 +78,7 @@ def test_eval_us_generalization_batch_sizes_and_flags():
     assert "data=goespvdaq" in a46b_cmd
     assert "train=false" in a46b_cmd
     assert "test=true" in a46b_cmd
+    assert "data.test_split=all" in a46b_cmd
 
     # s1 does not have compute_marginal_gain
     s1_cmd = [line for line in plan.splitlines() if line.strip().startswith("uv run") and "stage=s1" in line][0]
@@ -86,7 +87,7 @@ def test_eval_us_generalization_batch_sizes_and_flags():
 
 
 def test_eval_us_generalization_visual_scale_and_evs_keep():
-    plan = _run_dry_plan(SEEDS="42")
+    plan = _run_dry_plan(SEEDS="42", ONLY="s2a s2d s2e A46b")
     s2a_cmd = [line for line in plan.splitlines() if line.strip().startswith("uv run") and "stage=s2a" in line][0]
     assert "model.vision_cfg.visual_scale=0.5" in s2a_cmd
 
@@ -94,11 +95,11 @@ def test_eval_us_generalization_visual_scale_and_evs_keep():
     assert "model.vision_cfg.visual_scale=0.5" in s2d_cmd
     assert "model.vision_cfg.visual_evs_keep=14" in s2d_cmd
 
-    s2e_cmd = [line for line in plan.splitlines() if line.strip().startswith("uv run") and "tag=mmtsfm_s2e_goespvdaq_s2e_s42" in line][0]
+    s2e_cmd = [line for line in plan.splitlines() if line.strip().startswith("uv run") and "tag=mmtsfm_s2e_goespvdaq_s2e_all_s42" in line][0]
     assert "model.vision_cfg.visual_scale=0.5" in s2e_cmd
     assert "model.vision_cfg.visual_evs_keep=20" in s2e_cmd
 
-    a46b_cmd = [line for line in plan.splitlines() if line.strip().startswith("uv run") and "tag=mmtsfm_A46b_s2e_goespvdaq_s42" in line][0]
+    a46b_cmd = [line for line in plan.splitlines() if line.strip().startswith("uv run") and "tag=mmtsfm_A46b_s2e_goespvdaq_all_s42" in line][0]
     assert "model.vision_cfg.visual_scale=0.5" in a46b_cmd
     assert "model.vision_cfg.visual_evs_keep=70" in a46b_cmd
 
@@ -106,7 +107,7 @@ def test_eval_us_generalization_visual_scale_and_evs_keep():
 def test_eval_us_generalization_multi_seed():
     plan = _run_dry_plan(SEEDS="42 43", ONLY="s1")
     tags = re.findall(r"model\.results_tag=(\S+)", plan)
-    assert tags == ["mmtsfm_s1_goespvdaq_selfattn_s42", "mmtsfm_s1_goespvdaq_selfattn_s43"]
+    assert tags == ["mmtsfm_s1_goespvdaq_selfattn_all_s42", "mmtsfm_s1_goespvdaq_selfattn_all_s43"]
 
 
 def test_eval_us_generalization_sp_reference(tmp_path):
