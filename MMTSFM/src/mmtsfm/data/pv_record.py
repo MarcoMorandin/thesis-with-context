@@ -365,7 +365,15 @@ class PVRecordDataset(Dataset):
             raise ValueError(
                 f"pv_record: dataset {dataset_name!r} not in splits {sorted(splits)}"
             )
-        site_ids = {str(s) for s in splits[dataset_name][_normalize_part(split)]}
+        part = _normalize_part(split)
+        if part == "all":
+            site_ids = {
+                str(s)
+                for k in ("train", "val", "test")
+                for s in splits[dataset_name].get(k, [])
+            }
+        else:
+            site_ids = {str(s) for s in splits[dataset_name][part]}
 
         cols = sorted(
             {

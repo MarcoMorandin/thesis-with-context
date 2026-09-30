@@ -70,7 +70,14 @@ def load_splits(path: Path = SPLITS_PATH) -> dict[str, dict[str, list[str]]]:
 
 
 def sites_for(splits: dict, part: str) -> set[str]:
-    """All site_ids of one split part across datasets."""
+    """All site_ids of one split part across datasets (or all usable sites if part=='all')."""
+    if part == "all":
+        return {
+            s
+            for parts in splits.values()
+            for p in ("train", "val", "test")
+            for s in parts.get(p, [])
+        }
     return {s for parts in splits.values() for s in parts[part]}
 
 

@@ -13,7 +13,9 @@ VENV_NAME="${VENV_NAME:-timevlm}"
 DATA="${DATA:-${TEAM_SCRATCH}/data_v2/dataset_all.parquet}"
 UKPV_DIR="${UKPV_DIR:-${TEAM_SCRATCH}/data_v2/ukpv_rag}"
 RESULTS_DIR="${RESULTS_DIR:-$PWD/results}"
-SP_REF="${SP_REF:-${RESULTS_DIR}/smart_persistence_s2_goespvdaq.json}"
+TEST_SPLIT="${TEST_SPLIT:-all}"
+TAG="${TAG:-s2_goespvdaq_${TEST_SPLIT}}"
+SP_REF="${SP_REF:-${RESULTS_DIR}/smart_persistence_s2_goespvdaq_${TEST_SPLIT}.json}"
 SEQ_LEN="${SEQ_LEN:-672}"
 PRED_LEN="${PRED_LEN:-12}"
 VLM_TYPE="${VLM_TYPE:-CLIP}"
@@ -24,9 +26,9 @@ DRY_RUN="${DRY_RUN:-0}"
 export TRANSFORMERS_OFFLINE=1 HF_HUB_OFFLINE=1 HF_DATASETS_OFFLINE=1
 export TOKENIZERS_PARALLELISM=false WANDB_MODE=offline VISION_MODEL_PATH
 
-echo ">>> [Time-VLM] Exporting goes_pvdaq test series to 30-min Informer CSV..."
+echo ">>> [Time-VLM] Exporting goes_pvdaq (${TEST_SPLIT}) series to 30-min Informer CSV..."
 if [[ "$DRY_RUN" != "1" ]]; then
-  uv run python tier4/vendor/export_goes.py --data "$DATA" --out "$UKPV_DIR"
+  uv run python tier4/vendor/export_goes.py --data "$DATA" --out "$UKPV_DIR" --split "$TEST_SPLIT"
 fi
 
 common_args=(
@@ -62,7 +64,7 @@ fi
 )
 
 echo ">>> [Time-VLM] Importing predictions against US Smart Persistence reference..."
-uv run python scripts/import_predictions.py --model time_vlm --tag s2_goespvdaq \
+uv run python scripts/import_predictions.py --model time_vlm --tag "$TAG" \
   --glob 'tier5/vendor/time_vlm/results/*/goes_pvdaq_test_*_pred.npz' \
   --reference "$SP_REF" --ukpv_dir "$UKPV_DIR" --data "$DATA" --out "$RESULTS_DIR"
-echo "✓ Time-VLM done → ${RESULTS_DIR}/time_vlm_s2_goespvdaq.json"
+echo "✓ Time-VLM done → ${RESULTS_DIR}/time_vlm_${TAG}.json"

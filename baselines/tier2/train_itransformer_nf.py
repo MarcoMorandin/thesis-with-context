@@ -131,6 +131,12 @@ def parse_args() -> argparse.Namespace:
         help="Smart-Persistence results JSON for the Skill Score",
     )
     p.add_argument(
+        "--split",
+        default="test",
+        choices=["train", "val", "test", "all"],
+        help="Split to evaluate when --eval-only is set",
+    )
+    p.add_argument(
         "--limit-train-batches",
         type=float,
         default=None,
@@ -167,8 +173,9 @@ def build_loaders(
     test_only: bool = False,
 ):
     """(train, val, test) loaders over MMTSFM's own PVRecordDataset windows."""
+    eval_split = getattr(args, "split", "test")
     splits = {}
-    splits_to_load = ("test",) if test_only else ("train", "val", "test")
+    splits_to_load = (eval_split,) if test_only else ("train", "val", "test")
     for split in splits_to_load:
         ds = build_dataset(
             split=split,
@@ -184,7 +191,7 @@ def build_loaders(
         )
         print(f"[data] {split}: {len(ds)} windows", flush=True)
     if test_only:
-        return None, None, splits["test"]
+        return None, None, splits[eval_split]
     return splits["train"], splits["val"], splits["test"]
 
 

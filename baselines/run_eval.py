@@ -49,7 +49,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--model", nargs="+", required=True)
     parser.add_argument("--data", default=config.DEFAULT_DATA_PATH)
-    parser.add_argument("--split", default="test", choices=["val", "test"])
+    parser.add_argument("--split", default="test", choices=["val", "test", "all"])
     # Windows default to PHYSICAL TIME (per-dataset, cadence-fair). Pass the
     # step-based --history/--horizon to override (e.g. S4 long-horizon --horizon 48).
     parser.add_argument("--history", type=int, default=None,

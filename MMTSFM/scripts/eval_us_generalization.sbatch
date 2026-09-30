@@ -15,7 +15,7 @@
 # Evaluates models trained on UK PV (MMTSFM, chronos2_ft, itransformer, timevlm)
 # zero-shot on US goes_pvdaq (resampled to 30-min cadence) without retraining.
 #
-# Usage: [SEEDS="42"] [ONLY="itransformer chronos2_ft timevlm s2d"] \
+# Usage: [SEEDS="42 43 44"] [TEST_SPLIT="all"] [ONLY="itransformer chronos2_ft timevlm s2d"] \
 #        sbatch scripts/eval_us_generalization.sbatch
 #        DRY_RUN=1 bash scripts/eval_us_generalization.sbatch
 # =============================================================================
@@ -35,12 +35,14 @@ mkdir -p logs/slurm
 
 TEAM_SCRATCH="${TEAM_SCRATCH:-/leonardo_scratch/fast/IscrC_MTSFM}"
 DATA_DIR="${DATA_DIR:-${TEAM_SCRATCH}/data_v2}"; CKPT_DIR="${CKPT_DIR:-${TEAM_SCRATCH}/checkpoints/curriculum}"
-RESULTS_DIR="${RESULTS_DIR:-${REPO_ROOT}/baselines/results}"; SP_REF="${SP_REF:-${RESULTS_DIR}/smart_persistence_s2_goespvdaq.json}"
+RESULTS_DIR="${RESULTS_DIR:-${REPO_ROOT}/baselines/results}"
+TEST_SPLIT="${TEST_SPLIT:-all}"; SPLIT_SFX=""; [[ "$TEST_SPLIT" != "test" ]] && SPLIT_SFX="_${TEST_SPLIT}"
+SP_REF="${SP_REF:-${RESULTS_DIR}/smart_persistence_s2_goespvdaq${SPLIT_SFX}.json}"
 VJEPA_CACHE_ROOT="${VJEPA_CACHE_ROOT:-/leonardo_work/IscrC_MTSFM/vjepa_cache}"; VJEPA_ARCH="${VJEPA_ARCH:-vit_large}"
 VJEPA_CACHE_VER="${VJEPA_CACHE_VER:-${VJEPA_ARCH}_f8_s224_nonhrv_sp45}"
 vjepa_cache="${VJEPA_CACHE:-${VJEPA_CACHE_ROOT}/goes_pvdaq/${VJEPA_CACHE_VER}}"
 
-SEEDS="${SEEDS:-42}"; ONLY="${ONLY:-}"; SKIP_DONE="${SKIP_DONE:-1}"; DRY_RUN="${DRY_RUN:-0}"
+SEEDS="${SEEDS:-42 43 44}"; ONLY="${ONLY:-}"; SKIP_DONE="${SKIP_DONE:-1}"; DRY_RUN="${DRY_RUN:-0}"
 NUM_WORKERS="${NUM_WORKERS:-8}"; TRAINER_CFG="${TRAINER_CFG:-slurm}"; VISUAL_SCALE="${VISUAL_SCALE:-0.5}"
 EVS_KEEP_S2D="${EVS_KEEP_S2D:-14}"; EVS_KEEP_S2E="${EVS_KEEP_S2E:-20}"; EVS_KEEP_A46B="${EVS_KEEP_A46B:-70}"
 
@@ -54,35 +56,36 @@ is_selected() {
 
 # 1. US Smart Persistence Reference (30-min cadence)
 if [[ ! -f "$SP_REF" ]]; then
-  echo ">>> [SP] Generating US Smart Persistence baseline at 30-min cadence..."
+  echo ">>> [SP] Generating US Smart Persistence baseline at 30-min cadence (${TEST_SPLIT})..."
   [[ "$DRY_RUN" != "1" ]] && (cd "${REPO_ROOT}/baselines" && uv run python run_eval.py \
-    --model smart_persistence --eval-datasets goes_pvdaq --split test \
-    --tag s2_goespvdaq --resample-cadence-min 30 --eval-stride 12 \
+    --model smart_persistence --eval-datasets goes_pvdaq --split "${TEST_SPLIT}" \
+    --tag "s2_goespvdaq${SPLIT_SFX}" --resample-cadence-min 30 --eval-stride 12 \
     --out "${RESULTS_DIR}" --data "${DATA_DIR}/dataset_all.parquet")
 fi
 
 # 2. iTransformer (NeuralForecast, trained on UK PV)
 eval_itransformer() {
-  local seed="$1" tag="itransformer_nf_s2_goespvdaq_seed${seed}"
+  local seed="$1" tag="itransformer_nf_s2_goespvdaq${SPLIT_SFX}_seed${seed}"
   [[ "$SKIP_DONE" == "1" && -f "${RESULTS_DIR}/${tag}.json" ]] && { echo ">>> [SKIP] ${tag} exists"; return 0; }
   local dir="${CKPT_ITRANSFORMER:-${TEAM_SCRATCH}/checkpoints/itransformer_nf/seed${seed}}"
   local ckpt="${dir}/last.ckpt"
   [[ ! -f "$ckpt" ]] && { local c=( "${dir}"/epoch*.ckpt ); ckpt="${c[-1]:-${ckpt}}"; }
   echo ">>> [EVAL] model=itransformer seed=${seed} ckpt=${ckpt}"
-  [[ "$DRY_RUN" == "1" ]] && { echo "    (cd ${REPO_ROOT}/baselines && uv run --group nf python tier2/train_itransformer_nf.py --eval-only --ckpt-path ${ckpt} ...)"; return 0; }
+  [[ "$DRY_RUN" == "1" ]] && { echo "    (cd ${REPO_ROOT}/baselines && uv run --group nf python tier2/train_itransformer_nf.py --eval-only --split ${TEST_SPLIT} --ckpt-path ${ckpt} ...)"; return 0; }
   [[ ! -f "$ckpt" ]] && { echo "ERROR: itransformer ckpt not found: ${ckpt}" >&2; return 1; }
   (cd "${REPO_ROOT}/baselines" && uv run --group nf python tier2/train_itransformer_nf.py \
-    --eval-only --ckpt-path "$ckpt" --dataset goes_pvdaq --resample-cadence-min 30 \
+    --eval-only --split "$TEST_SPLIT" --ckpt-path "$ckpt" --dataset goes_pvdaq --resample-cadence-min 30 \
     --data-dir "$DATA_DIR" --out "$RESULTS_DIR" --tag "$tag" --sp-reference "$SP_REF")
 }
 
 # 3. Time-VLM (Tier 5, trained on UK PV)
 eval_timevlm() {
-  local tag="time_vlm_s2_goespvdaq"
+  local tag="time_vlm_s2_goespvdaq${SPLIT_SFX}"
   [[ "$SKIP_DONE" == "1" && -f "${RESULTS_DIR}/${tag}.json" ]] && { echo ">>> [SKIP] ${tag} exists"; return 0; }
   echo ">>> [EVAL] model=timevlm tag=${tag}"
   DATA="${DATA_DIR}/dataset_all.parquet" RESULTS_DIR="$RESULTS_DIR" SP_REF="$SP_REF" \
-    DRY_RUN="$DRY_RUN" bash "${REPO_ROOT}/baselines/scripts/eval_time_vlm_us.sh"
+    TEST_SPLIT="$TEST_SPLIT" TAG="s2_goespvdaq${SPLIT_SFX}" DRY_RUN="$DRY_RUN" \
+    bash "${REPO_ROOT}/baselines/scripts/eval_time_vlm_us.sh"
 }
 
 # 4. MMTSFM Curriculum & Controls (s1=chronos2_ft, s2a, s2d, s2e, A46b)
@@ -105,10 +108,10 @@ resolve_ckpt() {
 
 tag_for_model() {
   local model="$1" seed="$2" ckpt="$3"
-  if [[ "$model" == "A46b" ]]; then echo "mmtsfm_A46b_s2e_goespvdaq_s${seed}"
-  elif [[ "$model" == "s1" && "$ckpt" =~ uk_pv_s1/best.ckpt$ ]]; then echo "mmtsfm_s1_goespvdaq_grassmann_s${seed}"
-  elif [[ "$model" == "s1" || "$model" == "s2a" ]]; then echo "mmtsfm_${model}_goespvdaq_selfattn_s${seed}"
-  else echo "mmtsfm_${model}_goespvdaq_${model}_s${seed}"; fi
+  if [[ "$model" == "A46b" ]]; then echo "mmtsfm_A46b_s2e_goespvdaq${SPLIT_SFX}_s${seed}"
+  elif [[ "$model" == "s1" && "$ckpt" =~ uk_pv_s1/best.ckpt$ ]]; then echo "mmtsfm_s1_goespvdaq_grassmann${SPLIT_SFX}_s${seed}"
+  elif [[ "$model" == "s1" || "$model" == "s2a" ]]; then echo "mmtsfm_${model}_goespvdaq_selfattn${SPLIT_SFX}_s${seed}"
+  else echo "mmtsfm_${model}_goespvdaq_${model}${SPLIT_SFX}_s${seed}"; fi
 }
 
 for seed in $SEEDS; do
@@ -126,6 +129,7 @@ for seed in $SEEDS; do
     declare -a CMD=(
       python -m mmtsfm.train train=false test=true "+stage=${stage}" "model=${cfg}" data=goespvdaq
       "data.data_dir=${DATA_DIR}" "data.batch_size=${bs}" "data.num_workers=${NUM_WORKERS}"
+      "data.test_split=${TEST_SPLIT}"
       "trainer=${TRAINER_CFG}" trainer.devices=1 trainer.strategy=auto
       "seed=${seed}" "ckpt_path=${ckpt}" "model.results_dir=${RESULTS_DIR}" "model.results_tag=${tag}"
       'hydra.run.dir=logs/experiments/runs/${now:%Y-%m-%d_%H-%M-%S}_'"${tag}"
