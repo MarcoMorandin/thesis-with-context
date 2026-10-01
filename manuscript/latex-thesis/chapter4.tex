@@ -146,7 +146,7 @@ Figure~\ref{fig:mmtsfm-s2e} shows where the five visual blocks enter the numeric
 \label{fig:mmtsfm-s2e}
 \end{figure}
 
-Within each anchor, the paired-novelty selector ranks the 49 spatial trajectories by cosine change between the two slices. It retains both endpoints for the ten most-changing trajectories. This yields 20 tokens per anchor and 100 tokens overall.
+Within each anchor, visual token selection ranks the 49 spatial cells by cosine change between latent slices and retains the 20 highest-scoring candidates, yielding 100 tokens overall. A paired-novelty variant that retains both endpoints of the ten most dynamic trajectories is evaluated as a selector ablation in Chapter~\ref{cha:ablations}.
 
 Each visual block shares the integer position of the numerical patch at its daily anchor. The resulting sequence has 42 numerical context tokens, 100 visual tokens, and one future-query token, for a total of 143 positions as shown in Table~\ref{tab:token-budgets}.
 
@@ -254,7 +254,7 @@ The pooled-image baseline sends the cached patch field to a causal Perceiver-sty
 
 Spatial-token fusion keeps selected locations as separate entries. A $2\times2$ spatial-to-channel rearrangement combines each block of four neighboring patches into one of 49 cells. A projector maps each 4096-dimensional cell to the 768-dimensional Chronos-2 width. The selector retains all 49 cells from the first latent slice, then ranks cells from later slices by cosine change relative to the preceding slice and selects 49 additional candidates. Their coordinate embeddings identify the spatial cells, while sequence positions identify observation times. The resulting 98 visual tokens enter the target row at those times, giving the row 141 positions including numerical context and query.
 
-Multi-anchor applies paired-novelty selection independently at each daily anchor. It ranks the 49 spatial trajectories by the change between two latent slices. It retains both endpoints for the ten most-changing trajectories. This gives 20 tokens per anchor and 100 overall. Each block is placed at the numerical patch for its anchor. Full payload uses the single-anchor selector at every daily anchor. It contributes 98 tokens per anchor and 490 overall. Its target row has 533 positions.
+Multi-anchor allocates 20 visual tokens independently at each daily anchor, selecting cells with the highest temporal feature change to reach 100 tokens overall. Each block is placed at the numerical patch for its anchor. Full payload uses the single-anchor selector at every daily anchor. It contributes 98 tokens per anchor and 490 overall. Its target row has 533 positions.
 
 After assembly, temporal attention processes positions along each row, while group attention relates the target, covariate, and, for pooled-image fusion, auxiliary visual rows. In the interleaved arms, spatial tokens share the target row with numerical context and are processed through the same temporal blocks. The future-query token contains no future target value. It carries the request for all twelve forecast steps through the encoder, so later predictions do not consume earlier generated predictions.
 

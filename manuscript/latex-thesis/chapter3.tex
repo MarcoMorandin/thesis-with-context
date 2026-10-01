@@ -67,7 +67,7 @@ Among the collections surveyed here, none provides the combination of cross-plan
 
 The dataset has two parts. A flat Parquet table holds 1,337,654 numerical records across 35 columns. A packed HDF5 archive holds 4,103,892 image frames in 110 site groups. Keeping them apart leaves the numerical data easy to process while preserving timestamp-exact access to large visual payloads. The first track, in the United Kingdom, contains 100 residential photovoltaic systems from 1 January 2019 through 31 December 2020~\cite{ukpv}. Power is sampled every 30 minutes. The systems have capacities from 1.5 to 4.0 kW and are distributed across the United Kingdom. Satellite frames are available from EUMETSAT sources~\cite{eumetsat}.
 
-The second track combines ten United States NREL PVDAQ systems~\cite{pvdaq} with GOES imagery. It covers January through September 2019 at fifteen-minute cadence, with capacities from 1.8 to 408 kW. That spread brings a different scale of deployment, a different sensor product, and a different geographic context. The results chapter reports an inference-only transfer evaluation on one held-out US plant after resampling power to the same 30-minute cadence used in the UK benchmark. The primary multi-plant benchmark remains the UK evaluation. Table~\ref{tab:data-tracks} summarizes both.
+The second track combines ten United States NREL PVDAQ systems~\cite{pvdaq} with GOES imagery. It covers January through September 2019 at fifteen-minute cadence, with capacities from 1.8 to 408 kW. That spread brings a different scale of deployment, a different sensor product, and a different geographic context. The results chapter reports an inference-only transfer evaluation on eight quality-filtered held-out US plants after resampling power to the same 30-minute cadence used in the UK benchmark. The primary multi-plant benchmark remains the UK evaluation. Table~\ref{tab:data-tracks} summarizes both.
 
 \begin{table}[htbp]
 \centering
@@ -228,7 +228,7 @@ Figure~\ref{fig:feature-power} shows the remaining uncertainty from another view
 
 Ramps are the signed changes in normalized power between successive valid daytime observations. Figure~\ref{fig:ramp-rates} has one panel for each track. The horizontal axis gives the change per native power step: negative values are drops in production, positive values are rises, and zero means that production changed little. The vertical axis counts observations on a logarithmic scale, showing the large mass of small changes and the relatively rare steep changes. Values outside the displayed interval are placed at $-0.5$ or $0.5$; the outermost bars therefore include all larger changes.
 
-Both distributions peak sharply around zero, showing that most adjacent observations are similar. Their tails show the less frequent ramps that are harder to forecast and can dominate short-horizon errors. The figure describes the data, not a model result. Chapter~\ref{cha:protocol} defines how these observations become a scored ramp subset.
+Both distributions peak sharply around zero, showing that most adjacent observations are similar. Their tails show the less frequent ramps that are harder to forecast and can dominate short-horizon errors. While this exploratory visualization displays signed transitions to show directional symmetry, Chapter~\ref{cha:protocol} defines how these observations become a scored ramp subset based on absolute transition magnitude.
 
 \begin{figure}[H]
 \centering
