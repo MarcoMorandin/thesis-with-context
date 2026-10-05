@@ -1,0 +1,18 @@
+Source: /Volumes/dataset/dataset/{dataset_all.parquet,images_all.h5}
+Selection: context-window-selection.json; maximal eligible mean pixel difference.
+Power: native samples, no interpolation; verified against power_w / installed_power_w.
+Forecast: alpha * stored clearsky_ghi, clipped [0,1]; alpha fitted using only prior
+14-day valid clear observations before 09:00 UTC; illustrative, no benchmark score.
+Satellite display: all three source bands inverted, then shared gray-world
+channel gains [1.1510043464299995, 1.0546899314273759, 0.8452745352875048] applied to all six frames and clipped [0,1].
+Gains use pooled means across all six inverted frames, never per-image adjustment.
+Shared display filter: saturation 0.15 around channel mean, RGB multipliers
+[0.95,1.0,1.08] to remove warm cast, clipping [0,1], gamma exponent 0.65.
+This is display-enhanced false color, not reconstructed visible-light color.
+Selection uses original bands; source pixels and dataset remain unchanged.
+2019-06-28T09:00:00+00:00 group=uk_pv_11287 index=10136
+2019-06-28T12:00:00+00:00 group=uk_pv_11287 index=10148
+2019-06-28T15:00:00+00:00 group=uk_pv_11287 index=10160
+2019-06-01T09:00:00+00:00 group=uk_pv_11287 index=8597
+2019-06-01T12:00:00+00:00 group=uk_pv_11287 index=8609
+2019-06-01T15:00:00+00:00 group=uk_pv_11287 index=8621

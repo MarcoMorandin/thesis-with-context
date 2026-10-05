@@ -5,7 +5,26 @@ Many machine-learning and deep-learning forecasters learn to predict an entity's
 
 A short local history reflects recent operating states but provides little evidence about seasonal cycles, extreme transitions, or plant-specific weather responses. The forecaster must therefore import cross-entity representations learned during pretraining or fleet adaptation and condition them on local context. Neither approach guarantees transfer: models often capture patterns specific to training installations that degrade when evaluated on an unfamiliar plant.
 
+Figure~\ref{fig:problem_formulation} illustrates this knowledge transfer to unseen plants in the same region and in a new region.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/cross-plant-forecast-context.drawio.pdf}
+\caption{Knowledge transfer to unseen plants in the same region and in a new region. Data from UK source plants adapt a shared forecaster. Its learned weights are then applied to held-out UK plants and to US plants without local training. In both settings, fourteen days of local power and environmental context condition a six-hour forecast. Target plants supply inputs but no weight updates. Traces and network symbols are schematic.}
+\label{fig:problem_formulation}
+\end{figure}
+
+\newpage
 Photovoltaic power makes the transfer problem concrete. The sun's position sets a regular daily pattern, but clouds can change output quickly, and the same conditions affect plants differently. Because these cloud-driven changes can occur within the six-hour forecast, recent power shows only what has already happened at the plant. Weather fields describe conditions over a wider area, while satellite images show the nearby cloud field. These sources differ in timing, spatial detail, and format, so the model must combine them for each forecast without a long training history from the target plant.
+
+Figure~\ref{fig:pv_intermittency} compares clear conditions with a cloudy window containing repeated power ramps at held-out UK plant 11287. The clear-sky reference follows a smooth daily profile, but the cloudy-day measurements rise and fall sharply. Eight half-hour changes exceed ten percentage points of installed capacity, including a change larger than thirty percentage points. The satellite crops show the corresponding spatial observations.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\textwidth]{figures/pv-power-satellite-context.pdf}
+\caption{Clear-sky and cloudy conditions at UK plant 11287: (a) 28 June 2019; (b) 1 June 2019. Each row pairs a six-hour power trace with satellite observations of the same area. On the left, blue points show half-hourly measurements, joined by solid lines; a value of 0.5 denotes half the installed capacity. The orange dashed line is a naive clear-sky forecast, scaled using clear observations from the preceding fourteen days. The smooth profile in (a) contrasts with the repeated steep rises and falls in (b), which the reference forecast does not capture. On the right, display-enhanced infrared composites show cloud-field structure at 09:00, 12:00, and 15:00 UTC, read from left to right. The corpus is described in Chapter~\ref{cha:dataset}.}
+\label{fig:pv_intermittency}
+\end{figure}
 
 This thesis studies that challenge by constructing an aligned numerical and satellite corpus, evaluating forecasts on plants excluded from fitting, and testing interfaces between a numerical foundation model and a frozen visual encoder.
 
@@ -52,7 +71,6 @@ Let $H$ be the number of past power samples, $h$ the number of future power samp
 The first component is the power history through $t$; the final component is the target from the following $h$ steps and is withheld from the model. The covariate and mask components cover the indicated history and forecast intervals.
 
 The slice of $v$ is shorthand for the $L$ frames selected by UTC time up to the origin; its indices do not imply that images share the power-sampling grid. Keeping the two clocks separate avoids discarding frames or inventing intermediate ones. Chapter~\ref{cha:method} specifies the visual encoder's latent shapes and token selection.
-
 
 \subsection{Predictions and scoring}
 \label{sec:metric-definitions}
