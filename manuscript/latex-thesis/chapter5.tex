@@ -329,6 +329,15 @@ The main result is that spatial-token fusion improves point forecasts across mos
 
 \subsection{Interface and content controls}
 
+Figure~\ref{fig:visual-input-controls} summarizes the inference-time visual controls. Each condition is evaluated separately with the trained weights fixed; controls that change the training recipe are reported separately below.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\textwidth]{figures/visual-input-controls.drawio.pdf}
+\caption{Visual-input controls applied to a fixed checkpoint. Each row shows the normal input and its replacement in a separate inference pass. Zeroing removes visual embeddings; stale and wrong-plant clips change temporal or spatial correspondence. The latent-order control permutes temporal slices after encoding; the order shown is illustrative. Random selection retains the 98-token budget but differs from the trained selector. Comparisons use the same numerical inputs and matched scoring where possible.}
+\label{fig:visual-input-controls}
+\end{figure}
+
 Tables~\ref{tab:ablation-registry}, \ref{tab:ablation-content-grounding}, and \ref{tab:ablation-registry-continued} list the controls and interventions. The following paragraphs report their results and clarify which interpretation each comparison supports. The main arms are defined in Chapter~\ref{cha:method}. Controls preserve the plant split, seed-matched numerical warm start, and scoring rules unless a difference is stated.
 
 \begin{table}[htbp]

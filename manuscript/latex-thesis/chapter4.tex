@@ -49,6 +49,15 @@ Full payload & $42+1$ & $98\times5$ & 533 \\
 \label{tab:token-budgets}
 \end{table}
 
+Figure~\ref{fig:fusion-token-layouts} compares the placement and allocation of visual tokens across the five interfaces.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\textwidth]{figures/fusion-token-layouts.drawio.png}
+\caption{Numerical context, visual tokens, and future query layouts across the fusion arms.}
+\label{fig:fusion-token-layouts}
+\end{figure}
+
 Multi-anchor has a similar target-row length to spatial-token fusion, although it distributes 100 visual tokens across five anchors instead of placing 98 at one recent anchor. The full payload extension expands that budget to 490 visual tokens across the same five anchors.
 
 The pooled-image baseline compresses the 784 cells in the cached visual field to one learned summary before the numerical forecaster receives visual information. That summary is computed independently of the numerical state, and its auxiliary row cannot preserve an addressable image location. Spatial-token fusion retains 98 selected cells with their spatial identity. The later results therefore test whether that direct access to selected visual locations matters more than a global learned summary.

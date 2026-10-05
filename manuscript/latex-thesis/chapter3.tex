@@ -197,6 +197,15 @@ Masks/times & Whole sample & Validity, alignment, provenance \\
 \label{tab:sample-contract}
 \end{table}
 
+Figure~\ref{fig:forecast-window} shows the timing of these fields for a single-anchor sample on the UK model grid.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.98\textwidth]{figures/forecast-window.drawio.png}
+\caption{Forecast timeline showing power history, satellite observations, covariates, and the prediction horizon.}
+\label{fig:forecast-window}
+\end{figure}
+
 Since the dataset has two power cadences, a fixed number of observations does not mean the same physical history in each track. Defining the task in physical time avoids an accidental advantage for a model evaluated at a coarser cadence. Fourteen days span 672 half-hour positions on the UK grid and 1,344 quarter-hour positions on the US grid. A six-hour horizon spans 12 or 24 positions, respectively. These are model-grid positions; the stored daytime records and missing intervals remain subject to their validity masks.
 
 \section{Exploratory characterization}
