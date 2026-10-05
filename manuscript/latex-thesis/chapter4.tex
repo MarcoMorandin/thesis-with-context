@@ -146,7 +146,7 @@ Figure~\ref{fig:mmtsfm-s2e} shows where the five visual blocks enter the numeric
 \label{fig:mmtsfm-s2e}
 \end{figure}
 
-Within each anchor, visual token selection ranks the 49 spatial cells by cosine change between latent slices and retains the 20 highest-scoring candidates, yielding 100 tokens overall. A paired-novelty variant that retains both endpoints of the ten most dynamic trajectories is evaluated as a selector ablation in Chapter~\ref{cha:ablations}.
+Within each anchor, visual token selection ranks the 49 spatial cells by cosine change between latent slices and retains the 20 highest-scoring candidates, yielding 100 tokens overall. A paired-novelty variant that retains both endpoints of the ten most dynamic trajectories is evaluated as a selector ablation in Section~\ref{cha:ablations}.
 
 Each visual block shares the integer position of the numerical patch at its daily anchor. The resulting sequence has 42 numerical context tokens, 100 visual tokens, and one future-query token, for a total of 143 positions as shown in Table~\ref{tab:token-budgets}.
 
@@ -268,7 +268,7 @@ At inference, the selected checkpoint receives a window assembled by the same ti
 
 The encoder processes the assembled sequence once. Its future-query representation feeds the quantile head, which returns a tensor of shape $[B,12,9]$: $B$ forecast examples, twelve half-hour leads, and nine quantile levels from 0.1 through 0.9. The median supplies the point forecast; the full quantile set supports interval, CRPS, and calibration measures. The model does not impose monotonic ordering or apply post-hoc rearrangement, so predicted quantiles are not guaranteed to increase with their stated probability. Training loss and evaluation metrics use the validity masks, with plant weighting and ramp selection specified in Chapter~\ref{cha:protocol}.
 
-The vision-on/off control reruns this same inference pass with visual embeddings set to zero while retaining the fitted weights, numerical embeddings, token positions, origins, and masks. Its score difference tests whether a trained forecast depends on its visual pathway. Stale-image and wrong-plant substitutions test whether that dependence is tied to recent, site-specific content; the intervention details and limits appear in Chapter~\ref{cha:ablations}.
+The vision-on/off control reruns this same inference pass with visual embeddings set to zero while retaining the fitted weights, numerical embeddings, token positions, origins, and masks. Its score difference tests whether a trained forecast depends on its visual pathway. Stale-image and wrong-plant substitutions test whether that dependence is tied to recent, site-specific content; the intervention details and limits appear in Section~\ref{cha:ablations}.
 
 \section{Training recipe}
 \label{sec:training-recipe}

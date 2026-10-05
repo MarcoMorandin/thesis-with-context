@@ -1,11 +1,14 @@
-\chapter{Evaluation protocol}
+\chapter{Evaluation protocol and experiments}
+\label{cha:evaluation}
 \label{cha:protocol}
+\section{Evaluation protocol}
+\label{sec:evaluation-protocol}
 
-The dataset contract in Section~\ref{sec:contract} defines the forecast sample. This chapter specifies how those samples are compared. It defines which plants are held out, what each model may observe at the forecast origin, how errors are aggregated, and how visual reliance is tested. Within each dataset track, direct comparisons use the same forecast origins, target masks, and horizon.
+The dataset contract in Section~\ref{sec:contract} defines the forecast sample. This section specifies how those samples are compared. It defines which plants are held out, what each model may observe at the forecast origin, how errors are aggregated, and how visual reliance is tested. Within each dataset track, direct comparisons use the same forecast origins, target masks, and horizon.
 
-\section{Plant-disjoint partitions}
+\subsection{Plant-disjoint partitions}
 
-Plant identity is the unit of partitioning within each dataset track. The fixed United Kingdom assignment contains 69 training plants, 15 validation plants, and 14 test plants. Table~\ref{tab:uk-partition} gives the quality-valid power observations in each group before forecast-window and daylight filtering. Any evaluation on another track requires its own plant-disjoint partition under the same separation rule. The results chapter reports the UK test partition.
+Plant identity is the unit of partitioning within each dataset track. The fixed United Kingdom assignment contains 69 training plants, 15 validation plants, and 14 test plants. Table~\ref{tab:uk-partition} gives the quality-valid power observations in each group before forecast-window and daylight filtering. Any evaluation on another track requires its own plant-disjoint partition under the same separation rule. The benchmark results section reports the UK test partition.
 
 \begin{table}[htbp]
 \centering
@@ -28,7 +31,7 @@ Forecast origins denote the timestamps separating historical observations from f
 
 Training plants supply fitted parameters, including adapter weights, and any retrieval datastore. Validation plants determine checkpoints and hyperparameters, including retrieval weights when tuned. Test plants are used only for final reporting. This boundary also applies to learned normalization and feature selection. Each implementation declares its fitted statistics. The loader checks that plant assignments do not overlap.
 
-\section{Scenarios and input parity}
+\subsection{Scenarios and input parity}
 
 The primary benchmark is the United Kingdom plant-disjoint comparison. The cross-region experiment applies models trained on UK plants to all eight eligible US plants. Checkpoints from seeds 42, 43, and 44 remain fixed during US inference, and US power is resampled to 30-minute cadence. Thus, the two reported settings measure transfer to unseen plants within the UK and transfer from the UK to the US. Across these comparisons, each model receives the modalities its design supports. Persistence forecasts use no satellite frames. Numerical forecasters use power history and, where supported, covariates. Multimodal systems can also use recent imagery. Table~\ref{tab:input-parity} summarizes the inputs by model family. Each result identifies the fields used by the individual method.
 
@@ -50,7 +53,7 @@ Multimodal models & Yes & Varies & Yes & Visual context \\
 \label{tab:input-parity}
 \end{table}
 
-\section{Baseline implementations and comparison boundaries}
+\subsection{Baseline implementations and comparison boundaries}
 \label{sec:baseline-implementations}
 
 The models reviewed in Chapter~\ref{cha:related} are compared under the track-specific plant split and input rules above. This subsection specifies each model’s inputs, whether it learns from the training plants, and whether its reported score uses the same evaluation set as other methods.
@@ -63,7 +66,7 @@ The time-series foundation-model entries start from released checkpoints. Chrono
 
 Multimodal baselines encompass both satellite-conditioned models (MMTSFM, Aurora, Solar-VLM, SUNSET) and visual time-series rendering methods (Time-VLM, UniCast). All models are scored across the held-out test installations on valid daylight steps.
 
-\section{Scoring and reporting}
+\subsection{Scoring and reporting}
 
 Within each track, valid daylight targets are scored separately for every held-out plant before the plant scores are averaged. This gives installations equal weight even when their usable records differ in length. The two co-primary measures answer different questions. Skill score measures the reduction in NRMSE relative to Smart Persistence across the scored targets. Ramp NMAE measures error during rapid changes in observed power. A gain in overall skill therefore does not compensate for worse ramp accuracy. The formulas are given in Section~\ref{sec:metric-definitions}.
 
@@ -73,6 +76,465 @@ Training variation is reported alongside these scores. Learned methods use fixed
 
 For multimodal models, a score advantage alone does not show that the trained forecast uses images. Each trained checkpoint is therefore evaluated with vision active and again with its visual embeddings set to zero. The numerical embeddings and token positions remain in place. Both passes use the same weights, forecast origins, target masks, ramp thresholds, and aggregation. Their differences in normalized error and ramp NMAE measure sensitivity to visual input under that checkpoint. This comparison keeps the training route, capacity, and regularization fixed. A separately trained numerical model would change those factors as well. A negligible vision-on/off difference can therefore coexist with a nominal advantage over a numerical model. Higher error with vision disabled indicates a positive contribution from the visual pathway under this checkpoint and intervention.
 
-The vision-on/off pass cannot identify which part of the clip matters. The cached-latent-order, stale-image, and wrong-plant-image substitution interventions are specified in Chapter~\ref{cha:ablations}. They use the trained weights and, where possible, the same forecast origins. They are reported apart from standard model comparisons because they change the input to an existing model. A wrong-plant-image substitution needs a clip from a different test plant at the same time. Shuffled test batches allow the evaluator to find such a donor when series-major batches would contain only one plant.
+The vision-on/off pass cannot identify which part of the clip matters. The cached-latent-order, stale-image, and wrong-plant-image substitution interventions are specified in Section~\ref{cha:ablations}. They use the trained weights and, where possible, the same forecast origins. They are reported apart from standard model comparisons because they change the input to an existing model. A wrong-plant-image substitution needs a clip from a different test plant at the same time. Shuffled test batches allow the evaluator to find such a donor when series-major batches would contain only one plant.
 
 Each reported result identifies the dataset track and plant partition, physical window lengths, input modalities, exact covariate fields, and forecast-origin rules. It also identifies the random seeds, numbers of windows and scored target steps, checkpoint-selection metric, tuning budget, and whether the comparison was prespecified or exploratory.
+
+\section{Benchmark results}
+\label{cha:results}
+
+This section reports benchmark performance for the forecasting methods considered in the thesis. The evaluation follows the protocol defined in Section~\ref{sec:evaluation-protocol} and includes both aggregate scores and examples of forecast trajectories.
+
+\subsection{Numerical results}
+
+This section compares skill score and ramp NMAE across reference forecasts, numerical models, time-series foundation models, and multimodal forecasters.
+
+\subsubsection{Reference forecasts}
+
+Table~\ref{tab:results-reference} reports three rule-based reference forecasts under the common UK protocol. They show how much skill follows from carrying forward recent power or exploiting its recurring daily pattern.
+
+\begin{table}[htbp]\centering
+\begin{tabular}{lcc}\hline
+Method & Skill (\%) & Ramp NMAE \\\hline
+Persistence & 1.41 & 0.2550 \\
+Seasonal naive & 10.68 & 0.2056 \\
+Hourly climatology & 23.37 & 0.1665 \\\hline
+\end{tabular}
+\caption{Rule-based reference forecasts on the primary cross-plant test set. Higher skill and lower ramp NMAE are better.}\label{tab:results-reference}
+\end{table}
+
+The scores rise from persistence through seasonal naive to hourly climatology, showing the value of recurring daily structure. Hourly climatology also lowers ramp error. Its fixed per-hour mean cannot adapt to local conditions that change from one forecast day to the next.
+
+\subsubsection{Tabular models}
+
+The models in Table~\ref{tab:results-tabular} use engineered lagged numerical features. They test how far learned tabular representations can improve on the rule-based references without modeling the input as a sequence.
+
+\begin{table}[htbp]\centering
+\begin{tabular}{lcc}\hline
+Method & Skill (\%) & Ramp NMAE \\\hline
+LightGBM & 38.54 & 0.1672 \\
+TabPFN & 40.63 & 0.1631 \\\hline
+\end{tabular}
+\caption{Tabular models on the primary cross-plant test set. Higher skill and lower ramp NMAE are better.}\label{tab:results-tabular}
+\end{table}
+
+\subsubsection{Supervised sequence models}
+
+Table~\ref{tab:results-supervised} lists numerical sequence models trained on the benchmark training plants.
+
+\begin{table}[htbp]\centering
+\begin{tabular}{lcc}\hline
+Method & Skill (\%) & Ramp NMAE \\\hline
+iTransformer & 52.57 & 0.1445 \\
+PatchTST & 45.81 & 0.1543 \\
+TFT & 42.64 & 0.1605 \\
+MLP baseline & 42.19 & 0.1624 \\
+DLinear & 32.31 & 0.1746 \\\hline
+\end{tabular}
+\caption{Supervised numerical sequence baselines. TFT denotes Temporal Fusion Transformer.}\label{tab:results-supervised}
+\end{table}
+
+\subsubsection{Time-series foundation models zero-shot}
+
+Table~\ref{tab:results-foundation-transfer} lists time-series foundation models evaluated without task-specific fitting.
+
+\begin{table}[htbp]\centering
+\begin{tabular}{lcc}\hline
+Method & Skill (\%) & Ramp NMAE \\\hline
+Chronos-2 zero-shot & 47.37 & 0.1544 \\
+TiRex zero-shot & 28.73 & 0.1826 \\
+TimesFM zero-shot & 27.08 & 0.1902 \\
+TTM zero-shot & -8.07 & 0.2922 \\\hline
+\end{tabular}
+\caption{Protocol-aligned zero-shot time-series foundation models.}\label{tab:results-foundation-transfer}
+\end{table}
+
+Chronos-2 has the strongest zero-shot result in this table, with skill 47.37 and ramp NMAE 0.1544. TTM's negative zero-shot skill shows that pretraining alone does not guarantee transfer to this plant-disjoint task.
+
+\subsubsection{Adapted time-series foundation models}
+
+Table~\ref{tab:results-foundation-adaptation} compares models that adapt a pretrained time-series foundation model to the training plants, either by fine-tuning or with a covariate adapter.
+
+\begin{table}[htbp]\centering
+\begin{tabular}{lcc}\hline
+Method & Skill (\%) & Ramp NMAE \\\hline
+Chronos-2 fine-tuned & 52.30 & 0.1506 \\
+CoRA & 37.98 & 0.1624 \\
+TTM fine-tuned & 36.01 & 0.1716 \\\hline
+\end{tabular}
+\caption{Protocol-aligned time-series foundation-model adaptation results.}\label{tab:results-foundation-adaptation}
+\end{table}
+
+The fine-tuned Chronos-2 control has skill 52.30 and ramp NMAE 0.1506. Its score is 4.93 points above the zero-shot Chronos-2 result, and its ramp NMAE is lower by 0.0038. By comparison, iTransformer has similar skill but lower ramp NMAE.
+
+\subsubsection{Retrieval methods}
+
+Table~\ref{tab:retrieval-native} reports results for TS-RAG~\cite{tsrag} and Cross-RAG~\cite{crossrag}. Both methods retrieve related historical power sequences from an external store to condition the forecast on past similar production regimes.
+
+\begin{table}[htbp]\centering
+\begin{tabular}{lcc}\hline
+Method & Skill (\%) & Ramp NMAE \\\hline
+TS-RAG & 47.79 & 0.1568 \\
+Cross-RAG & 47.68 & 0.1545 \\\hline
+\end{tabular}
+\caption{Retrieval-augmented forecasting models on the cross-plant test set.}\label{tab:retrieval-native}
+\end{table}
+
+Both retrieval methods achieve skill scores near 47.7\%, placing them slightly above zero-shot Chronos-2 (47.37\%) and above supervised sequence baselines such as PatchTST (45.81\%) and TFT (42.64\%). TS-RAG reaches slightly higher overall skill at 47.79\%, while Cross-RAG obtains a lower ramp NMAE of 0.1545, matching the ramp error of zero-shot Chronos-2 (0.1544). Both methods score below fine-tuned Chronos-2 (52.30\%) and iTransformer (52.57\%), showing that retrieving similar historical trajectories provides useful reference context across plants without matching the accuracy of direct parameter adaptation.
+
+\subsubsection{Multimodal baselines}
+
+Table~\ref{tab:results-multimodal} reports benchmark results for MMTSFM and fine-tuned Aurora.
+
+\begin{table}[htbp]\centering
+\begin{tabular}{lcc}\hline
+Method & Skill (\%) & Ramp NMAE \\\hline
+Spatial-token & 55.10 & 0.1440 \\
+Multi-anchor & 54.09 & 0.1463 \\
+Pooled-image & 52.58 & 0.1487 \\
+Aurora fine-tuned~\cite{aurora} & 40.52 & 0.1555 \\\hline
+\end{tabular}
+\caption{Multimodal benchmark results on the primary cross-plant test set. Higher skill and lower ramp NMAE are better.}\label{tab:results-multimodal}
+\end{table}
+
+The matched vision-off controls in Section~\ref{cha:ablations} test whether the fitted models depend on their visual pathways.
+
+Spatial-token fusion has the highest skill score among the MMTSFM arms. Within the ladder, its ramp NMAE is 0.1440, compared with 0.1487 for pooled-image fusion and 0.1506 for the numerical control. Fine-tuned Aurora scores 40.52\% skill with 0.1555 ramp NMAE, providing a comparison from an atmospheric foundation model.
+
+\subsubsection{Full payload feasibility result}
+
+Full payload has one completed seed and a smaller eligible target set, with 163,559 scored target steps compared with 165,295 for the single-anchor arm. Because it requires cached imagery at all five daily anchors, origins missing a required entry are excluded. This smaller scored set can change the average error independently of the model. Its recorded score is therefore descriptive pending additional seeds and scoring both interfaces on their shared eligible windows.
+
+\begin{table}[htbp]\centering
+\begin{tabular}{lcc}\hline
+Method & Skill (\%) & Ramp NMAE \\\hline
+Full payload & 54.49 & 0.1458 \\\hline
+\end{tabular}
+\caption{Full payload feasibility result on its smaller eligible target set.}\label{tab:results-full-payload}
+\end{table}
+
+\subsubsection{Alternative multimodal baselines}
+
+Table~\ref{tab:results-multimodal-context} reports results for five additional multimodal and vision-augmented forecasting models, spanning vision-language architectures, atmospheric foundation models, and convolutional networks.
+
+\begin{table}[htbp]\centering
+\begin{tabular}{lcc}\hline
+Method & Skill (\%) & Ramp NMAE \\\hline
+Time-VLM~\cite{timevlm} & 54.04 & 0.1374 \\
+Solar-VLM~\cite{solarvlm} & 43.96 & 0.1514 \\
+Aurora zero-shot~\cite{aurora} & 23.24 & 0.2051 \\
+SUNSET~\cite{sunset} & 21.62 & 0.1757 \\
+UniCast~\cite{unicast} & 12.11 & 0.2302 \\\hline
+\end{tabular}
+\caption{Alternative multimodal forecasting baselines on the cross-plant test set.}\label{tab:results-multimodal-context}
+\end{table}
+
+Time-VLM achieves 54.04\% skill, comparable to Multi-anchor (54.09\%) and Spatial-token fusion (55.10\%). It records the lowest ramp NMAE across all evaluated models at 0.1374, showing that rendering time series as visual plots allows the vision-language backbone to detect steep transitions and ramp events effectively. Solar-VLM attains 43.96\% skill and 0.1514 ramp NMAE, outperforming supervised models such as TFT (42.64\%) while trailing zero-shot Chronos-2 (47.37\%).
+
+Atmospheric and convolutional models record lower overall skill. Zero-shot Aurora obtains 23.24\% skill and 0.2051 ramp NMAE. When fine-tuned on plant data, as shown in Table~\ref{tab:results-multimodal}, its skill rises to 40.52\% and ramp error drops to 0.1555, showing the importance of task adaptation for general weather representations. SUNSET achieves 21.62\% skill and 0.1757 ramp NMAE; its convolutional image pipeline improves upon simple persistence and climatology references, yet falls short of modern transformer architectures on held-out plants. UniCast scores 12.11\% skill and 0.2302 ramp NMAE, reflecting limited zero-shot transfer without installation-specific adaptation.
+
+\subsection{Zero-shot transfer from the UK to the US fleet}
+
+The preceding tables report the primary UK plant-disjoint benchmark. Table~\ref{tab:us-mmtsfm-transfer} reports the cross-region experiment: checkpoints trained on UK plants are evaluated on eight US plants with their parameters fixed. Plants 1283 and 51 are excluded by the dataset quality flags. All remaining US plants are unseen during model fitting. Power is resampled to 30-minute cadence, giving a twelve-step, six-hour horizon from fourteen days of local history. Each run scores the same 41,914 valid daylight targets. The four main arms use matched UK training seeds 42, 43, and 44, with plants weighted equally within each run and run scores then averaged across seeds.
+
+% Recorded evaluations: baselines/results/mmtsfm_{s1,s2a,s2d,s2e}_goespvdaq_*_all_s{42,43,44}.json.
+% Reference: baselines/results/smart_persistence_s2_goespvdaq_all.json.
+% Interpretation and exact artifact links: report/BASELINE_TEST_REPORT.md, US transfer section.
+
+\begin{table}[htbp]\centering
+\small
+\setlength{\tabcolsep}{6pt}
+\begin{tabular}{@{}lccc@{}}\hline
+Arm & Skill (\%) & NMAE & Ramp NMAE \\\hline
+Numerical & 8.90 & 0.1719 & 0.1864 \\
+Pooled-image & $-3.03$ & 0.1933 & 0.2008 \\
+Spatial-token & 8.85 & 0.1745 & 0.1692 \\
+Multi-anchor & 10.46 & 0.1657 & 0.1702 \\
+Full payload & 3.46 & 0.1771 & 0.1786 \\\hline
+\end{tabular}
+\caption{Inference-only UK-to-US transfer on eight plants and 41,914 valid daylight targets. Main-arm entries are three-seed means. Full payload has seed 42 only. Skill uses the US Smart Persistence reference.}
+\label{tab:us-mmtsfm-transfer}
+\end{table}
+
+Multi-anchor achieves the highest mean skill score at 10.46 percent and the lowest overall NMAE at 0.1657, improving on the numerical control at 8.90 percent skill and 0.1719 NMAE. It exceeds spatial-token fusion in skill across all three paired seeds. On ramp intervals, both structured visual architectures improve over the numerical baseline. Spatial-token fusion records the lowest ramp NMAE at 0.1692, followed closely by multi-anchor at 0.1702, compared with 0.1864 for the numerical control. The localized cloud information in spatial tokens and multi-temporal anchors helps the network anticipate steep power swings under unfamiliar US atmospheric conditions.
+
+In contrast, pooled-image fusion yields negative skill at $-3.03$ percent and higher errors across the board, with an NMAE of 0.1933 and a ramp NMAE of 0.2008. Compressing the visual input into a single pooled token discards spatial gradients and makes the model sensitive to differences in sensor calibration between SEVIRI and GOES-16. By retaining spatial layout, spatial-token fusion matches the numerical control on overall skill ($8.85$ percent versus $8.90$ percent) while achieving lower ramp error. Multi-anchor fusion gains further by distributing tokens across five observation times, providing temporal progression across the context window.
+
+The US full payload configuration uses 70 selected tokens at each of five daily anchors, fewer than the 98 tokens per anchor in the UK experiment. Its single-seed run attains 3.46 percent skill and 0.1786 ramp NMAE, tracking ramps better than the numerical baseline (0.1864) and pooled-image fusion (0.2008). Across the main arms, calibration reflects the regional transfer. Mean nominal 80 percent coverage ranges from 0.409 for spatial-token fusion to 0.523 for pooled-image fusion, while multi-anchor reaches 0.459, lower than the UK coverage levels. These eight plants provide evidence across different climatic zones, though they represent a quality-filtered subset observed over a single evaluation period.
+
+\subsection{Visual inspection of the forecasts}
+
+The result tables show overall performance, but they do not show where errors occur. Figure~\ref{fig:baseline-scatters} compares observed and predicted normalized power for fine-tuned Chronos-2, iTransformer, LightGBM, and fine-tuned Aurora. In each panel, observed power is on the horizontal axis and predicted power is on the vertical axis. Points on the dashed diagonal are accurate predictions. Points above it are overpredictions, and points below it are underpredictions. Colour shows where observations are most concentrated. The plots pool valid daylight observations from the 14 held-out plants. Benchmark scores weight plants equally, so the densest parts of a plot do not necessarily have the greatest influence on its score.
+
+\begin{figure}[H]\centering
+\begin{minipage}{0.48\textwidth}\includegraphics[width=\textwidth]{figures/scatter_mmtsfm_s1.png}\end{minipage}\hfill
+\begin{minipage}{0.48\textwidth}\includegraphics[width=\textwidth]{figures/scatter_itransformer.png}\end{minipage}\\[0.5em]
+\begin{minipage}{0.48\textwidth}\includegraphics[width=\textwidth]{figures/scatter_lightgbm.png}\end{minipage}\hfill
+\begin{minipage}{0.48\textwidth}\includegraphics[width=\textwidth]{figures/scatter_aurora_ft.png}\end{minipage}
+\caption{Predicted versus observed normalized power for four benchmark models. Colour shows observation density on a logarithmic scale. The dashed line marks perfect predictions.}
+\label{fig:baseline-scatters}
+\end{figure}
+
+In all four panels, the densest observations follow the diagonal at low and moderate output. Predictions spread more widely as observed power rises. High observed values are often predicted too low. This is clearest for LightGBM, whose predictions level off before the observed range ends. iTransformer reaches higher predicted values, although its scatter remains broad. Fine-tuned Chronos-2 and Aurora also show underprediction near the upper end. Each panel contains positive predictions when observed output is close to zero. These patterns show where the models make errors that their aggregate scores cannot locate.
+
+Figure~\ref{fig:mmtsfm-scatters} compares the three visual fusion arms on the same daylight observations and axes. It shows how the distribution of prediction errors changes across the fusion interfaces.
+
+\begin{figure}[H]\centering
+\begin{minipage}{0.32\textwidth}\includegraphics[width=\textwidth]{figures/scatter_mmtsfm_s2a.png}\end{minipage}\hfill
+\begin{minipage}{0.32\textwidth}\includegraphics[width=\textwidth]{figures/scatter_mmtsfm_s2d.png}\end{minipage}\hfill
+\begin{minipage}{0.32\textwidth}\includegraphics[width=\textwidth]{figures/scatter_mmtsfm_s2e.png}\end{minipage}
+\caption{Predicted versus observed normalized power for the three visual fusion arms, shown with identical axes and daylight masking.}
+\label{fig:mmtsfm-scatters}
+\end{figure}
+
+All three arms follow the overall rise in observed power. Their predictions spread apart at higher output. Pooled-image fusion has a broad cloud below the diagonal when observed power is high. Spatial-token fusion places more predictions near the diagonal in this range, although it still underpredicts some large values. The multi-anchor panel is more dispersed than the spatial-token panel and shows no comparable tightening around the diagonal. Each arm also makes some positive predictions when observed power is close to zero.
+
+Figure~\ref{fig:tier-traces} follows three ramp windows from an evaluation plant. Each row shows the same window in both columns. The left column compares fine-tuned Chronos-2, iTransformer, LightGBM, and fine-tuned Aurora. The right compares pooled-image, spatial-token, and multi-anchor. The pale grey line at negative hours is observed power from the previous day. The break in the horizontal axis skips the intervening night. The dotted line at hour zero marks the forecast origin. To its right, the dark grey line is the observed outcome, and the coloured dashed lines are six-hour forecasts. Their direction, timing, and height show which changes each model follows or misses.
+
+\begin{figure}[H]\centering
+\begin{minipage}{0.48\textwidth}\includegraphics[width=\textwidth]{figures/traces_tsfm.png}\end{minipage}\hfill
+\begin{minipage}{0.48\textwidth}\includegraphics[width=\textwidth]{figures/traces_multimodal.png}\end{minipage}
+\caption{Forecast trajectories for three ramp windows from plant 7648. The same windows appear in both columns.}
+\label{fig:tier-traces}
+\end{figure}
+
+The three windows expose different errors. In window 218, the observed output rises above most forecasts. iTransformer comes closest to the peak among the benchmark models. Spatial-token fusion is closest among the visual arms. In window 1259, output remains low after a brief rise. LightGBM and spatial-token fusion follow that lower level more closely. Several other forecasts stay too high. In window 556, spatial-token and multi-anchor capture the sharp rise but still miss the peak. The pooled-image baseline and fine-tuned Chronos-2 produce flatter, lower forecasts for that window.
+
+Figure~\ref{fig:worked-trace} shows a pronounced upward ramp within one six-hour forecast. It uses the same broken time axis as Figure~\ref{fig:tier-traces}. The pale grey segment shows observations from the previous day. The dark grey line on the right shows the outcome after the forecast origin. The coloured dashed lines show the model forecasts.
+
+\begin{figure}[H]\centering
+\includegraphics[width=0.94\textwidth]{figures/traces_comparison_11287_w1021.png}
+\caption{Six-hour forecast across an upward ramp at plant 11287, window 1021.}
+\label{fig:worked-trace}
+\end{figure}
+
+Observed power rises sharply after the forecast origin, with brief peaks around hours 2.5 and 5. Spatial-token fusion follows the overall climb but smooths those peaks; multi-anchor also rises, though at a lower level. The numerical control and pooled-image baseline flatten earlier. This trace shows how the forecasts differ during one ramp event.
+
+The ramp comparisons above evaluate plants within the UK fleet where the models were trained. Figure~\ref{fig:us-traces} shifts focus to the cross-region transfer, displaying individual six-hour forecasts on unseen US plants. Each panel presents the daylight window with the greatest observed change between the first and last target step for the first three plants in the test partition. 
+
+\begin{figure}[H]\centering
+\includegraphics[width=0.92\textwidth]{figures/traces_us.png}
+\caption{Six-hour US forecasts from the seed-42 prediction exports across plants 1202, 1203, and 1277. Each panel displays the fully valid daylight window with the largest absolute change between its first and last observed target. Dashed lines denote model forecasts and the solid line represents observed normalized power.}
+\label{fig:us-traces}
+\end{figure}
+
+At plants 1202 and 1203, all four models underpredict the observed morning climb. The numerical control tracks more of the initial rise at plant 1202, while multi-anchor reaches closest to the peak at plant 1203. At plant 1277, the forecasts stay smooth through midday fluctuations and fail to capture the steep late-afternoon drop. These individual events illustrate how even models with competitive aggregate scores can struggle on localized, high-amplitude transitions when deployed across distinct geographic regions.
+
+\section{Results and ablations}
+\label{cha:ablations}
+
+The benchmark in Section~\ref{cha:results} establishes the forecasting performance of the proposed models. The ablations examine what supports that performance: whether the fitted models use their visual inputs, which properties of those inputs matter, and how the fusion interface affects transfer to unseen plants. Unless stated otherwise, results use the UK cross-plant test, the self-attention temporal mixer, and seeds 42, 43, and 44. Interpretation follows the size and direction of the observed changes, their consistency across matched seeds, and the variables changed by each intervention. Small changes are informative when they narrow the explanation of a larger gain; losses reveal where an additional design choice fails to improve the tested configuration.
+
+The main result is that spatial-token fusion improves point forecasts across most held-out plants and depends on timely, site-matched imagery. The controls refine this finding. Fractional token placement has little observed effect, mean pooling improves skill while retaining spatially distinct cells, and freezing the numerical encoder largely preserves point performance at a calibration cost. The multi-anchor experiments extend the same visual interface to older observations and expose a trade-off between temporal coverage and the payload available at each anchor. Together, these comparisons provide an empirical account of the fusion design, with the scope of each conclusion tied to the intervention that produced it.
+
+\subsection{Interface and content controls}
+
+Tables~\ref{tab:ablation-registry}, \ref{tab:ablation-content-grounding}, and \ref{tab:ablation-registry-continued} list the controls and interventions. The following paragraphs report their results and clarify which interpretation each comparison supports. The main arms are defined in Chapter~\ref{cha:method}. Controls preserve the plant split, seed-matched numerical warm start, and scoring rules unless a difference is stated.
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{@{}ll@{}}
+\hline
+Control & Intervention \\
+\hline
+Anchor placement & Tokens at one shared position \\
+Paired novelty & Alternative multi-anchor selector \\
+\hline
+\end{tabular}
+\caption{Fusion-interface controls. Outcomes are reported in the paragraphs that follow.}
+\label{tab:ablation-registry}
+\end{table}
+
+The anchor-placement check asks how much the forecast depends on the precise positions assigned to visual tokens. Moving the same 98 tokens to one shared integer position changes mean skill by $-0.02$ percentage points and ramp NMAE by $+0.0004$ across three paired seeds. Both differences change direction across seeds. The fitted interface therefore tolerates this positional simplification with little observed change in point performance. This narrows the explanation of the spatial-token gain: fractional placement is not supported as its main source. The check preserves the visual payload and tests one placement change, so its conclusion concerns positional precision within this interface.
+
+Under paired-novelty selection, which retains paired endpoints of moving trajectories instead of individual dynamic cells, multi-anchor skill reaches 54.16 percent, a 0.07 percentage point increase over the default selector. Because changing the trajectory selection rule leaves the gap to spatial-token fusion (55.10 percent) largely unchanged, the multi-anchor shortfall is primarily associated with the reduced per-anchor token budget (20 tokens versus 98) and the dilution of visual capacity across multiple days, rather than the specific token ranking heuristic.
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{@{}ll@{}}
+\hline
+Control & Intervention \\
+\hline
+Stale images & Clip shifted six hours earlier \\
+Wrong plant & Another plant's contemporaneous clip \\
+Random tokens & Random selection; 98-token budget \\
+\hline
+\end{tabular}
+\caption{Content-grounding ablations.}
+\label{tab:ablation-content-grounding}
+\end{table}
+
+Image timing produces a much larger response. Shifting the clip six hours into the past raises ramp NMAE by between 0.0156 and 0.0182 across three seeds and lowers skill by about 13.5 percentage points. The stale clip performs worse than disabling vision. Supplying an image can therefore hurt the fitted model when that image describes an earlier state. The consistent degradation shows that the model's use of vision depends on temporal relevance and supports matching the clip to the forecast origin.
+
+Spatial correspondence matters as well. Substituting another plant's contemporaneous clip raises ramp NMAE by between 0.0163 and 0.0189 across three seeds and lowers skill from about 55 to 37 percent. Every seed degrades. Contemporaneous imagery from elsewhere cannot substitute for the site's own clip in the fitted model. Together, the timing and wrong-plant controls support content grounding: predictions respond to whether the supplied visual evidence matches the place and time being forecast. These substitutions identify the importance of that correspondence without identifying the individual visual features responsible.
+
+At the fixed 98-token budget, random selection raises ramp NMAE by 0.0039 and lowers skill by 1.52 percentage points across two paired seeds. Vision-off scores stay unchanged. Holding the count fixed makes the selected payload relevant to the result: equal-length visual inputs do not give equal performance. Novelty-selected tokens better serve the model trained with that selector. Because the intervention changes selection only at inference, the observed loss includes any mismatch with the training distribution; it supports retaining the trained selection rule without establishing its superiority under separate retraining.
+
+\begin{table}[htbp]
+\centering
+\begin{tabularx}{\textwidth}{@{}lY@{}}
+\hline
+Control & Intervention \\
+\hline
+Latent order & Permute temporal latents after encoding \\
+Token budget & Vary token count without retraining \\
+Spatial grid & Mean-pooled 4$\times$4 vs 7$\times$7 \\
+Mean pooling & Replace pixel-shuffle concatenation \\
+Backbone freeze & Freeze adapted encoder blocks during visual training \\
+\hline
+\end{tabularx}
+\caption{Mechanism, representation, and backbone controls.}
+\label{tab:ablation-registry-continued}
+\end{table}
+
+Permuting V-JEPA's cached temporal latents after visual encoding changes ramp NMAE by no more than 0.00030 in any seed. The small response localizes the observed sensitivity: the downstream forecast depends little on this ordering of the already encoded latents. V-JEPA may have mixed motion information within each latent before the permutation, so this result concerns the fusion stage's access to latent order. Frame order before encoding remains unchanged. The check helps distinguish reliance on the encoded visual content from reliance on its explicit downstream temporal arrangement.
+
+The token-budget sweep shows that increasing the available visual payload does not automatically improve a fitted model. Evaluating without pruning to the 98-token budget raises ramp NMAE by 0.0102 across three seeds. Keep settings of 0.3 and 0.7 raise it by 0.0022 and 0.0069. Error is lowest near the count used during training. These results support preserving the trained token budget at inference and show that the interface is sensitive to sequence length. Since the alternative settings are evaluated without retraining, 98 tokens is the best tested inference setting for these weights, with no claim of a universal budget optimum.
+
+The spatial-resolution probe finds higher ramp $R^2$ with a mean-pooled 4$\times$4 grid than with 7$\times$7 at 30, 60, and 120 minutes. A coarser representation can therefore retain useful predictive information and outperform the finer grid under this probe. This result weakens the assumption that additional spatial cells necessarily improve the representation and motivates considering compression as a design variable. Both probe grids use mean pooling, whereas the deployed arm uses pixel-shuffle concatenation, so the comparison ranks the probe representations and leaves the corresponding end-to-end grid choice unresolved.
+
+The end-to-end pooling check provides a more direct test of sub-patch detail. With the number and positions of selected cells fixed, replacing pixel-shuffle concatenation with mean pooling raises three-seed skill from 55.10 to 55.64 percent. The skill gain appears in every paired seed. Ramp NMAE falls from 0.1440 to 0.1435, and 80 percent coverage rises from 0.731 to 0.753. The larger change in skill and smaller change in ramp error show that the representation choice affects the reported metrics to different degrees. Spatially distinct cells remain available under mean pooling, so the result supports a compressed spatial payload and revises the motivation for preserving sub-patch detail. The original spatial-token gain does not require that detail in this comparison.
+
+Freezing the adapted numerical encoder's blocks during visual-arm training yields three-seed skill of 55.29 percent and ramp NMAE of 0.1441, close to spatial-token fusion's 55.10 percent and 0.1440. Point forecasting therefore remains effective when visual training leaves those blocks fixed. The uncertainty measures reveal a separate trade-off: coverage falls from 0.731 to 0.710, while quantile ECE rises from 0.0359 to 0.0444. Allowing encoder adaptation has more apparent value for calibration than for the point scores in this check. The intervention changes the trainability of the blocks together and does not attribute the calibration difference to a particular block.
+
+\subsection{Fusion results and vision-off controls}
+
+Table~\ref{tab:ablation-ladder} compares point forecasts across the fusion configurations and reports the change in error when vision is disabled in the same fitted weights. The numerical baseline provides the image-free reference. Values for that baseline and the pooled-image, spatial-token, and multi-anchor arms summarize three seeds. Full payload has one completed seed on a smaller eligible target set.
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{@{}lcccc@{}}
+\hline
+Arm & Skill (\%) & Ramp NMAE & $\Delta$NMAE & $\Delta$Ramp NMAE \\
+\hline
+Numerical & 52.30 & 0.1506 & --- & --- \\
+Pooled-image & 52.58 & 0.1487 & 0.0008 & 0.0000 \\
+Spatial-token & 55.10 & 0.1440 & 0.0047 & 0.0063 \\
+Multi-anchor & 54.09 & 0.1463 & 0.0031 & 0.0045 \\
+Full payload & 54.49 & 0.1458 & 0.0040 & 0.0041 \\
+\hline
+\end{tabular}
+\caption{Fusion results on held-out UK plants. Skill is percent. Lower ramp NMAE is better. The $\Delta$ columns are error increases after vision is disabled in the same trained weights. Positive values indicate degradation.}
+\label{tab:ablation-ladder}
+\end{table}
+
+Spatial-token fusion has the highest skill, 55.10 percent, and the lowest ramp NMAE, 0.1440, among the main fusion configurations in Table~\ref{tab:ablation-ladder}. Relative to pooled-image fusion, skill increases by 2.52 percentage points and ramp NMAE falls by 0.0047. Pooled-image fusion produces a smaller change from the numerical baseline: skill rises from 52.30 to 52.58 percent and ramp NMAE falls from 0.1506 to 0.1487. The comparison favors the spatial-token configuration for point forecasting on unseen UK plants. Since fusion path and training recipe differ between arms, the controls are needed to determine which parts of this advantage involve the visual input.
+
+The vision-off columns test image use within each fitted model by holding its weights fixed. Disabling vision in pooled-image fusion raises all-daylight NMAE by 0.0008, while the mean ramp change rounds to 0.0000 and has no consistent direction across the three seeds. Its modest point-score improvement thus gives limited evidence of a visual contribution to ramp forecasting. In spatial-token fusion, the same intervention raises all-daylight NMAE by 0.0047 and ramp NMAE by 0.0063, with degradation consistent across seeds. This connects the better point forecasts to reliance on the visual pathway. The stale-image and wrong-plant controls further show that this reliance is sensitive to the supplied content. The larger absolute ramp change should be read alongside the different error baselines for ramp and all-daylight targets; it alone does not establish a concentration of visual benefit on ramps.
+
+Multi-anchor fusion scores 54.09 percent skill and 0.1463 ramp NMAE. It improves on the numerical baseline, while remaining below spatial-token fusion on both point measures. Its mean vision-off increases of 0.0031 NMAE and 0.0045 ramp NMAE show that the model uses images within the distributed layout. Extending visual context across daily anchors therefore retains a visual contribution, but does not improve the UK point scores over the recent single-anchor configuration. This comparison jointly changes anchor count, daily spacing, latent depth, and per-anchor token budget. It measures the consequence of that combined design and cannot assign the gap to older observations alone.
+
+The full payload feasibility run retains four latent slices and 98 tokens at each of five anchors. It reaches 54.49 percent skill and 0.1458 ramp NMAE, with vision-off increases of 0.0040 and 0.0041. This run demonstrates that a larger multi-anchor payload can be trained and used by the forecast. Its 533-position sequence is substantially longer than the 141-position single-anchor interface. One completed seed and a smaller eligible target set make its point-score ranking descriptive. The experiment establishes feasibility and visual reliance for this larger interface; the recorded results do not establish that restoring payload closes the gap to spatial-token fusion.
+
+\subsection{Variation across held-out plants}
+
+Table~\ref{tab:per-plant-ladder} separates the fourteen held-out UK plants to show the breadth and limits of the aggregate gain. The first four arm columns are three-seed means. Full payload multi-anchor values come from seed 42 on a smaller set of scored targets.
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{rccccc}
+\hline
+Plant & Numerical & Pooled & Spatial & Multi-anchor & Full payload \\
+\hline
+3333 & 47.12 & 47.64 & 51.67 & 50.89 & 51.79 \\
+6648 & 50.03 & 49.82 & 52.28 & 50.47 & 50.84 \\
+7648 & 42.88 & 43.22 & 49.06 & 47.72 & 48.50 \\
+7836 & 44.22 & 44.89 & 49.37 & 49.30 & 49.70 \\
+10793 & 62.87 & 63.43 & 65.93 & 65.09 & 65.35 \\
+11176 & 36.29 & 36.39 & 39.01 & 36.12 & 38.54 \\
+11287 & 48.89 & 49.34 & 49.80 & 49.44 & 49.36 \\
+12642 & 44.03 & 44.26 & 43.76 & 42.62 & 42.48 \\
+13388 & 63.56 & 64.00 & 64.87 & 64.34 & 64.52 \\
+13817 & 58.61 & 58.91 & 61.12 & 60.37 & 61.31 \\
+18989 & 61.81 & 62.65 & 66.96 & 66.17 & 66.69 \\
+26854 & 41.31 & 41.07 & 43.11 & 42.01 & 42.04 \\
+26933 & 58.03 & 57.95 & 60.88 & 59.79 & 59.14 \\
+27020 & 53.94 & 53.42 & 54.61 & 53.25 & 53.11 \\
+\hline
+\end{tabular}
+\caption{NRMSE-based skill score in percent for each held-out UK plant. The first four arm columns are three-seed means. Full payload is seed 42 on fewer scored targets.}
+\label{tab:per-plant-ladder}
+\end{table}
+
+Spatial-token fusion exceeds the numerical baseline in the three-seed mean at thirteen of fourteen plants. Plant 7648 illustrates the difference between the visual interfaces: pooled-image fusion remains close to the numerical control, while spatial-token fusion improves skill substantially. The aggregate result therefore reflects improvements across much of the held-out fleet, including sites where pooled fusion contributes little. Plant 12642 is the exception and marks a limit to the consistency of transfer. The smaller plant-level differences remain descriptive because the table reports means without paired spread. The breadth of the observed gains supports cross-plant generalization within this UK fleet, while the exception preserves the distinction between an aggregate improvement and a guarantee for an individual unseen plant.
+
+Multi-anchor trails spatial-token fusion in mean skill at every held-out plant. The aggregate gap consequently reflects a fleet-wide pattern in these means, rather than a loss driven by one site. This consistency strengthens the empirical preference for the recent single-anchor configuration under the tested UK protocol. The cause remains shared among the changes to daily spacing, temporal depth, and token allocation. Full payload scores above spatial-token fusion at some plants and below it at others. With one seed and a different set of forecast origins, those entries document site variation in the feasibility run without establishing a plant-level recovery from restoring payload.
+
+Each entry in Table~\ref{tab:per-plant-ladder} reports the skill score evaluated specifically on that installation's target subset. The unweighted arithmetic mean of these plant-level skill scores is 51.04\% for the numerical baseline and 53.75\% for spatial-token fusion. These averages differ from the headline benchmark scores in Table~\ref{tab:ablation-ladder} (52.30\% and 55.10\%), which are computed from fleet-wide pooled NRMSE before calculating percentage skill against Smart Persistence. Evaluating skill at the fleet aggregate versus averaging per-plant skill ratios yields different numerical quantities because the skill score formula is a non-linear ratio. Macro-averaging scores across plants ensures equal contribution from each installation regardless of valid observation count. While spatial-token fusion improves accuracy across 13 of 14 installations, residual variations across sites reflect differences in local topography, cloud regime frequency, and sensor reliability.
+
+\subsection{Skill across the six-hour horizon}
+
+Table~\ref{tab:horizon-skill} reports NRMSE-based skill against Smart Persistence at each half-hour lead on valid daylight targets. For each arm, plant NRMSE is macro-averaged at each lead before comparison with the corresponding Smart Persistence value. The first four arms are then averaged across three seeds. These lead-specific values are computed from the saved in-process prediction exports. Their aggregate reconstruction matches the recorded overall skill scores. The full payload column has one seed and fewer eligible targets.
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{lccccc}
+\hline
+Lead & Numerical & Pooled & Spatial & Multi-anchor & Full payload \\
+\hline
+0.5 h & 43.25 & 43.74 & 43.79 & 42.11 & 45.19 \\
+1.0 h & 46.33 & 47.08 & 49.07 & 47.48 & 48.96 \\
+1.5 h & 49.14 & 50.04 & 53.07 & 51.51 & 52.41 \\
+2.0 h & 50.20 & 51.38 & 54.43 & 53.27 & 53.88 \\
+2.5 h & 52.04 & 53.00 & 56.12 & 55.23 & 55.59 \\
+3.0 h & 59.18 & 59.33 & 62.16 & 61.49 & 61.85 \\
+3.5 h & 58.29 & 58.25 & 60.99 & 60.45 & 60.50 \\
+4.0 h & 57.06 & 56.91 & 59.60 & 59.01 & 58.74 \\
+4.5 h & 55.34 & 55.22 & 57.62 & 56.94 & 56.78 \\
+5.0 h & 53.47 & 53.14 & 55.80 & 54.90 & 54.84 \\
+5.5 h & 50.21 & 49.90 & 52.53 & 51.45 & 51.25 \\
+6.0 h & 47.98 & 47.85 & 50.16 & 49.19 & 49.06 \\
+\hline
+\end{tabular}
+\caption{NRMSE-based skill score in percent by lead time on the fourteen held-out UK plants. The first four arm columns are three-seed means. Full payload is seed 42 on fewer scored targets.}
+\label{tab:horizon-skill}
+\end{table}
+
+Every arm's skill rises toward three hours and then declines. Since skill compares each model with Smart Persistence at the same lead, the mid-horizon peak identifies where the fitted models gain the most ground relative to that reference. In particular, between 2.5 hours and 3.0 hours, skill scores exhibit an abrupt step increase of approximately six to seven percentage points across all arms. This jump reflects the degradation of the Smart Persistence denominator: beyond 2.5 hours, carrying forward the initial clearness index under evolving solar elevation incurs rapidly growing NRMSE, which inflates the relative percentage skill of all learned forecasters at lead step six. Absolute error need not fall as skill rises. This shared shape provides the context for interpreting the differences between fusion arms across the horizon.
+
+Spatial-token fusion is nearly tied with pooled-image fusion at the first half-hour step and separates from both pooled-image fusion and the numerical baseline from one hour onward. Its advantage persists at six hours. The better aggregate score thus extends across much of the forecasting horizon, including leads well beyond the most recent image. Pooled-image fusion stays close to the numerical control throughout. This pattern supports the forecasting value of the spatial-token configuration across lead times. The same-weights vision-off results establish visual reliance in aggregate; the lead-time table compares separately trained configurations and describes where their forecasts differ.
+
+Multi-anchor fusion falls below spatial-token fusion at every lead, with the smallest gap around the middle of the horizon. Extending visual history therefore produces no lead at which the reduced-payload arm overtakes the single-anchor arm in the recorded means. The absence of paired uncertainty estimates limits the precision of this comparison, and the combined design changes limit its mechanistic interpretation. Full payload scores above spatial-token fusion at the first half-hour step and below it thereafter. This shape is an observation from one seed on a smaller eligible set, so it remains a descriptive feature of the feasibility run.
+
+\subsection{Seed-level stability}
+
+Table~\ref{tab:seed-level-ladder} reports three matched seeds for the numerical, pooled-image, spatial-token, and multi-anchor arms. Full payload has one completed seed on a smaller eligible target set.
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{lccccc}
+\hline
+Arm & Seed & Skill (\%) & Ramp NMAE & Coverage & ECE \\
+\hline
+Numerical & 42 & 52.75 & 0.1494 & 0.770 & 0.0277 \\
+Numerical & 43 & 51.97 & 0.1514 & 0.766 & 0.0317 \\
+Numerical & 44 & 52.17 & 0.1509 & 0.779 & 0.0296 \\
+Pooled-image & 42 & 52.53 & 0.1483 & 0.754 & 0.0324 \\
+Pooled-image & 43 & 52.18 & 0.1498 & 0.757 & 0.0331 \\
+Pooled-image & 44 & 53.03 & 0.1478 & 0.808 & 0.0243 \\
+Spatial-token & 42 & 55.00 & 0.1433 & 0.731 & 0.0328 \\
+Spatial-token & 43 & 54.97 & 0.1448 & 0.723 & 0.0416 \\
+Spatial-token & 44 & 55.32 & 0.1441 & 0.738 & 0.0333 \\
+Multi-anchor & 42 & 53.92 & 0.1458 & 0.730 & 0.0371 \\
+Multi-anchor & 43 & 54.22 & 0.1456 & 0.711 & 0.0438 \\
+Multi-anchor & 44 & 54.14 & 0.1474 & 0.738 & 0.0346 \\
+Full payload & 42 & 54.49 & 0.1458 & 0.742 & 0.0355 \\
+\hline
+\end{tabular}
+\caption{Seed-level fusion results on held-out UK plants. Skill is in percent. Lower ramp NMAE and quantile ECE are better. 80 percent coverage targets 0.80. The full payload run scores 163,559 targets versus 165,295 for the other arms.}
+\label{tab:seed-level-ladder}
+\end{table}
+
+The matched seeds provide a check on whether the configuration rankings depend on a particular numerical warm start. Visual arms with the same seed begin from the same adapted numerical checkpoint, although their subsequent training trajectories differ. Point metrics show limited variation within each arm across the three recorded runs.
+
+Spatial-token fusion improves both skill and ramp NMAE over the numerical baseline in every paired seed. Multi-anchor has lower skill and higher ramp NMAE than spatial-token fusion in all three pairs. These rankings persist across the recorded initializations and agree with the per-plant and lead-time patterns. Three runs give a bounded view of training variability, but the agreement supports the observed configuration preference. Explaining the multi-anchor loss still requires separating anchor count, temporal depth, token allocation, and daily spacing.
+
+The probabilistic measures assess different properties. CRPS summarizes quantile forecast error across the predicted distribution. Coverage counts how often observations fall between the predicted 10th and 90th percentiles; that interval should contain about 80 percent of observations. Quantile ECE measures departures between each quantile's stated probability and its observed frequency.
+
+Calibration varies more clearly across the recorded configurations. Spatial-token coverage is below the nominal 80 percent in every seed. Its quantile ECE exceeds the numerical baseline's in every seed. Multi-anchor coverage is also below nominal in all three runs. Its ECE is higher than spatial-token fusion's in each matched seed. Spatial-token fusion has lower CRPS than the numerical baseline in each recorded run, with three-seed means of 0.0544 and 0.0574, respectively.
+
+The lower CRPS shows that spatial-token fusion improves the reported distributional error as well as the point scores, while coverage and ECE identify a calibration cost. These measures capture different properties of the forecast and should inform different modeling decisions. The freezing control is relevant here: it leaves point scores close to the original arm while worsening calibration further. Interval widths and individual quantile predictions are unavailable for this analysis, so the undercoverage cannot be attributed specifically to narrow intervals, displaced intervals, or a combination of the two.
+
+The full payload seed has higher skill and coverage than multi-anchor seed 42, with identical ramp NMAE when rounded to four decimals. It also scores fewer forecast targets. This is evidence from one larger multi-anchor run, so the apparent improvement cannot establish a repeatable payload effect. Pooled-image fusion illustrates a different form of run variation: coverage is below nominal in two seeds and slightly above it in the third, while point scores remain near the numerical baseline.
+
+Taken together, the ablations support spatial-token fusion as the strongest tested main configuration for UK cross-plant point forecasting. Its improvement is accompanied by image reliance, sensitivity to timing and site correspondence, and gains distributed across held-out plants and forecast leads. The smaller-effect controls refine the design argument: precise fractional placement contributes little in the tested intervention, mean pooling preserves the useful spatial interface while improving skill, and encoder adaptation has a clearer benefit for calibration than for point prediction. The multi-anchor results document useful visual forecasts with a longer history, alongside a consistent UK point-score loss relative to the recent single-anchor arm. These findings establish which configurations worked and which simplifications remained effective, while keeping the causal interpretation at the level resolved by the completed experiments.

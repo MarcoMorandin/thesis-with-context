@@ -68,7 +68,7 @@ Time-series foundation models are pretrained on many series before zero-shot use
 
 Their treatment of the input differs. Patch-based models compress a long context into blocks of observations. This makes long histories tractable, but can blur rapid behavior within a patch. Covariate support and output representations also differ across families, from point forecasts to quantile distributions.
 
-Pretraining does not remove the need for a controlled comparison. Photovoltaic power has daily zeros, seasonality, cloud-driven ramps, and plant-to-plant variation that may not be represented in a general pretraining corpus. A zero-shot result measures the match between prior knowledge and this task. A fine-tuned result measures both that prior and the information obtained from the training fleet. This distinction is carried into every result table in Chapter~\ref{cha:results}, because the two quantities support different claims.
+Pretraining does not remove the need for a controlled comparison. Photovoltaic power has daily zeros, seasonality, cloud-driven ramps, and plant-to-plant variation that may not be represented in a general pretraining corpus. A zero-shot result measures the match between prior knowledge and this task. A fine-tuned result measures both that prior and the information obtained from the training fleet. This distinction is carried into every result table in Section~\ref{cha:results}, because the two quantities support different claims.
 
 \subsection{Chronos-2: the shared numerical backbone}
 \label{sec:rw-chronos2}
