@@ -1,0 +1,131 @@
+<?xml version="1.0" ?>
+<mxfile host="Electron">
+  <diagram id="problem_setting" name="Problem-Setting">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1120" pageHeight="600" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1" parent="0"/>
+        <mxCell id="2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F8FAFC;strokeColor=#CBD5E1;strokeWidth=1.5;arcSize=4;shadow=0;" value="" vertex="1">
+          <mxGeometry x="30" y="30" width="320" height="520" as="geometry"/>
+        </mxCell>
+        <mxCell id="3" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F8FAFC;strokeColor=#CBD5E1;strokeWidth=1.5;arcSize=4;shadow=0;" value="" vertex="1">
+          <mxGeometry x="385" y="30" width="330" height="520" as="geometry"/>
+        </mxCell>
+        <mxCell id="4" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F8FAFC;strokeColor=#CBD5E1;strokeWidth=1.5;arcSize=4;shadow=0;" value="" vertex="1">
+          <mxGeometry x="750" y="30" width="330" height="520" as="geometry"/>
+        </mxCell>
+        <mxCell id="5" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;fontFamily=Inter,Helvetica;" value="&lt;b style='font-size:14px;color:#0F172A;'&gt;1. Input Window at Origin t&lt;/b&gt;&lt;br/&gt;&lt;span style='font-size:11px;color:#64748B;'&gt;Window operator &lt;i&gt;W&lt;/i&gt;(&lt;i&gt;i&lt;/i&gt;, &lt;i&gt;t&lt;/i&gt;) available inputs&lt;/span&gt;" vertex="1">
+          <mxGeometry x="40" y="42" width="300" height="35" as="geometry"/>
+        </mxCell>
+        <mxCell id="6" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;fontFamily=Inter,Helvetica;" value="&lt;b style='font-size:14px;color:#1E3A8A;'&gt;2. Zero-Shot Transfer Boundary&lt;/b&gt;&lt;br/&gt;&lt;span style='font-size:11px;color:#64748B;'&gt;Plant-disjoint fleet conditioning&lt;/span&gt;" vertex="1">
+          <mxGeometry x="395" y="42" width="310" height="35" as="geometry"/>
+        </mxCell>
+        <mxCell id="7" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;fontFamily=Inter,Helvetica;" value="&lt;b style='font-size:14px;color:#065F46;'&gt;3. Forecast Horizon (6 Hours)&lt;/b&gt;&lt;br/&gt;&lt;span style='font-size:11px;color:#64748B;'&gt;Direct multi-horizon quantile outputs&lt;/span&gt;" vertex="1">
+          <mxGeometry x="760" y="42" width="310" height="35" as="geometry"/>
+        </mxCell>
+        <mxCell id="8" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#0284C7;strokeWidth=1.4;arcSize=6;shadow=0;align=left;spacingLeft=12;fontFamily=Inter,Helvetica;" value="&lt;b style='font-size:12px;color:#0369A1;'&gt;14-Day PV Telemetry&lt;/b&gt; &amp;nbsp;&lt;b&gt;&lt;i&gt;y&lt;/i&gt;&lt;sub&gt;&lt;i&gt;i&lt;/i&gt;, &lt;i&gt;t&lt;/i&gt;−&lt;i&gt;H&lt;/i&gt;+1:&lt;i&gt;t&lt;/i&gt;&lt;/sub&gt;&lt;/b&gt;&lt;br/&gt;&lt;span style='font-size:11px;color:#334155;'&gt;• Cadence: 30-min (&lt;i&gt;H&lt;/i&gt; = 672 steps)&lt;br/&gt;• Capacity-norm: &lt;i&gt;y&lt;/i&gt; = &lt;i&gt;p&lt;/i&gt; / &lt;i&gt;c&lt;/i&gt;&lt;sub&gt;&lt;i&gt;i&lt;/i&gt;&lt;/sub&gt; ∈ [0, 1]&lt;br/&gt;• Encodes local array baseline &amp; tilt&lt;/span&gt;" vertex="1">
+          <mxGeometry x="50" y="90" width="280" height="85" as="geometry"/>
+        </mxCell>
+        <mxCell id="9" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#0284C7;strokeWidth=1.4;arcSize=6;shadow=0;align=left;spacingLeft=12;fontFamily=Inter,Helvetica;" value="&lt;b style='font-size:12px;color:#0369A1;'&gt;Geostationary Imagery&lt;/b&gt; &amp;nbsp;&lt;b&gt;&lt;i&gt;v&lt;/i&gt;&lt;sub&gt;&lt;i&gt;i&lt;/i&gt;, &lt;i&gt;t&lt;/i&gt;−&lt;i&gt;L&lt;/i&gt;+1:&lt;i&gt;t&lt;/i&gt;&lt;/sub&gt;&lt;/b&gt;&lt;br/&gt;&lt;span style='font-size:11px;color:#334155;'&gt;• EUMETSAT HRV crop (128×128 px)&lt;br/&gt;• &lt;i&gt;L&lt;/i&gt; = 4 frames preceding origin &lt;i&gt;t&lt;/i&gt;&lt;br/&gt;• Captures upstream cloud advection&lt;/span&gt;" vertex="1">
+          <mxGeometry x="50" y="190" width="280" height="85" as="geometry"/>
+        </mxCell>
+        <mxCell id="10" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#0284C7;strokeWidth=1.4;arcSize=6;shadow=0;align=left;spacingLeft=12;fontFamily=Inter,Helvetica;" value="&lt;b style='font-size:12px;color:#0369A1;'&gt;Exogenous Covariates&lt;/b&gt; &amp;nbsp;&lt;b&gt;&lt;i&gt;x&lt;/i&gt;&lt;sub&gt;&lt;i&gt;i&lt;/i&gt;, &lt;i&gt;t&lt;/i&gt;−&lt;i&gt;H&lt;/i&gt;+1:&lt;i&gt;t&lt;/i&gt;+&lt;i&gt;h&lt;/i&gt;&lt;/sub&gt;&lt;/b&gt;&lt;br/&gt;&lt;span style='font-size:11px;color:#334155;'&gt;• History + 6h horizon (&lt;i&gt;h&lt;/i&gt; = 12 steps)&lt;br/&gt;• Solar zenith/azimuth, clear-sky GHI&lt;br/&gt;• NWP temperature, wind, cloud cover&lt;/span&gt;" vertex="1">
+          <mxGeometry x="50" y="290" width="280" height="85" as="geometry"/>
+        </mxCell>
+        <mxCell id="11" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#0284C7;strokeWidth=1.4;arcSize=6;shadow=0;align=left;spacingLeft=12;fontFamily=Inter,Helvetica;" value="&lt;b style='font-size:12px;color:#0369A1;'&gt;Observation Masks&lt;/b&gt; &amp;nbsp;&lt;b&gt;&lt;i&gt;m&lt;/i&gt;&lt;sub&gt;&lt;i&gt;i&lt;/i&gt;, &lt;i&gt;t&lt;/i&gt;−&lt;i&gt;H&lt;/i&gt;+1:&lt;i&gt;t&lt;/i&gt;+&lt;i&gt;h&lt;/i&gt;&lt;/sub&gt;&lt;/b&gt;&lt;br/&gt;&lt;span style='font-size:11px;color:#334155;'&gt;• Flags valid daylight readings&lt;br/&gt;• Masks missing steps and logging gaps&lt;br/&gt;• Prevents night-fill scale distortion&lt;/span&gt;" vertex="1">
+          <mxGeometry x="50" y="390" width="280" height="85" as="geometry"/>
+        </mxCell>
+        <mxCell id="12" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontFamily=Inter,Helvetica;" value="&lt;span style='font-size:10.5px;color:#64748B;'&gt;&lt;i&gt;Target y&lt;sub&gt;i, t+1:t+h&lt;/sub&gt; strictly withheld at origin t&lt;/i&gt;&lt;/span&gt;" vertex="1">
+          <mxGeometry x="50" y="485" width="280" height="25" as="geometry"/>
+        </mxCell>
+        <mxCell id="13" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FEF3C7;strokeColor=#D97706;strokeWidth=1.5;strokeDasharray=4 4;arcSize=6;shadow=0;align=center;fontFamily=Inter,Helvetica;" value="&lt;b style='font-size:12px;color:#B45309;'&gt;Plant-Disjoint Split Constraint&lt;/b&gt;&lt;br/&gt;&lt;span style='font-size:13.5px;font-family:sans-serif;color:#92400E;font-weight:bold;'&gt;𝒫&lt;sub&gt;train&lt;/sub&gt; ∩ 𝒫&lt;sub&gt;test&lt;/sub&gt; = ∅&lt;/span&gt;&lt;br/&gt;&lt;span style='font-size:10.5px;color:#78350F;'&gt;• Fitted exclusively on fleet 𝒫&lt;sub&gt;train&lt;/sub&gt; (UK / US)&lt;br/&gt;• Evaluated on held-out target plant &lt;i&gt;i&lt;/i&gt; ∈ 𝒫&lt;sub&gt;test&lt;/sub&gt;&lt;br/&gt;• &lt;b&gt;Zero target-plant samples or updates&lt;/b&gt;&lt;/span&gt;" vertex="1">
+          <mxGeometry x="405" y="90" width="290" height="95" as="geometry"/>
+        </mxCell>
+        <mxCell id="14" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#EFF6FF;strokeColor=#2563EB;strokeWidth=1.8;arcSize=6;shadow=0;align=center;fontFamily=Inter,Helvetica;" value="&lt;b style='font-size:13px;color:#1E3A8A;'&gt;Multimodal Foundation Model&lt;/b&gt;&lt;br/&gt;&lt;span style='font-size:11px;color:#2563EB;'&gt;&lt;b&gt;MMTSFM Operator:&lt;/b&gt; &lt;i&gt;W&lt;/i&gt;(&lt;i&gt;i&lt;/i&gt;, &lt;i&gt;t&lt;/i&gt;) ↦ ŷ&lt;sub&gt;&lt;i&gt;i&lt;/i&gt;, &lt;i&gt;t&lt;/i&gt;+1:&lt;i&gt;t&lt;/i&gt;+&lt;i&gt;h&lt;/i&gt;&lt;/sub&gt;&lt;sup&gt;τ&lt;/sup&gt;&lt;/span&gt;&lt;br/&gt;&lt;br/&gt;&lt;div style='text-align:left;padding-left:12px;font-size:11px;color:#1E293B;line-height:1.4;'&gt;&lt;b&gt;1. Pretrained Video Encoder (V-JEPA 2.1)&lt;/b&gt;&lt;br/&gt;&lt;span style='color:#475569;'&gt;&amp;nbsp;&amp;nbsp;Latent video tokens over space and time&lt;/span&gt;&lt;br/&gt;&lt;b&gt;2. Multimodal Fusion Ladder (S2a–S2e)&lt;/b&gt;&lt;br/&gt;&lt;span style='color:#475569;'&gt;&amp;nbsp;&amp;nbsp;Pooled / Spatial-Token / Multi-Anchor&lt;/span&gt;&lt;br/&gt;&lt;b&gt;3. Time-Series FM Backbone (Chronos-2)&lt;/b&gt;&lt;br/&gt;&lt;span style='color:#475569;'&gt;&amp;nbsp;&amp;nbsp;Cross-attention &amp; patch projection&lt;/span&gt;&lt;br/&gt;&lt;b&gt;4. Direct Quantile Regression Head&lt;/b&gt;&lt;br/&gt;&lt;span style='color:#475569;'&gt;&amp;nbsp;&amp;nbsp;Single-pass 6h multi-quantile output&lt;/span&gt;&lt;/div&gt;" vertex="1">
+          <mxGeometry x="405" y="215" width="290" height="215" as="geometry"/>
+        </mxCell>
+        <mxCell id="15" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#94A3B8;strokeWidth=1;arcSize=6;shadow=0;align=center;fontFamily=Inter,Helvetica;" value="&lt;b style='font-size:11px;color:#0F172A;'&gt;Non-Parametric Fleet Adaptation&lt;/b&gt;&lt;br/&gt;&lt;span style='font-size:10px;color:#475569;'&gt;Conditions on 14-day telemetry and recent imagery&lt;br/&gt;at test origin &lt;i&gt;t&lt;/i&gt; without fine-tuning on plant &lt;i&gt;i&lt;/i&gt;.&lt;/span&gt;" vertex="1">
+          <mxGeometry x="405" y="445" width="290" height="55" as="geometry"/>
+        </mxCell>
+        <mxCell id="16" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#059669;strokeWidth=1.4;arcSize=6;shadow=0;align=left;spacingLeft=12;fontFamily=Inter,Helvetica;" value="&lt;b style='font-size:12px;color:#065F46;'&gt;Direct Quantile Fan&lt;/b&gt; &amp;nbsp;&lt;b&gt;ŷ&lt;sub&gt;&lt;i&gt;i&lt;/i&gt;, &lt;i&gt;t&lt;/i&gt;+&lt;i&gt;k&lt;/i&gt;&lt;/sub&gt;&lt;sup&gt;τ&lt;/sup&gt;&lt;/b&gt;&lt;br/&gt;&lt;span style='font-size:11px;color:#334155;'&gt;• 9 quantile levels: τ ∈ {0.1, 0.2, ..., 0.9}&lt;br/&gt;• 80% interval: [ŷ&lt;sup&gt;0.1&lt;/sup&gt;, ŷ&lt;sup&gt;0.9&lt;/sup&gt;]&lt;br/&gt;• Evaluated via Pinball Loss ℒ&lt;sub&gt;pin&lt;/sub&gt; &amp; CRPS&lt;br/&gt;• Measures uncertainty during cloud passes&lt;/span&gt;" vertex="1">
+          <mxGeometry x="775" y="90" width="280" height="95" as="geometry"/>
+        </mxCell>
+        <mxCell id="17" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#059669;strokeWidth=1.4;arcSize=6;shadow=0;align=left;spacingLeft=12;fontFamily=Inter,Helvetica;" value="&lt;b style='font-size:12px;color:#065F46;'&gt;Deterministic Point Forecast&lt;/b&gt;&lt;br/&gt;&lt;span style='font-size:11px;color:#334155;'&gt;• Median quantile ŷ = ŷ&lt;sup&gt;0.5&lt;/sup&gt;&lt;br/&gt;• Evaluated by NMAE and NRMSE&lt;br/&gt;• &lt;b&gt;Skill Score (SS)&lt;/b&gt; vs Smart Persistence:&lt;br/&gt;&amp;nbsp;&amp;nbsp;SS = 100 × (1 − NRMSE&lt;sub&gt;model&lt;/sub&gt; / NRMSE&lt;sub&gt;SP&lt;/sub&gt;)&lt;/span&gt;" vertex="1">
+          <mxGeometry x="775" y="205" width="280" height="95" as="geometry"/>
+        </mxCell>
+        <mxCell id="18" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#059669;strokeWidth=1.4;arcSize=6;shadow=0;align=left;spacingLeft=12;fontFamily=Inter,Helvetica;" value="&lt;b style='font-size:12px;color:#065F46;'&gt;Ramp Event Subset (𝒮&lt;sub&gt;ramp&lt;/sub&gt;)&lt;/b&gt;&lt;br/&gt;&lt;span style='font-size:11px;color:#334155;'&gt;• Top decile transitions: |Δ&lt;i&gt;y&lt;/i&gt;&lt;sub&gt;&lt;i&gt;i&lt;/i&gt;,&lt;i&gt;t&lt;/i&gt;&lt;/sub&gt;| ≥ γ&lt;sub&gt;&lt;i&gt;i&lt;/i&gt;&lt;/sub&gt;&lt;br/&gt;• Evaluated by Ramp NMAE&lt;br/&gt;• Primary diagnostic for cloud entry/exit&lt;br/&gt;• Verifies genuine satellite visual reliance&lt;/span&gt;" vertex="1">
+          <mxGeometry x="775" y="320" width="280" height="95" as="geometry"/>
+        </mxCell>
+        <mxCell id="19" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ECFDF5;strokeColor=#10B981;strokeWidth=1;arcSize=6;shadow=0;align=center;fontFamily=Inter,Helvetica;" value="&lt;b style='font-size:11px;color:#065F46;'&gt;Rigorous Evaluation Safeguards&lt;/b&gt;&lt;br/&gt;&lt;span style='font-size:10px;color:#475569;'&gt;• Vision-off control in fixed weights&lt;br/&gt;• Stale &amp; wrong-plant image substitutions&lt;/span&gt;" vertex="1">
+          <mxGeometry x="775" y="435" width="280" height="60" as="geometry"/>
+        </mxCell>
+        <mxCell id="20" parent="1" source="8" target="14" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0284C7;strokeWidth=1.8;endArrow=none;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="360" y="132"/>
+              <mxPoint x="360" y="322"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="21" parent="1" source="9" target="14" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0284C7;strokeWidth=1.8;endArrow=none;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="360" y="232"/>
+              <mxPoint x="360" y="322"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="22" parent="1" source="10" target="14" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0284C7;strokeWidth=1.8;endArrow=none;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="360" y="332"/>
+              <mxPoint x="360" y="322"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="23" parent="1" source="11" target="14" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#0284C7;strokeWidth=1.8;endArrow=none;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="360" y="432"/>
+              <mxPoint x="360" y="322"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="24" parent="1" source="10" target="14" style="edgeStyle=orthogonalEdgeStyle;rounded=0;html=1;strokeColor=#0284C7;strokeWidth=2.2;endArrow=classic;endFill=1;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="360" y="322"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="25" parent="1" source="13" target="14" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#D97706;strokeWidth=2.0;strokeDasharray=4 4;endArrow=classic;endFill=1;exitX=0.5;exitY=1.0;exitDx=0;exitDy=0;entryX=0.5;entryY=0.0;entryDx=0;entryDy=0;" edge="1">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+        <mxCell id="26" parent="1" source="14" target="16" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#059669;strokeWidth=1.8;endArrow=classic;endFill=1;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="745" y="322"/>
+              <mxPoint x="745" y="137"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="27" parent="1" source="14" target="17" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#059669;strokeWidth=1.8;endArrow=classic;endFill=1;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="745" y="322"/>
+              <mxPoint x="745" y="252"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="28" parent="1" source="14" target="18" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#059669;strokeWidth=1.8;endArrow=classic;endFill=1;exitX=1.0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.0;entryY=0.5;entryDx=0;entryDy=0;" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="745" y="322"/>
+              <mxPoint x="745" y="367"/>
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

@@ -1,0 +1,133 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="760" viewBox="0 0 1240 760">
+<!-- MINIMAL LAYOUT  (structure only; all rationale lives in the caption)
+     row A in  : y 30..100    cols 60..360 | 390..690 | 720..1060
+     row B fe  : y 130..176   same cols
+     row C prj : numeric 60..690 y 206..258  |  LatentSummarizer 720..1060 y 206..252
+     row D mem : y 300..346   60..1060
+     row E fus : y 396..442   60..1060
+     row F enc : y 492..622   sub-blocks 80..380 | 400..700 | 720..1040
+     row G out : y 648..722   head 60..360 | Y_hat 420..660
+     shape labels: x 1072 (right margin)
+     Cairo notes: ASCII only ("->", "x", ". . ."); no tspan; >=20 px line spacing.
+-->
+<defs>
+  <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <path d="M 0 0 L 10 5 L 0 10 z" fill="#3A3A44"/>
+  </marker>
+  <marker id="arrowLight" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path d="M 0 0 L 10 5 L 0 10 z" fill="#7A7A86"/>
+  </marker>
+</defs>
+
+<rect x="0" y="0" width="1240" height="760" fill="#FFFFFF"/>
+
+<g id="inputs"><title>Input tensors</title>
+  <rect x="60" y="30" width="300" height="70" rx="3" fill="#FFFFFF" stroke="#4A4A55" stroke-width="1.8"/>
+  <text x="210" y="56" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1E1E28">PV power history</text>
+  <text x="210" y="80" text-anchor="middle" font-family="Times New Roman, serif" font-style="italic" font-size="14" fill="#2E2E38">Y_hist   [B, 672]</text>
+
+  <rect x="390" y="30" width="300" height="70" rx="3" fill="#FFFFFF" stroke="#4A4A55" stroke-width="1.8"/>
+  <text x="540" y="56" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1E1E28">Known covariates</text>
+  <text x="540" y="80" text-anchor="middle" font-family="Times New Roman, serif" font-style="italic" font-size="14" fill="#2E2E38">X_cov   [B, 684, 14]</text>
+
+  <rect x="720" y="30" width="340" height="70" rx="3" fill="#FFFFFF" stroke="#4A4A55" stroke-width="1.8"/>
+  <text x="890" y="56" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1E1E28">Satellite video -- 8 frames</text>
+  <text x="890" y="80" text-anchor="middle" font-family="Times New Roman, serif" font-style="italic" font-size="14" fill="#2E2E38">V   [B, 3, 8, 224, 224]</text>
+</g>
+
+<g id="frontends"><title>Per-modality front ends</title>
+  <rect x="60" y="130" width="300" height="46" rx="8" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="1.8"/>
+  <text x="210" y="159" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="bold" fill="#1B3A55">InstanceNorm + Patch(16)</text>
+
+  <rect x="390" y="130" width="300" height="46" rx="8" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="1.8"/>
+  <text x="540" y="159" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="bold" fill="#1B3A55">Per-channel patching</text>
+
+  <rect x="720" y="130" width="340" height="46" rx="8" fill="#E8E8EA" stroke="#8A8A93" stroke-width="1.8"/>
+  <text x="890" y="159" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="bold" fill="#33333B">V-JEPA 2.1  ViT-L/16   (FROZEN)</text>
+</g>
+
+<g id="tokenisers"><title>Projection into the 512-d token space</title>
+  <rect x="60" y="206" width="630" height="52" rx="8" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="1.8"/>
+  <text x="375" y="238" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1B3A55">input_patch_embedding   (PRETRAINED)</text>
+
+  <rect x="720" y="206" width="340" height="46" rx="8" fill="#FBE3D6" stroke="#D97742" stroke-width="1.8"/>
+  <text x="890" y="235" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="12.5" font-weight="bold" fill="#7A3A10">LatentSummarizer   784 -&gt; 1</text>
+</g>
+
+<g id="membed"><title>MultimodalEmbedding</title>
+  <rect x="60" y="300" width="1000" height="46" rx="8" fill="#FBE3D6" stroke="#D97742" stroke-width="1.8"/>
+  <text x="560" y="329" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#7A3A10">MultimodalEmbedding  +  RoPE position ids</text>
+</g>
+
+<g id="fusion"><title>Late fusion</title>
+  <rect x="60" y="396" width="1000" height="46" rx="8" fill="#FBE3D6" stroke="#D97742" stroke-width="1.8"/>
+  <text x="560" y="425" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#7A3A10">late fusion  --  CrossModalAdapter   (1 visual ROW on the batch axis)</text>
+</g>
+
+<g id="encoder"><title>Chronos2Encoder</title>
+  <rect x="60" y="492" width="1000" height="130" rx="12" fill="#EDF3F9" stroke="#4C7FB0" stroke-width="1.6"/>
+  <text x="78" y="516" font-family="Helvetica, Arial, sans-serif" font-size="13.5" font-weight="bold" fill="#1B3A55">Chronos2Encoder  --  x12 identical blocks   FROZEN</text>
+
+  <rect x="80" y="532" width="300" height="70" rx="8" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="1.6"/>
+  <text x="230" y="573" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1B3A55">TimeSelfAttention + RoPE</text>
+
+  <rect x="400" y="532" width="300" height="70" rx="8" fill="#DCEAF7" stroke="#D97742" stroke-width="2.6"/>
+  <text x="550" y="573" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1B3A55">GroupSelfAttention</text>
+
+  <rect x="720" y="532" width="320" height="70" rx="8" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="1.6"/>
+  <text x="880" y="573" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#1B3A55">FeedForward</text>
+</g>
+
+<g id="head"><title>Output head and forecast</title>
+  <rect x="60" y="662" width="300" height="46" rx="8" fill="#FBE3D6" stroke="#D97742" stroke-width="1.8"/>
+  <text x="210" y="691" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="13" font-weight="bold" fill="#7A3A10">Output head   (TRAINABLE)</text>
+
+  <rect x="420" y="648" width="240" height="74" rx="3" fill="#FDF0C8" stroke="#C9971E" stroke-width="2"/>
+  <text x="540" y="678" text-anchor="middle" font-family="Times New Roman, serif" font-style="italic" font-size="18" fill="#6B4E06">Y_hat</text>
+  <text x="540" y="702" text-anchor="middle" font-family="Times New Roman, serif" font-style="italic" font-size="14" fill="#6B4E06">[B, 12, 9]</text>
+</g>
+
+<g id="edges" stroke="#3A3A44" stroke-width="1.8" fill="none">
+  <path d="M 210 100 L 210 128" marker-end="url(#arrow)"/>
+  <path d="M 540 100 L 540 128" marker-end="url(#arrow)"/>
+  <path d="M 890 100 L 890 128" marker-end="url(#arrow)"/>
+  <path d="M 210 176 L 210 204" marker-end="url(#arrow)"/>
+  <path d="M 540 176 L 540 204" marker-end="url(#arrow)"/>
+  <path d="M 890 176 L 890 204" marker-end="url(#arrow)"/>
+  <path d="M 375 258 L 375 298" marker-end="url(#arrow)"/>
+  <path d="M 890 252 L 890 298" marker-end="url(#arrow)"/>
+  <path d="M 560 346 L 560 394" marker-end="url(#arrow)"/>
+  <path d="M 560 442 L 560 490" marker-end="url(#arrow)"/>
+  <path d="M 210 622 L 210 660" marker-end="url(#arrow)"/>
+  <path d="M 360 685 L 416 685" marker-end="url(#arrow)"/>
+</g>
+
+<g id="innerEdges" stroke="#7A7A86" stroke-width="1.6" fill="none">
+  <path d="M 380 567 L 396 567" marker-end="url(#arrowLight)"/>
+  <path d="M 700 567 L 716 567" marker-end="url(#arrowLight)"/>
+</g>
+
+<g id="edgeLabels" font-family="Helvetica, Arial, sans-serif" font-style="italic" font-size="11.5" fill="#4A4A55">
+  <text x="222" y="198">[B, 42, 16] patches</text>
+  <text x="552" y="198">14 channel rows</text>
+  <text x="1072" y="198">[B, 4, 196, 1024]</text>
+  <text x="388" y="292">numeric rows at 512</text>
+  <text x="1072" y="292">visual summary  [B, 1, 512]</text>
+  <text x="572" y="388">tagged token sequence</text>
+  <text x="572" y="484">[B, 43, 512]  +  1 visual row</text>
+  <text x="222" y="650">last hidden state   [B, 1, 512]</text>
+</g>
+
+<g id="legend"><title>Legend</title>
+  <rect x="1072" y="492" width="150" height="122" rx="8" fill="#FCFCFD" stroke="#C6C6CE" stroke-width="1.2"/>
+  <rect x="1086" y="510" width="20" height="12" rx="4" fill="#FBE3D6" stroke="#D97742" stroke-width="1.3"/>
+  <text x="1114" y="520" font-family="Helvetica, Arial, sans-serif" font-size="10.5" fill="#3A3A44">visual path</text>
+  <rect x="1086" y="534" width="20" height="12" rx="4" fill="#DCEAF7" stroke="#4C7FB0" stroke-width="1.3"/>
+  <text x="1114" y="544" font-family="Helvetica, Arial, sans-serif" font-size="10.5" fill="#3A3A44">Chronos-2</text>
+  <rect x="1086" y="558" width="20" height="12" rx="4" fill="#E8E8EA" stroke="#8A8A93" stroke-width="1.3"/>
+  <text x="1114" y="568" font-family="Helvetica, Arial, sans-serif" font-size="10.5" fill="#3A3A44">frozen</text>
+  <rect x="1086" y="582" width="20" height="12" rx="4" fill="#DCEAF7" stroke="#D97742" stroke-width="2.2"/>
+  <text x="1114" y="592" font-family="Helvetica, Arial, sans-serif" font-size="10.5" fill="#3A3A44">vision enters</text>
+</g>
+
+</svg>

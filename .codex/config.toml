@@ -6,3 +6,9 @@ args = ["mcp"]
 
 [mcp_servers.lean-ctx]
 command = "lean-ctx"
+
+[mcp_servers.lean-ctx.tools.ctx_shell]
+approval_mode = "approve"
+
+[mcp_servers.lean-ctx.tools.ctx_search]
+approval_mode = "approve"

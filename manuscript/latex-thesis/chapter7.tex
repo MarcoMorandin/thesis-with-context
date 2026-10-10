@@ -1,0 +1,50 @@
+\chapter{Conclusions}
+\label{cha:conclusions}
+
+The thesis tests whether fusion of time-series and visual foundation models can improve forecasts for plants excluded from fitting. The UK benchmark and its controls establish a forecasting gain from the tested spatial-token interface. The UK-to-US experiment extends the evaluation to regional transfer and shows that the preferred visual configuration depends on the metric and setting.
+
+\section{Answer to the research question}
+
+Spatial-token fusion reaches 55.10 percent skill and 0.1440 ramp NMAE on the UK plant-disjoint test. The adapted numerical Chronos-2 control reaches 52.30 percent and 0.1506 under the same protocol. Both measures improve in every paired seed, and mean skill improves at thirteen of the fourteen held-out plants. The advantage extends from one hour through the six-hour horizon.
+
+Disabling the visual pathway in the same trained spatial-token weights raises NMAE by 0.0047 and ramp NMAE by 0.0063. Stale and wrong-plant clips also degrade the forecasts consistently. These controls show that the fitted model uses recent, site-specific visual content. Pooled-image fusion shows a much smaller NMAE response and little measured ramp response when vision is disabled.
+
+The ablations identify simplifications that preserve this result. Mean pooling retains spatially distinct cells and improves skill, while precise fractional placement has little measured effect. Freezing the adapted numerical encoder leaves point scores close to the original arm but worsens calibration. Permuting cached temporal latents produces negligible degradation (0.00030 NMAE), indicating that downstream cross-attention is insensitive to the ordering of pre-encoded visual latents.
+
+\section{What the transfer results establish}
+
+The UK result concerns transfer to unseen plant identities after training on other plants in the same corpus. The inference-only US experiment evaluates fixed UK-trained checkpoints on eight eligible plants, using three matched seeds for the main arms. Multi-anchor fusion reaches 10.46 percent mean skill and 0.1657 NMAE, improving on the numerical control's 8.90 percent and 0.1719. Spatial-token fusion records the lowest ramp NMAE at 0.1692, with multi-anchor close at 0.1702; both improve on the numerical control's 0.1864.
+
+These results support structured multimodal fusion in the two tested transfer settings. They also distinguish overall point skill from performance on ramp intervals. The UK visual-use controls establish reliance within that experiment. The US score comparison extends the geographic evidence, while leaving the separate effects of region, sensor, and visual-history allocation unresolved.
+
+Full payload is a feasibility result with one seed in each track. Its UK run reaches 54.49 percent skill and 0.1458 ramp NMAE and shows visual reliance in the same-weights control. The US run reaches 3.46 percent skill and 0.1786 ramp NMAE. Additional seeds are needed to establish a repeatable payload effect.
+
+Point-forecast gains do not resolve probability calibration. Spatial-token fusion lowers UK CRPS, but its interval coverage and quantile ECE are worse than the numerical control's. Coverage is lower under US transfer. Calibration remains a limitation of the tested systems alongside the restricted geographic coverage and the unresolved motion mechanism.
+
+\section{Future work}
+
+The findings of this thesis suggest several technical extensions for multimodal solar forecasting. Research can expand along five directions: broadening geographic and seasonal coverage across international fleets, deploying agentic pipelines for large-scale dataset construction, optimizing the temporal allocation of visual context, improving probability calibration, and evaluating emerging multimodal foundation architectures. The following subsections describe these priorities.
+
+\subsection{Broader geographic evaluation}
+
+The next evaluation should include more plants, longer observation periods, and additional regions. Holding out entire regions or sensor families would extend the present plant-disjoint test and help separate geographic transfer from a change in imagery source. The common plant-weighted evaluation and matched training seeds should be retained so that differences can be interpreted as the evidence grows.
+
+\subsection{Dataset construction and validation}
+
+Scaling the benchmark across international fleets requires structured processing of multi-terabyte satellite archives and ground sensor recordings. The next engineering phase will deploy an agentic data curation pipeline operating downstream of raw archive retrieval, dedicated to data cleaning, standardization, and corpus organization. Autonomous software agents will execute multi-stage cleaning routines, identifying sensor flatlines, filtering missing timestamps, and auditing quality flags across solar fleets. For standardization, the agents will harmonize differing UTC timestamp conventions, align satellite spatial coordinate projections with ground site locations, and compute uniform daylight elevation masks. The system will then organize cleaned multimodal streams into structured, shard-based formats and construct strict plant-disjoint evaluation splits with inspectable provenance logs. Automating these cleaning and organization workflows ensures reproducible sample reconstruction as the benchmark expands to global scale.
+
+\subsection{Visual history and payload allocation}
+
+The multi-anchor results motivate experiments that vary history length, anchor spacing, and per-anchor detail independently. The current comparison changes these choices together. Completing the full payload seeds would provide a firmer basis for evaluating a larger visual history. Each new configuration should include the same-weights vision-off control, followed by timing and site-substitution checks where a visual contribution is measured.
+
+Evaluating lead-specific retrieval of visual evidence would clarify how different forecast horizons draw upon recent versus older cloud observations. Controlled masking across lead times can directly isolate which temporal anchors support near-term ramp prediction compared with longer-horizon trajectory forecasting.
+
+\subsection{Calibration and mechanism controls}
+
+Future work should assess calibration alongside point and ramp error. Interval widths and individual quantile predictions would help distinguish the possible causes of undercoverage. The encoder-freezing result also motivates a closer examination of how numerical adaptation affects probability calibration.
+
+Temporal interventions before visual encoding would address a different question from the completed cached-latent permutation. They could test whether the original frame order contributes useful information that is already mixed into the cached representation. Selector and token-budget alternatives should also be retrained under matched conditions before claiming a general advantage for one payload construction.
+
+\subsection{Extending the external comparison}
+
+Further multimodal architectures should be evaluated under the same plant-disjoint setting. Comparing different ways of representing imagery and joining it to numerical history would test how broadly the observed fusion gains apply. Those comparisons should report forecasting quality together with visual-use controls, so that an improved score can be assessed alongside evidence that the additional modality contributes to the fitted forecast.

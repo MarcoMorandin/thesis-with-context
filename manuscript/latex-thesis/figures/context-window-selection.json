@@ -1,0 +1,30 @@
+{
+  "site": "11287",
+  "start_hour": 9,
+  "end_hour": 15,
+  "clear": {
+    "day": "2019-06-28",
+    "cloud": 1.6923076923076923,
+    "scale": 0.0008148335983052202,
+    "ramps": 0,
+    "max_ramp": 0.07066640625000004
+  },
+  "cloudy": {
+    "day": "2019-06-01",
+    "cloud": 85.61538461538461,
+    "scale": 0.0010056826447777363,
+    "ramps": 8,
+    "max_ramp": 0.32680000000000003
+  },
+  "score": 0.24674665927886963,
+  "eligible_windows": 206,
+  "eligible_pairs": 14,
+  "pointer_mismatches": 0,
+  "frame_lookup": "Exact UTC timestamp in uk_pv_11287/timestamps; table pointers audited",
+  "score_definition": "Mean absolute pixel difference / 255 over all 13 aligned RGB frames",
+  "eligibility": "Valid native 09:00-15:00 UTC windows, solar zenith <85 degrees; clear mean cloud <=10%, cloudy >=80%; dates <=31 days apart; >=6 prior clear calibration samples; cloudy window >=8 changes of >=0.10 capacity-normalized power per 30 min and >=1 change of >=0.30",
+  "ramp_threshold": 0.1,
+  "minimum_cloudy_ramps": 8,
+  "minimum_peak_ramp": 0.3,
+  "forecast": "clip(alpha * clearsky_ghi, 0, 1); alpha fitted by least squares to valid clear observations in preceding 14 days, strictly before 09:00 UTC"
+}

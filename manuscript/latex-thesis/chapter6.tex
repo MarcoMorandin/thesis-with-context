@@ -1,0 +1,94 @@
+\chapter{Discussion}
+\label{cha:discussion}
+
+Sections~\ref{cha:results} and~\ref{cha:ablations} show that spatial-token fusion improves forecasts for unseen UK plants and depends on recent, site-matched imagery. The UK-to-US evaluation extends the comparison to a new region and gives a different ordering of the visual interfaces.
+
+\section{Spatial information and visual reliance}
+
+Spatial-token fusion reaches 55.10 percent skill and 0.1440 ramp NMAE on the UK plant-disjoint test, compared with 52.30 percent and 0.1506 for the adapted numerical control. Both measures improve in every paired seed. Mean skill improves at thirteen of the fourteen held-out plants, and the advantage extends from one hour through the six-hour horizon. This supports a gain across much of the tested fleet and horizon, with no guarantee of improvement at every new plant.
+
+Evaluating trained models with visual embeddings set to zero confirms that spatial-token fusion actively relies on its image inputs, incurring an NMAE increase of 0.0047 and a ramp NMAE increase of 0.0063 across all seeds. By contrast, pooled-image fusion shows negligible ramp change (0.0000), indicating minimal visual engagement during steep power transitions.
+
+Stale clips and contemporaneous clips from another plant degrade spatial-token forecasts in every tested seed. The fitted model responds to whether imagery matches the time and place being forecast. These substitutions establish content grounding within the UK experiment without identifying the visual features responsible for the gain.
+
+The pooling and placement controls refine the interface argument. Mean pooling retains spatially distinct cells and raises skill to 55.64 percent, with a smaller improvement in ramp NMAE. Preserving sub-patch detail through pixel-shuffle concatenation is therefore unnecessary for the gain in this comparison. Moving the same tokens to a shared integer position produces little change, so precise fractional placement also has limited measured value. The spatial interface tolerates these simplifications. Differences in training recipe between the main arms still limit attribution of their score gap to a single architectural choice.
+
+\section{Multi-anchor forecasting across regions}
+
+In the UK benchmark, spatial-token fusion outperforms multi-anchor fusion, reaching 55.10 percent skill compared with 54.09 percent. This gap reflects how visual capacity is allocated across time. Spatial-token fusion concentrates its entire token budget on the most recent observation at the forecast origin. Within the UK, where the fitted model operates on its native SEVIRI sensor and familiar maritime cloud regimes, high-resolution spatial features provide sharp, reliable depictions of approaching cloud boundaries. Multi-anchor fusion divides its token budget across five historical days, reducing the spatial detail retained at the forecast origin. For in-domain plants where sensor calibration and local spatial features are dependable, trading immediate spatial resolution for older historical anchors lowers overall point accuracy.
+
+Under cross-region transfer to the US, the relative ranking of the two architectures reverses: multi-anchor fusion achieves the highest skill at 10.46 percent, while spatial-token fusion drops to 8.85 percent, matching the numerical control's 8.90 percent. This inversion stems from how the two interfaces interact with sensor domain shift. Transferring from SEVIRI to GOES-16 alters spatial resolutions, channel response functions, and viewing parallax. Spatial-token fusion relies heavily on fine spatial coordinates from a single snapshot; under unfamiliar sensor geometry, subtle coordinate distortions or spectral shifts degrade its point predictions. In contrast, multi-anchor fusion observes atmospheric states across multiple daily timestamps. Even if individual GOES-16 images contain localized sensor discrepancies, the sequence of daily anchors captures broader synoptic patterns, distinguishing persistent clear-sky periods from multi-day frontal systems. Multi-temporal anchors act as a structural regularizer, providing recurrent diurnal context that stabilizes point forecasts against sensor noise.
+
+Ramp error demonstrates that spatial tokens retain a distinct physical role under transfer. Spatial-token fusion achieves the lowest US ramp NMAE at 0.1692, followed closely by multi-anchor at 0.1702, and both substantially improve on the numerical control's 0.1864. Steep power ramps are driven by local cloud edges directly obscuring the solar array at the forecast origin. Even when cross-sensor domain shift reduces the point skill of single-anchor spatial features, immediate spatial gradients still provide useful geometric signals about incoming cloud boundaries that multi-day temporal averages cannot substitute.
+
+Full payload provides a preliminary test of whether expanding the visual budget resolves this trade-off. By pairing five daily anchors with 70 to 98 tokens per anchor, it demonstrates the technical feasibility of retaining both multi-day history and fine spatial detail. Its UK run achieves 54.49 percent skill and 0.1458 ramp NMAE with positive vision-off degradation, while its US run reaches 3.46 percent skill and 0.1786 ramp NMAE. Because full payload has one completed seed and fewer eligible evaluation targets, additional seeds and matched target sets are required before drawing firm conclusions about its scalability.
+
+\section{Content grounding and temporal information}
+
+Content-grounding interventions demonstrate that the forecasting architecture actively extracts local physical signals from satellite imagery. Substituting contemporaneous imagery from an unrelated plant drops mean skill from 55.10 percent to 37.12 percent and raises ramp NMAE by up to 0.0189. Supplying stale imagery from six hours prior causes a comparable collapse, reducing skill by 13.5 percentage points and performing substantially worse than zeroing out visual embeddings entirely. These pronounced penalties reveal that the fusion mechanism relies on genuine spatio-temporal alignment between cloud fields and surface irradiance. When presented with geographically or temporally mismatched clips, cross-attention layers project non-existent cloud boundaries onto the target installation, actively misleading the forecast. Visual context provides an informative local observation that directly guides generation.
+
+In contrast to the sensitivity observed under content substitutions, permuting cached temporal latents changes ramp NMAE by at most 0.00030 across all tested seeds. This indicates that downstream cross-attention layers in the fusion adapter do not depend on the sequential ordering of temporal slices. The model queries these latents primarily based on spatial and optical properties rather than directional frame order. Whether the upstream V-JEPA encoder internally encapsulates temporal motion within its tubelet representations, or whether a single frame would provide comparable information to a multi-frame clip, remains an open empirical question.
+
+The token selection ablations reinforce this mechanistic division. At a fixed 98-token budget, replacing novelty-guided token selection with random sampling lowers skill by 1.52 percentage points and increases ramp error across all seeds. Novelty selection prioritizes dynamic cloud-clear sky boundaries and localized cloud formations over uniform clear skies or homogenous overcast layers. Furthermore, varying the token count without retraining increases ramp error, demonstrating that cross-attention weights calibrate to a specific visual token density during training. Maintaining structured novelty selection with a consistent token budget preserves the spatial boundaries that inform power ramp prediction.
+
+\section{Calibration}
+
+Spatial-token fusion improves point scores and lowers mean CRPS from 0.0574 to 0.0544 in the UK. Its nominal 80 percent interval nevertheless has coverage below nominal in every seed, and its quantile ECE exceeds the numerical control's in every paired run. Lower distributional error and better probability calibration are separate outcomes. Interval widths and individual quantile predictions are unavailable for this analysis, so undercoverage cannot be attributed specifically to narrow intervals, displaced intervals, or both.
+
+Freezing the adapted numerical encoder preserves point scores close to the original spatial-token arm, while coverage falls and ECE rises. Encoder adaptation has a clearer measured benefit for calibration than for point prediction in this check. Under US transfer, nominal interval coverage is lower than in the UK. Improving point forecasts therefore leaves calibration as a separate research problem.
+
+\section{Evidence from the fusion controls}
+
+Table~\ref{tab:evidence-layers} separates the observations from the explanations that remain open.
+
+\begin{table}[htbp]
+\centering
+\begin{tabularx}{\textwidth}{@{}lYY@{}}
+\hline
+Question & Evidence & Unresolved \\
+\hline
+Content grounding & Stale and wrong-plant clips degrade UK forecasts & Visual features responsible \\
+Interface & Mean pooling retains gains; placement has little effect & Individual causes of the main-arm gap \\
+Visual use & Same-weights vision-off degradation in UK spatial-token fusion & Reliance under regional transfer \\
+Temporal information & Cached-latent permutation has little effect & Motion information mixed before caching \\
+\hline
+\end{tabularx}
+\caption{Evidence and remaining questions from the completed fusion controls.}
+\label{tab:evidence-layers}
+\end{table}
+
+Forecast accuracy reflects end-to-end model performance, whereas vision-off interventions isolate dependence on visual inputs and content substitutions test sensitivity to local scene context. Decoupling benchmark rankings from lesion controls verifies the presence of multimodal gains while clarifying the physical evidence supporting the forecasts.
+
+\section{Scope of cross-plant transfer}
+
+The visual arms are fitted on UK training plants and evaluated on plants excluded from fitting. Their parameters remain fixed at the new plant, where the forecast uses fourteen days of local history. This is transfer to unseen plant identities after in-domain training. The zero-shot Chronos-2 benchmark receives no task-specific fitting and measures a different use of pretraining.
+
+\begin{table}[htbp]
+\centering
+\begin{tabularx}{\textwidth}{@{}llY@{}}
+\hline
+Setting & Held out & Scope \\
+\hline
+Within UK & Fourteen plant identities & Transfer to unseen UK plants \\
+UK to US & Eight US plants & Inference-only regional transfer \\
+\hline
+\end{tabularx}
+\caption{Transfer settings evaluated in the thesis.}
+\label{tab:transfer-claims}
+\end{table}
+
+The US experiment evaluates fixed UK-trained checkpoints on eight quality-filtered plants, with the same valid daylight targets and three matched seeds for the main arms. It provides evidence beyond the UK fleet, while covering one evaluation period and a joint change in region and imagery source. Further regions and observation periods are needed to assess the breadth of this transfer.
+
+\section{Limitations and reproducibility}
+
+Several methodological boundaries characterize the current evaluation protocol. First, while the plant split is strictly disjoint across installations, all United Kingdom installations are observed across the 2019--2020 period. Because synoptic-scale weather fronts can span multiple adjacent installations simultaneously, spatial autocorrelation across co-temporal observations cannot be entirely ruled out. A multi-year spatio-temporal split (for instance, training on 2019 and evaluating on 2020) will provide an even more stringent test of geographical transfer without shared weather events. Second, horizon meteorological covariates in this benchmark are drawn from archived reanalysis observations. While this isolates the incremental contribution of satellite imagery from operational weather forecast noise, these inputs represent an idealized upper bound compared to operational numerical weather prediction (NWP) feeds. Third, the collapse observed under the wrong-plant image swap control (from 55.10\% to 37.12\%) reflects a combination of dynamic cloud field mismatch and static geographic disruption, as satellite crops inevitably capture local topography, water bodies, and coastal boundaries that characterize specific installations. Finally, the strong performance of Time-VLM on ramp NMAE (0.1374) demonstrates that re-encoding numerical generation histories through visual transformers provides an effective smoothing mechanism that competes with satellite-augmented models during steep generation changes without requiring external imagery.
+
+A comprehensive understanding of multimodal foundation models for solar forecasting requires expanding empirical validation across broader meteorological regimes. Evaluating models over multi-year continuous records will capture annual seasonal transitions, including low-solar-elevation winter regimes, snow cover, and summer convective activity. Testing should also encompass diverse climatic environments, such as arid regions characterized by high aerosol loads and mountainous regions where local topography drives complex microscale cloud dynamics. Systematically benchmarking performance during severe weather fronts and rapid squall lines will provide direct evidence of model stability under grid-critical ramp events.
+
+Computational requirements present distinct trade-offs across training and operational deployment. To keep training efficient across multiple seeds, the architecture relies on precomputed, frozen visual latents from V-JEPA. This caching strategy eliminates repeated video encoding passes, enabling the processing of extensive histories within standard accelerator memory limits. However, freezing the visual backbone prevents end-to-end gradient updates from tuning early visual filters to solar irradiance dynamics. At inference time, downloading real-time satellite channels, cropping coordinates, and projecting multi-anchor tokens introduces data-loading latency and memory overhead. For transmission operators operating under sub-minute dispatch intervals, the quadratic complexity of cross-attention over combined temporal and spatial tokens requires careful budgeting of token length and anchor frequency.
+
+Generalization across international fleets requires advancing transfer learning across sensor domains and heterogeneous plant designs. Deploying models trained on SEVIRI imagery to GOES-16 observations involves accommodating differences in spectral channels, spatial resolutions, refresh rates, and parallax distortion from satellite viewing angles. Beyond sensor variations, solar installations differ in tilt angles, inverter clipping thresholds, panel degradation rates, and tracking mechanisms. Zero-shot transfer currently relies on historical numerical power records for site normalization. Developing architectures that explicitly condition on installation metadata or learn sensor-invariant representations will strengthen cross-regional transfer across disparate grids.
+
+Multimodal architectures also need to deepen their reliance on visual evidence during complex weather patterns. While spatial-token fusion responds to recent imagery during ramp transitions, the visual pathway should contribute more consistently under diffuse sky conditions and multi-layer cloud formations. Incorporating inductive biases tailored to atmospheric advection and cloud optical depth can prevent the time-series backbone from falling back on smooth diurnal statistics when cloud patterns are ambiguous. Furthermore, point-forecast improvements must be paired with calibrated uncertainty estimation. Cross-plant deployment introduces epistemic uncertainty from unfamiliar topographies and sensor noise. Future architectures should integrate distribution-free conformal calibration to ensure that prediction intervals provide certified reliability for storage management and grid stability.
+
+Reproducible evaluation of multimodal foundation models depends on pairing benchmark score tracking with systematic lesion controls. Paired vision-off evaluations, coordinate permutations, and temporal shuffling confirm that forecast improvements reflect genuine physical atmospheric signals. Retaining these matched control protocols across future architectural comparisons ensures that empirical progress reflects authentic multimodal integration.

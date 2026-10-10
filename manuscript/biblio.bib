@@ -34,12 +34,6 @@
   year = {2024}
 }
 
-@misc{moirai2,
-  title = {Moirai 2.0: A Decoder-Only Time Series Foundation Model},
-  howpublished = {Salesforce AI Research},
-  year = {2025}
-}
-
 %%----------------------------------------------- frozen-FM adaptation ---
 
 @misc{tsrag,
@@ -63,12 +57,6 @@
 @misc{memts,
   title = {MEMTS: Parametric Memory Adapters for Time Series Foundation Models},
   howpublished = {knowledge/papers/baselines/MEMTS.pdf},
-  year = {2025}
-}
-
-@misc{template,
-  title = {TEMPLATE: Transferable Representation Learning for Cross-Domain Time Series},
-  howpublished = {Advances in Neural Information Processing Systems (NeurIPS)},
   year = {2025}
 }
 
@@ -127,19 +115,18 @@
   year = {2025}
 }
 
+@misc{vjepa21,
+  author = {Mur-Labadia, Lorenzo and Muckley, Matthew and Bar, Amir and Assran, Mido and Sinha, Koustuv and Rabbat, Michael and LeCun, Yann and Ballas, Nicolas and Bardes, Adrien},
+  title = {V-JEPA 2.1: Unlocking Dense Features in Video Self-Supervised Learning},
+  howpublished = {arXiv:2603.14482},
+  year = {2026}
+}
+
 @inproceedings{perceiver,
   author = {Jaegle, Andrew and Gimeno, Felix and Brock, Andy and Zisserman, Andrew and Vinyals, Oriol and Carreira, Joao},
   title = {Perceiver: General Perception with Iterative Attention},
   booktitle = {International Conference on Machine Learning (ICML)},
   year = {2021}
-}
-
-@article{rope,
-  author = {Su, Jianlin and Lu, Yu and Pan, Shengfeng and Murtadha, Ahmed and Wen, Bo and Liu, Yunfeng},
-  title = {RoFormer: Enhanced Transformer with Rotary Position Embedding},
-  journal = {Neurocomputing},
-  volume = {568},
-  year = {2024}
 }
 
 %%------------------------------------------- multimodal time series ---
@@ -157,7 +144,7 @@
 }
 
 @misc{aurora,
-  title = {Aurora: Are Multimodal Foundation Models Ready for Zero-Shot Probabilistic Time Series Forecasting?},
+  title = {Aurora: Towards Universal Generative Multimodal Time Series Forecasting},
   howpublished = {arXiv:2509.22295},
   year = {2025}
 }
@@ -176,23 +163,46 @@
   year = {2026}
 }
 
-@inproceedings{crossvivit,
-  author = {Boussif, Oussama and Boukachab, Ghait and Assouline, Dan and Massaroli, Stefano and Yuan, Tianle and Benabbou, Loubna and Bengio, Yoshua},
-  title = {Improving Day-Ahead Solar Irradiance Time Series Forecasting by Leveraging Spatio-Temporal Context},
-  booktitle = {Advances in Neural Information Processing Systems (NeurIPS)},
-  year = {2023}
+@inproceedings{sunsetearly,
+  author = {Sun, Yuchi and Venugopal, Vignesh and Brandt, Adam R.},
+  title = {Convolutional Neural Network for Short-term Solar Panel Output Prediction},
+  booktitle = {2018 IEEE 7th World Conference on Photovoltaic Energy Conversion},
+  year = {2018},
+  doi = {10.1109/PVSC.2018.8547400}
 }
 
-@misc{sunset,
-  title = {SUNSET: A Hybrid Deep Learning Model for Short-Term Solar Power Forecasting from Sky Images},
-  howpublished = {https://github.com/YuchiSun/SUNSET},
-  note = {Accessed 2026-08-06}
+@article{sunset,
+  author = {Sun, Yuchi and Venugopal, Vignesh and Brandt, Adam R.},
+  title = {Short-term Solar Power Forecast with Deep Learning: Exploring Optimal Input and Output Configuration},
+  journal = {Solar Energy},
+  volume = {188},
+  pages = {730--741},
+  year = {2019},
+  doi = {10.1016/j.solener.2019.06.041}
+}
+
+@misc{skygpt,
+  author = {Nie, Yuhao and Zelikman, Eric and Scott, Andea and Paletta, Quentin and Brandt, Adam},
+  title = {SkyGPT: Probabilistic Short-term Solar Forecasting Using Synthetic Sky Videos from Physics-constrained VideoGPT},
+  howpublished = {arXiv:2306.11682},
+  year = {2023}
 }
 
 @misc{pvvlm,
   title = {PV-VLM: A Multimodal Vision-Language Approach Incorporating Sky Images for Intra-Hour Photovoltaic Power Forecasting},
   howpublished = {arXiv:2504.13624},
   year = {2025}
+}
+
+@inproceedings{pvllm,
+  author = {Jia, Pengfei and Ma, Jianghong and Zhang, Baoquan and Lin, Kenghong and Zhang, Xinyu and Luo, Chuyao and Li, Xutao and Ye, Yunming},
+  title = {Satellite-Text-Prompted Large Language Model for Photovoltaic Power Forecasting},
+  booktitle = {Proceedings of the AAAI Conference on Artificial Intelligence (AAAI-26)},
+  volume = {40},
+  number = {45},
+  pages = {38644--38652},
+  year = {2026},
+  doi = {10.1609/aaai.v40i45.41207}
 }
 
 @misc{fusionsf,
@@ -207,17 +217,14 @@
   year = {2026}
 }
 
-@misc{spirit,
-  title = {SPIRIT: Zero-Shot Transfer of Vision Foundation Model Features for Solar Forecasting},
-  howpublished = {knowledge/papers/baselines/SPIRIT.pdf},
-  year = {2025}
-}
-
 %%----------------------------------------------------------- data ---
 
 @misc{ukpv,
+  author = {{Open Climate Fix}},
   title = {UK PV: Domestic Photovoltaic Generation Dataset},
-  howpublished = {openclimatefix/uk\_pv, Hugging Face},
+  year = {2025},
+  doi = {10.57967/hf/0878},
+  url = {https://huggingface.co/datasets/openclimatefix/uk_pv},
   note = {Accessed 2026-08-06}
 }
 
@@ -233,16 +240,58 @@
   note = {Accessed 2026-08-06}
 }
 
+@misc{ausgrid,
+  title = {Solar Home Electricity Data},
+  author = {{Ausgrid}},
+  howpublished = {https://www.ausgrid.com.au/Industry/Our-Research/Data-to-share},
+  note = {Half-hourly rooftop generation and household consumption, Sydney, Australia}
+}
+
 @misc{openmeteo,
   title = {Open-Meteo Historical Weather API},
   howpublished = {https://open-meteo.com/en/docs/historical-weather-api},
   note = {Accessed 2026-08-06}
 }
 
-@misc{climatehackai,
-  title = {ClimateHack.AI 2023 Competition Dataset},
-  howpublished = {https://doxaai.com/competition/climatehackai-2023},
-  note = {Accessed 2026-08-06; no accompanying peer-reviewed publication}
+@article{hkpvdata,
+  author = {Lin, Zinan and Zhou, Qi and Wang, Zhe and Wang, Ce and Bookhart, Davis Boyd and Leung-Shea, Marcus},
+  title = {A High-Resolution Three-Year Dataset Supporting Rooftop Photovoltaics Generation Analytics},
+  journal = {Scientific Data},
+  volume = {12},
+  pages = {63},
+  year = {2025},
+  doi = {10.1038/s41597-025-04397-y}
+}
+
+@article{skippd,
+  author = {Nie, Yuhao and Li, Xiatong and Scott, Andea and Sun, Yuchi and Venugopal, Vignesh and Brandt, Adam},
+  title = {{SKIPP'D}: A Sky Images and Photovoltaic Power Generation Dataset for Short-Term Solar Forecasting},
+  journal = {Solar Energy},
+  volume = {255},
+  pages = {171--179},
+  year = {2023},
+  doi = {10.1016/j.solener.2023.03.043}
+}
+
+@article{pvod,
+  author = {Yao, Tiechui and Wang, Jue and Wu, Haoyan and Zhang, Pei and Li, Shigang and Wang, Yangang and Chi, Xuebin and Shi, Min},
+  title = {A Photovoltaic Power Output Dataset: Multi-Source Photovoltaic Power Output Dataset with Python Toolkit},
+  journal = {Solar Energy},
+  volume = {230},
+  pages = {122--130},
+  year = {2021},
+  doi = {10.1016/j.solener.2021.09.050}
+}
+
+@article{singh2026pvforecastreview,
+  author = {Singh, Upma and Singh, Nisha and Malik, Hasmat and Hossaini, Mohammad Asef},
+  title = {Photovoltaic Power Forecasting: A Review on Models and Future Research Directions},
+  journal = {IET Renewable Power Generation},
+  volume = {20},
+  number = {1},
+  pages = {e70186},
+  year = {2026},
+  doi = {10.1049/rpg2.70186}
 }
 
 @article{haurwitz,
@@ -271,22 +320,6 @@
   year = {2019}
 }
 
-@misc{tslib,
-  title = {Time-Series-Library: A Library for Deep Time Series Analysis},
-  howpublished = {https://github.com/thuml/Time-Series-Library},
-  note = {Accessed 2026-08-06}
-}
-
-@article{diebold,
-  author = {Diebold, Francis X. and Mariano, Roberto S.},
-  title = {Comparing Predictive Accuracy},
-  journal = {Journal of Business and Economic Statistics},
-  volume = {13},
-  number = {3},
-  pages = {253--263},
-  year = {1995}
-}
-
 @article{gneiting,
   author = {Gneiting, Tilmann and Raftery, Adrian E.},
   title = {Strictly Proper Scoring Rules, Prediction, and Estimation},
@@ -295,4 +328,22 @@
   number = {477},
   pages = {359--378},
   year = {2007}
+}
+
+@misc{nemotron,
+  title = {Nemotron 3 Nano Omni: Efficient and Open Multimodal Intelligence},
+  author = {{NVIDIA}},
+  year = {2026},
+  eprint = {2604.24954},
+  archivePrefix = {arXiv},
+  note = {arXiv:2604.24954v2}
+}
+
+@misc{evs,
+  title = {Efficient Video Sampling: Pruning Temporally Redundant Tokens for Faster VLM Inference},
+  author = {Bagrov, Natan and Khvedchenia, Eugene and Tymchenko, Borys and Aharon, Shay and Kadoch, Lior and Keren, Tomer and Masad, Ofri and Geifman, Yonatan and Zilberstein, Ran and Rintamaki, Tuomas and Le, Matthieu and Tao, Andrew},
+  year = {2025},
+  eprint = {2510.14624},
+  archivePrefix = {arXiv},
+  note = {arXiv:2510.14624}
 }
