@@ -151,6 +151,24 @@ Measured by rebuilding the protocol test windows from `dataset_all_v2.parquet`
 by `min_future_valid` (no daylight in their horizon). **96.1 % of scored windows
 carry all 8 frames**; only 3.7 % of scored steps have no visual input at all.
 
+For an hour-matched comparison, `goes_pvdaq` uses the current test site (`1202`),
+`T=1,344`, `H=24`, and a six-hour stride shifted by three 15-minute steps so the
+origins align at 07:30 and 13:30 UTC with the UK. The US series also has scored
+windows at 19:30 UTC, which are included here. The eight requested frames are
+spaced 45 minutes apart with a ±22.5-minute tolerance. This yields 773 windows
+and 12,143 scored target steps:
+
+| Origin (UTC) | Windows | Mean frames filled | Windows with 0 frames | Share of scored steps |
+|---|---:|---:|---:|---:|
+| 07:30 | 257 | 0.00 / 8 | 100.0 % | 21.5 % |
+| 13:30 | 258 | 4.01 / 8 | 0.0 % | 49.8 % |
+| 19:30 | 258 | 7.84 / 8 | 0.8 % | 28.8 % |
+
+Across these aligned US windows, 32.3 % contain all eight frames, 33.5 % contain
+none, and 21.6 % of scored steps have no visual input. These single-split
+measurements are site-specific; the current US test partition contains one
+plant.
+
 > Retired claim: an earlier note held that "all 07:30 origins are a blank-frame
 > embedding", diluting every vision number ~2×. That was true of the v1 HRV
 > daylight-only archive. It is **false for v2** — the 07:30 window (02:15–07:30) is

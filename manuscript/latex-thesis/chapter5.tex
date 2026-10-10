@@ -96,9 +96,9 @@ Table~\ref{tab:results-reference} reports three rule-based reference forecasts u
 \begin{table}[htbp]\centering
 \begin{tabular}{lcc}\hline
 Method & Skill (\%) & Ramp NMAE \\\hline
-Persistence & 1.41 & 0.2550 \\
+Hourly climatology & 23.37 & 0.1665 \\
 Seasonal naive & 10.68 & 0.2056 \\
-Hourly climatology & 23.37 & 0.1665 \\\hline
+Persistence & 1.41 & 0.2550 \\\hline
 \end{tabular}
 \caption{Rule-based reference forecasts on the primary cross-plant test set. Higher skill and lower ramp NMAE are better.}\label{tab:results-reference}
 \end{table}
@@ -112,8 +112,8 @@ The models in Table~\ref{tab:results-tabular} use engineered lagged numerical fe
 \begin{table}[htbp]\centering
 \begin{tabular}{lcc}\hline
 Method & Skill (\%) & Ramp NMAE \\\hline
-LightGBM & 38.54 & 0.1672 \\
-TabPFN & 40.63 & 0.1631 \\\hline
+TabPFN & 40.63 & 0.1631 \\
+LightGBM & 38.54 & 0.1672 \\\hline
 \end{tabular}
 \caption{Tabular models on the primary cross-plant test set. Higher skill and lower ramp NMAE are better.}\label{tab:results-tabular}
 \end{table}
@@ -184,15 +184,20 @@ Both retrieval methods achieve skill scores near 47.7\%, placing them slightly a
 
 \subsubsection{Multimodal baselines}
 
-Table~\ref{tab:results-multimodal} reports benchmark results for MMTSFM and fine-tuned Aurora.
+Table~\ref{tab:results-multimodal} reports benchmark results for the MMTSFM arms and the multimodal and vision-augmented forecasting baselines.
 
 \begin{table}[htbp]\centering
 \begin{tabular}{lcc}\hline
 Method & Skill (\%) & Ramp NMAE \\\hline
 Spatial-token & 55.10 & 0.1440 \\
 Multi-anchor & 54.09 & 0.1463 \\
+Time-VLM~\cite{timevlm} & 54.04 & 0.1374 \\
 Pooled-image & 52.58 & 0.1487 \\
-Aurora fine-tuned~\cite{aurora} & 40.52 & 0.1555 \\\hline
+Solar-VLM~\cite{solarvlm} & 43.96 & 0.1514 \\
+Aurora fine-tuned~\cite{aurora} & 40.52 & 0.1555 \\
+Aurora zero-shot~\cite{aurora} & 23.24 & 0.2051 \\
+SUNSET~\cite{sunset} & 21.62 & 0.1757 \\
+UniCast~\cite{unicast} & 12.11 & 0.2302 \\\hline
 \end{tabular}
 \caption{Multimodal benchmark results on the primary cross-plant test set. Higher skill and lower ramp NMAE are better.}\label{tab:results-multimodal}
 \end{table}
@@ -200,6 +205,12 @@ Aurora fine-tuned~\cite{aurora} & 40.52 & 0.1555 \\\hline
 The matched vision-off controls in Section~\ref{cha:ablations} test whether the fitted models depend on their visual pathways.
 
 Spatial-token fusion has the highest skill score among the MMTSFM arms. Within the ladder, its ramp NMAE is 0.1440, compared with 0.1487 for pooled-image fusion and 0.1506 for the numerical control. Fine-tuned Aurora scores 40.52\% skill with 0.1555 ramp NMAE, providing a comparison from an atmospheric foundation model.
+
+The additional multimodal and vision-augmented forecasting models span vision-language architectures, atmospheric foundation models, and convolutional networks.
+
+Time-VLM achieves 54.04\% skill, comparable to Multi-anchor (54.09\%) and Spatial-token fusion (55.10\%). It records the lowest ramp NMAE across all evaluated models at 0.1374, showing that rendering time series as visual plots allows the vision-language backbone to detect steep transitions and ramp events effectively. Solar-VLM attains 43.96\% skill and 0.1514 ramp NMAE, outperforming supervised models such as TFT (42.64\%) while trailing zero-shot Chronos-2 (47.37\%).
+
+Atmospheric and convolutional models record lower overall skill. Zero-shot Aurora obtains 23.24\% skill and 0.2051 ramp NMAE. When fine-tuned on plant data, as shown in Table~\ref{tab:results-multimodal}, its skill rises to 40.52\% and ramp error drops to 0.1555, showing the importance of task adaptation for general weather representations. SUNSET achieves 21.62\% skill and 0.1757 ramp NMAE; its convolutional image pipeline improves upon simple persistence and climatology references, yet falls short of modern transformer architectures on held-out plants. UniCast scores 12.11\% skill and 0.2302 ramp NMAE, reflecting limited zero-shot transfer without installation-specific adaptation.
 
 \subsubsection{Full payload feasibility result}
 
@@ -212,26 +223,6 @@ Full payload & 54.49 & 0.1458 \\\hline
 \end{tabular}
 \caption{Full payload feasibility result on its smaller eligible target set.}\label{tab:results-full-payload}
 \end{table}
-
-\subsubsection{Alternative multimodal baselines}
-
-Table~\ref{tab:results-multimodal-context} reports results for five additional multimodal and vision-augmented forecasting models, spanning vision-language architectures, atmospheric foundation models, and convolutional networks.
-
-\begin{table}[htbp]\centering
-\begin{tabular}{lcc}\hline
-Method & Skill (\%) & Ramp NMAE \\\hline
-Time-VLM~\cite{timevlm} & 54.04 & 0.1374 \\
-Solar-VLM~\cite{solarvlm} & 43.96 & 0.1514 \\
-Aurora zero-shot~\cite{aurora} & 23.24 & 0.2051 \\
-SUNSET~\cite{sunset} & 21.62 & 0.1757 \\
-UniCast~\cite{unicast} & 12.11 & 0.2302 \\\hline
-\end{tabular}
-\caption{Alternative multimodal forecasting baselines on the cross-plant test set.}\label{tab:results-multimodal-context}
-\end{table}
-
-Time-VLM achieves 54.04\% skill, comparable to Multi-anchor (54.09\%) and Spatial-token fusion (55.10\%). It records the lowest ramp NMAE across all evaluated models at 0.1374, showing that rendering time series as visual plots allows the vision-language backbone to detect steep transitions and ramp events effectively. Solar-VLM attains 43.96\% skill and 0.1514 ramp NMAE, outperforming supervised models such as TFT (42.64\%) while trailing zero-shot Chronos-2 (47.37\%).
-
-Atmospheric and convolutional models record lower overall skill. Zero-shot Aurora obtains 23.24\% skill and 0.2051 ramp NMAE. When fine-tuned on plant data, as shown in Table~\ref{tab:results-multimodal}, its skill rises to 40.52\% and ramp error drops to 0.1555, showing the importance of task adaptation for general weather representations. SUNSET achieves 21.62\% skill and 0.1757 ramp NMAE; its convolutional image pipeline improves upon simple persistence and climatology references, yet falls short of modern transformer architectures on held-out plants. UniCast scores 12.11\% skill and 0.2302 ramp NMAE, reflecting limited zero-shot transfer without installation-specific adaptation.
 
 \subsection{Zero-shot transfer from the UK to the US fleet}
 
@@ -246,11 +237,11 @@ The preceding tables report the primary UK plant-disjoint benchmark. Table~\ref{
 \setlength{\tabcolsep}{6pt}
 \begin{tabular}{@{}lccc@{}}\hline
 Arm & Skill (\%) & NMAE & Ramp NMAE \\\hline
-Numerical & 8.90 & 0.1719 & 0.1864 \\
-Pooled-image & $-3.03$ & 0.1933 & 0.2008 \\
-Spatial-token & 8.85 & 0.1745 & 0.1692 \\
 Multi-anchor & 10.46 & 0.1657 & 0.1702 \\
-Full payload & 3.46 & 0.1771 & 0.1786 \\\hline
+Numerical & 8.90 & 0.1719 & 0.1864 \\
+Spatial-token & 8.85 & 0.1745 & 0.1692 \\
+Full payload & 3.46 & 0.1771 & 0.1786 \\
+Pooled-image & $-3.03$ & 0.1933 & 0.2008 \\\hline
 \end{tabular}
 \caption{Inference-only UK-to-US transfer on eight plants and 41,914 valid daylight targets. Main-arm entries are three-seed means. Full payload has seed 42 only. Skill uses the US Smart Persistence reference.}
 \label{tab:us-mmtsfm-transfer}
@@ -416,11 +407,11 @@ Table~\ref{tab:ablation-ladder} compares point forecasts across the fusion confi
 \hline
 Arm & Skill (\%) & Ramp NMAE & $\Delta$NMAE & $\Delta$Ramp NMAE \\
 \hline
-Numerical & 52.30 & 0.1506 & --- & --- \\
-Pooled-image & 52.58 & 0.1487 & 0.0008 & 0.0000 \\
 Spatial-token & 55.10 & 0.1440 & 0.0047 & 0.0063 \\
-Multi-anchor & 54.09 & 0.1463 & 0.0031 & 0.0045 \\
 Full payload & 54.49 & 0.1458 & 0.0040 & 0.0041 \\
+Multi-anchor & 54.09 & 0.1463 & 0.0031 & 0.0045 \\
+Pooled-image & 52.58 & 0.1487 & 0.0008 & 0.0000 \\
+Numerical & 52.30 & 0.1506 & --- & --- \\
 \hline
 \end{tabular}
 \caption{Fusion results on held-out UK plants. Skill is percent. Lower ramp NMAE is better. The $\Delta$ columns are error increases after vision is disabled in the same trained weights. Positive values indicate degradation.}
@@ -515,19 +506,19 @@ Table~\ref{tab:seed-level-ladder} reports three matched seeds for the numerical,
 \hline
 Arm & Seed & Skill (\%) & Ramp NMAE & Coverage & ECE \\
 \hline
-Numerical & 42 & 52.75 & 0.1494 & 0.770 & 0.0277 \\
-Numerical & 43 & 51.97 & 0.1514 & 0.766 & 0.0317 \\
-Numerical & 44 & 52.17 & 0.1509 & 0.779 & 0.0296 \\
-Pooled-image & 42 & 52.53 & 0.1483 & 0.754 & 0.0324 \\
-Pooled-image & 43 & 52.18 & 0.1498 & 0.757 & 0.0331 \\
-Pooled-image & 44 & 53.03 & 0.1478 & 0.808 & 0.0243 \\
+Spatial-token & 44 & 55.32 & 0.1441 & 0.738 & 0.0333 \\
 Spatial-token & 42 & 55.00 & 0.1433 & 0.731 & 0.0328 \\
 Spatial-token & 43 & 54.97 & 0.1448 & 0.723 & 0.0416 \\
-Spatial-token & 44 & 55.32 & 0.1441 & 0.738 & 0.0333 \\
-Multi-anchor & 42 & 53.92 & 0.1458 & 0.730 & 0.0371 \\
+Full payload & 42 & 54.49 & 0.1458 & 0.742 & 0.0355 \\
 Multi-anchor & 43 & 54.22 & 0.1456 & 0.711 & 0.0438 \\
 Multi-anchor & 44 & 54.14 & 0.1474 & 0.738 & 0.0346 \\
-Full payload & 42 & 54.49 & 0.1458 & 0.742 & 0.0355 \\
+Multi-anchor & 42 & 53.92 & 0.1458 & 0.730 & 0.0371 \\
+Pooled-image & 44 & 53.03 & 0.1478 & 0.808 & 0.0243 \\
+Numerical & 42 & 52.75 & 0.1494 & 0.770 & 0.0277 \\
+Pooled-image & 42 & 52.53 & 0.1483 & 0.754 & 0.0324 \\
+Pooled-image & 43 & 52.18 & 0.1498 & 0.757 & 0.0331 \\
+Numerical & 44 & 52.17 & 0.1509 & 0.779 & 0.0296 \\
+Numerical & 43 & 51.97 & 0.1514 & 0.766 & 0.0317 \\
 \hline
 \end{tabular}
 \caption{Seed-level fusion results on held-out UK plants. Skill is in percent. Lower ramp NMAE and quantile ECE are better. 80 percent coverage targets 0.80. The full payload run scores 163,559 targets versus 165,295 for the other arms.}
